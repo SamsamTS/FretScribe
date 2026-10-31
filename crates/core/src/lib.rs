@@ -1,0 +1,29 @@
+//! Pure data model and logic of FretScribe: no UI, no audio I/O.
+
+pub mod edit;
+pub mod error;
+pub mod measures;
+pub mod model;
+pub mod persist;
+pub mod pitch;
+pub mod snap;
+pub mod tempo;
+pub mod tracks;
+
+pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
+pub use error::{CoreError, EditError};
+pub use measures::{generate_measures, set_tempo, set_time_sig, valid_tempo};
+pub use model::{
+    GraceKind, GraceNote, Legato, LegatoLink, Measure, Note, Project, Technique, TimePos,
+    TimeSignature, Track, TrackRole, Tuning, MAX_BPM, MIN_BPM,
+};
+pub use persist::{
+    discard_autosave, from_json, load_autosave, load_project, save_autosave, save_project, to_json,
+    write_atomic, ProjectFile, UiState, ViewState, AUTOSAVE_GENERATIONS, CURRENT_VERSION,
+};
+pub use pitch::{
+    cents_of, cents_off, freq_to_midi_float, midi_to_freq, midi_to_name, ref_from_cents, PitchRef,
+};
+pub use snap::{SnapGrid, SnapPreset, SNAP_DIVISIONS};
+pub use tempo::{BeatKind, BeatLine, NoteTimes, TempoMap};
+pub use tracks::{audible_tracks, next_note_id, project_end_sec, shift_track};

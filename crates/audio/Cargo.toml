@@ -1,0 +1,8 @@
+[package]
+name = "fretscribe-audio"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+fretscribe-core.workspace = true

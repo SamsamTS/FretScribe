@@ -1,0 +1,16 @@
+[package]
+name = "fretscribe"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "fretscribe"
+path = "src/main.rs"
+
+[dependencies]
+fretscribe-core.workspace = true
+fretscribe-audio.workspace = true
+fretscribe-analysis.workspace = true
+fretscribe-notation.workspace = true
+fretscribe-ui.workspace = true
