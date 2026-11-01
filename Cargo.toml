@@ -22,17 +22,21 @@ fretscribe-notation = { path = "crates/notation" }
 fretscribe-ui = { path = "crates/ui" }
 
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 anyhow = "1"
 thiserror = "2"
 eframe = "0.31"
 egui = "0.31"
 symphonia = { version = "0.5", features = ["all"] }
-rodio = "0.20"
+rodio = { version = "0.20", default-features = false }
 realfft = "3"
 rubato = "0.16"
+signalsmith-stretch = "0.1"
 rfd = "0.15"
 log = "0.4"
 env_logger = "0.11"
 uuid = { version = "1", features = ["v4", "serde"] }
 tempfile = "3"
+
+[profile.dev.package."*"]
+opt-level = 3

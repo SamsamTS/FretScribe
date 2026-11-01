@@ -6,3 +6,12 @@ publish.workspace = true
 
 [dependencies]
 fretscribe-core.workspace = true
+symphonia.workspace = true
+rodio.workspace = true
+rubato.workspace = true
+signalsmith-stretch.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
