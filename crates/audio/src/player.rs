@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 
-use fretscribe_core::{PitchRef, Track};
+use fretscribe_core::{PitchRef, Track, Tuning};
 use rodio::cpal::traits::HostTrait;
 use rodio::{DeviceTrait, OutputStream, OutputStreamHandle, Source};
 
@@ -12,6 +12,7 @@ use crate::decode::DecodedAudio;
 use crate::engine::{Command, Engine, Shared, SpeedMode, BLOCK_FRAMES, MAX_SPEED, MIN_SPEED};
 use crate::engine::TrackState;
 use crate::error::{AudioError, Result};
+use crate::focus::{focus_band, FocusBand};
 use crate::parallel::parallel_map;
 use crate::resample::PreparedAudio;
 
@@ -45,8 +46,32 @@ struct TrackInfo {
     offset_sec: f64,
 }
 
+/// What the guitar focus band is derived from; the app keeps it in step with the project.
+struct FocusContext {
+    tuning: Tuning,
+    capo: u8,
+    pitch: PitchRef,
+}
+
+impl Default for FocusContext {
+    fn default() -> Self {
+        Self {
+            tuning: Tuning::standard(),
+            capo: 0,
+            pitch: PitchRef::default(),
+        }
+    }
+}
+
+impl FocusContext {
+    fn band(&self) -> FocusBand {
+        focus_band(&self.tuning, self.capo, &self.pitch)
+    }
+}
+
 #[derive(Default)]
 struct State {
+    focus: FocusContext,
     /// Keyed by the address of the decoded audio, which the entry keeps alive.
     cache: HashMap<usize, (Arc<DecodedAudio>, PreparedAudio)>,
     tracks: Vec<TrackInfo>,
@@ -362,7 +387,39 @@ impl Player {
 
     /// Tuning used by the note overlay, normally the project's reference pitch.
     pub fn set_reference_pitch(&self, pitch: PitchRef) {
+        let band = {
+            let mut state = self.state();
+            state.focus.pitch = pitch;
+            state.focus.band()
+        };
         self.send(Command::SetReference(pitch));
+        self.send(Command::SetFocusBand(band));
+    }
+
+    /// Switches the guitar focus filter on or off, click-free. It acts on the sum of the audio
+    /// tracks, never on the note overlay.
+    pub fn set_guitar_focus(&self, enabled: bool) {
+        self.send(Command::SetFocus(enabled));
+    }
+
+    /// 0.0 leaves the mix untouched, 1.0 cuts about 24 dB outside the guitar's range. Clamped to
+    /// that range; non-finite values are ignored.
+    pub fn set_guitar_focus_strength(&self, strength: f32) {
+        if strength.is_finite() {
+            self.send(Command::SetFocusStrength(strength.clamp(0.0, 1.0)));
+        }
+    }
+
+    /// The tuning and capo the focus band is derived from (with the reference pitch from
+    /// `set_reference_pitch`). Defaults: standard tuning, no capo, A4 = 440 Hz.
+    pub fn set_focus_context(&self, tuning: &Tuning, capo: u8) {
+        let band = {
+            let mut state = self.state();
+            state.focus.tuning = tuning.clone();
+            state.focus.capo = capo;
+            state.focus.band()
+        };
+        self.send(Command::SetFocusBand(band));
     }
 }
 
@@ -574,6 +631,20 @@ mod tests {
 
         player.set_tracks(vec![mix(&second, 2)]).unwrap();
         assert_eq!(player.state().cache.len(), 1);
+    }
+
+    #[test]
+    fn focus_context_and_reference_pitch_feed_the_band() {
+        let (player, _engine) = Player::headless(RATE);
+        assert_eq!(player.state().focus.band(), FocusBand::default());
+        let drop_d = Tuning {
+            name: "Drop D".to_owned(),
+            open_strings: vec![38, 45, 50, 55, 59, 64],
+        };
+        let tuned = PitchRef::new(432.0).unwrap();
+        player.set_focus_context(&drop_d, 2);
+        player.set_reference_pitch(tuned);
+        assert_eq!(player.state().focus.band(), focus_band(&drop_d, 2, &tuned));
     }
 
     #[test]

@@ -2,7 +2,8 @@
 //!
 //! Usage: play [options] PATH[:OFFSET_MS]...
 //!
-//! Options: --seek SEC, --speed X (0.25-2.0), --mode preserve|change, --region START END, --loop.
+//! Options: --seek SEC, --speed X (0.25-2.0), --mode preserve|change, --region START END, --loop,
+//! --focus (guitar focus filter on, standard tuning and A = 440 Hz assumed), --strength X (0-1).
 //! `OFFSET_MS` may be negative; it shifts the file in project time like a track offset.
 //!
 //! While playing, type a command and press Enter to change things live, which is the way to
@@ -19,8 +20,8 @@ use fretscribe_audio::{
     decode_files, Player, PreparedAudio, PreparedTrack, SpeedMode, MAX_SPEED, MIN_SPEED,
 };
 
-const USAGE: &str = "usage: play [--seek SEC] [--speed X] [--mode preserve|change] [--region START END] [--loop] PATH[:OFFSET_MS]...";
-const HELP: &str = "commands: speed X | mode preserve|change | loop on|off | region START END | region off | seek SEC | play | pause | stop | quit";
+const USAGE: &str = "usage: play [--seek SEC] [--speed X] [--mode preserve|change] [--region START END] [--loop] [--focus] [--strength X] PATH[:OFFSET_MS]...";
+const HELP: &str = "commands: speed X | mode preserve|change | loop on|off | focus on|off | strength X | region START END | region off | seek SEC | play | pause | stop | quit";
 const REPORT_EVERY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, PartialEq)]
@@ -30,6 +31,8 @@ struct Args {
     mode: SpeedMode,
     region: Option<(f64, f64)>,
     looping: bool,
+    focus: bool,
+    strength: f32,
     inputs: Vec<(PathBuf, f64)>,
 }
 
@@ -46,6 +49,15 @@ fn speed_value(text: &str) -> Result<f32, String> {
         Ok(speed)
     } else {
         Err(format!("speed must be between {MIN_SPEED} and {MAX_SPEED}"))
+    }
+}
+
+fn strength_value(text: &str) -> Result<f32, String> {
+    let strength = number(text, "strength")? as f32;
+    if (0.0..=1.0).contains(&strength) {
+        Ok(strength)
+    } else {
+        Err("strength must be between 0 and 1".to_owned())
     }
 }
 
@@ -82,6 +94,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         mode: SpeedMode::default(),
         region: None,
         looping: false,
+        focus: false,
+        strength: 0.5,
         inputs: Vec::new(),
     };
     let value = |flag: &str, args: &mut dyn Iterator<Item = String>| {
@@ -98,6 +112,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 parsed.region = Some(region_value(&start, &end)?);
             }
             "--loop" => parsed.looping = true,
+            "--focus" => parsed.focus = true,
+            "--strength" => parsed.strength = strength_value(&value(&arg, &mut args)?)?,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => parsed.inputs.push(parse_input(&arg)),
         }
@@ -113,6 +129,8 @@ enum Command {
     Speed(f32),
     Mode(SpeedMode),
     Loop(bool),
+    Focus(bool),
+    Strength(f32),
     Region(Option<(f64, f64)>),
     Seek(f64),
     Play,
@@ -128,6 +146,9 @@ fn parse_command(line: &str) -> Result<Command, String> {
         ["mode", m] => Ok(Command::Mode(mode_value(m)?)),
         ["loop", "on"] => Ok(Command::Loop(true)),
         ["loop", "off"] => Ok(Command::Loop(false)),
+        ["focus", "on"] => Ok(Command::Focus(true)),
+        ["focus", "off"] => Ok(Command::Focus(false)),
+        ["strength", x] => Ok(Command::Strength(strength_value(x)?)),
         ["region", "off"] => Ok(Command::Region(None)),
         ["region", start, end] => Ok(Command::Region(Some(region_value(start, end)?))),
         ["seek", sec] => Ok(Command::Seek(number(sec, "seek position")?)),
@@ -145,6 +166,8 @@ struct View {
     mode: SpeedMode,
     region: Option<(f64, f64)>,
     looping: bool,
+    focus: bool,
+    strength: f32,
 }
 
 impl View {
@@ -157,7 +180,8 @@ impl View {
             .region
             .map_or_else(String::new, |(a, b)| format!(" region {a:.1}-{b:.1}"));
         let looping = if self.looping { " loop" } else { "" };
-        format!("x{:.2} {mode}{region}{looping}", self.speed)
+        let focus = if self.focus { format!(" focus {:.2}", self.strength) } else { String::new() };
+        format!("x{:.2} {mode}{region}{looping}{focus}", self.speed)
     }
 }
 
@@ -233,11 +257,15 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         mode: args.mode,
         region: args.region,
         looping: args.looping,
+        focus: args.focus,
+        strength: args.strength,
     };
     player.set_speed_mode(view.mode);
     player.set_playback_speed(view.speed);
     player.set_region(view.region);
     player.set_loop(view.looping);
+    player.set_guitar_focus_strength(view.strength);
+    player.set_guitar_focus(view.focus);
     player.seek(args.seek_sec);
     player.play();
     let duration = player.duration_sec();
@@ -290,6 +318,14 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             Ok(Command::Loop(on)) => {
                 view.looping = on;
                 player.set_loop(on);
+            }
+            Ok(Command::Focus(on)) => {
+                view.focus = on;
+                player.set_guitar_focus(on);
+            }
+            Ok(Command::Strength(x)) => {
+                view.strength = x;
+                player.set_guitar_focus_strength(x);
             }
             Ok(Command::Region(region)) => {
                 view.region = region;
@@ -391,12 +427,29 @@ mod tests {
     }
 
     #[test]
+    fn focus_options() {
+        let plain = parse(&["a.wav"]).unwrap();
+        assert!(!plain.focus);
+        assert_eq!(plain.strength, 0.5);
+        let args = parse(&["--focus", "--strength", "0.8", "a.wav"]).unwrap();
+        assert!(args.focus);
+        assert_eq!(args.strength, 0.8);
+        assert!(parse(&["--strength", "1.5", "a.wav"]).is_err());
+        assert!(parse(&["--strength", "-0.1", "a.wav"]).is_err());
+        assert!(parse(&["--strength", "loud", "a.wav"]).is_err());
+        assert!(parse(&["--strength"]).is_err());
+    }
+
+    #[test]
     fn live_commands() {
         assert_eq!(parse_command("speed 0.75"), Ok(Command::Speed(0.75)));
         assert_eq!(parse_command("  mode   change "), Ok(Command::Mode(SpeedMode::ChangePitch)));
         assert_eq!(parse_command("mode preserve"), Ok(Command::Mode(SpeedMode::PreservePitch)));
         assert_eq!(parse_command("loop on"), Ok(Command::Loop(true)));
         assert_eq!(parse_command("loop off"), Ok(Command::Loop(false)));
+        assert_eq!(parse_command("focus on"), Ok(Command::Focus(true)));
+        assert_eq!(parse_command("focus off"), Ok(Command::Focus(false)));
+        assert_eq!(parse_command("strength 0.25"), Ok(Command::Strength(0.25)));
         assert_eq!(parse_command("region 5 8.5"), Ok(Command::Region(Some((5.0, 8.5)))));
         assert_eq!(parse_command("region off"), Ok(Command::Region(None)));
         assert_eq!(parse_command("seek 42"), Ok(Command::Seek(42.0)));
@@ -404,7 +457,7 @@ mod tests {
         assert_eq!(parse_command("pause"), Ok(Command::Pause));
         assert_eq!(parse_command("stop"), Ok(Command::Stop));
         assert_eq!(parse_command("q"), Ok(Command::Quit));
-        for bad in ["speed", "speed fast", "speed 5", "loop maybe", "region 9 3", "dance"] {
+        for bad in ["speed", "speed fast", "speed 5", "loop maybe", "region 9 3", "dance", "focus", "focus maybe", "strength", "strength 2", "strength -1"] {
             assert!(parse_command(bad).is_err(), "{bad}");
         }
     }

@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use fretscribe_core::PitchRef;
 
+use crate::focus::{FocusBand, FocusFilter};
+use crate::ramp::Ramp;
 use crate::resample::Prepared;
 use crate::stretch::Stretcher;
 use crate::synth::NoteSynth;
@@ -80,51 +82,9 @@ pub(crate) enum Command {
     TrackOffset(u64, f64),
     SetOverlay(Vec<(u8, f64, f64)>, f32),
     SetReference(PitchRef),
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Ramp {
-    cur: f32,
-    target: f32,
-    step: f32,
-    left: u32,
-}
-
-impl Ramp {
-    fn new(value: f32) -> Self {
-        Self {
-            cur: value,
-            target: value,
-            step: 0.0,
-            left: 0,
-        }
-    }
-
-    /// Linear ramp that lands exactly on `target` after `frames` calls to `next`.
-    fn set(&mut self, target: f32, frames: f64) {
-        self.target = target;
-        self.left = frames.max(1.0).round() as u32;
-        self.step = (f64::from(target - self.cur) / f64::from(self.left)) as f32;
-    }
-
-    fn snap(&mut self, value: f32) {
-        *self = Self::new(value);
-    }
-
-    fn next(&mut self) -> f32 {
-        match self.left {
-            0 => {}
-            1 => {
-                self.left = 0;
-                self.cur = self.target;
-            }
-            _ => {
-                self.left -= 1;
-                self.cur += self.step;
-            }
-        }
-        self.cur
-    }
+    SetFocus(bool),
+    SetFocusStrength(f32),
+    SetFocusBand(FocusBand),
 }
 
 pub(crate) fn soft_limit(x: f32) -> f32 {
@@ -306,6 +266,7 @@ pub(crate) struct Engine {
     scratch: Scratch,
     synth: NoteSynth,
     synth_mix: Ramp,
+    focus: FocusFilter,
     jumped: bool,
     mix: Vec<f32>,
     track_buf: Vec<f32>,
@@ -348,6 +309,7 @@ impl Engine {
             },
             synth: NoteSynth::new(sample_rate),
             synth_mix: Ramp::new(0.0),
+            focus: FocusFilter::new(sample_rate, FocusBand::default()),
             jumped: false,
             mix: vec![0.0; 2 * BLOCK_FRAMES],
             track_buf: vec![0.0; 2 * BLOCK_FRAMES],
@@ -455,8 +417,14 @@ impl Engine {
                     self.master.set(volume, f64::from(self.xfade));
                 }
             }
-            Command::SetSpeed(speed) => self.speed = f64::from(speed),
-            Command::SetSpeedMode(mode) => self.mode = mode,
+            Command::SetSpeed(speed) => {
+                self.speed = f64::from(speed);
+                self.retune_focus();
+            }
+            Command::SetSpeedMode(mode) => {
+                self.mode = mode;
+                self.retune_focus();
+            }
             Command::TrackVolume(id, volume) => self.edit_track(id, |t| t.volume = volume),
             Command::TrackMute(id, muted) => self.edit_track(id, |t| t.muted = muted),
             Command::TrackSolo(id, solo) => self.edit_track(id, |t| t.solo = solo),
@@ -482,7 +450,16 @@ impl Engine {
                 self.synth_mix.set(mix, self.ramp_frames);
             }
             Command::SetReference(pitch) => self.synth.set_pitch_ref(pitch),
+            Command::SetFocus(enabled) => self.focus.set_enabled(enabled),
+            Command::SetFocusStrength(strength) => self.focus.set_strength(strength),
+            Command::SetFocusBand(band) => self.focus.set_band(band),
         }
+    }
+
+    /// With ChangePitch the whole spectrum moves with the speed, and so must the band.
+    fn retune_focus(&mut self) {
+        let scale = if self.mode == SpeedMode::ChangePitch { self.speed } else { 1.0 };
+        self.focus.set_speed_scale(scale);
     }
 
     fn sanitize_region(&self, (a, b): (f64, f64)) -> Option<(f64, f64)> {
@@ -538,6 +515,7 @@ impl Engine {
         let (start, end) = self.bounds();
         let start = if self.cur.pos >= start && self.cur.pos < end { self.cur.pos } else { start };
         self.cur = self.make_voice(start, 0);
+        self.focus.reset_state();
         self.fade = None;
         self.pending_seek = None;
         self.running = true;
@@ -564,6 +542,7 @@ impl Engine {
             self.cur = Voice::idle(pos);
         }
         self.synth.release_all();
+        self.focus.reset_state();
         self.shared.playing.store(false, Ordering::Release);
     }
 
@@ -712,6 +691,7 @@ impl Engine {
         let consumed_old = self.fade.as_mut().map_or(0, |f| f.old.plan(n));
 
         self.mix_tracks(n, consumed_cur, consumed_old);
+        self.focus.process(&mut self.mix[..2 * n]);
 
         self.cur.advance(n, consumed_cur);
         let mut finished = false;
