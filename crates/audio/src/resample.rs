@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rubato::{FftFixedIn, Resampler};
 
 use crate::decode::DecodedAudio;
@@ -11,17 +13,61 @@ pub(crate) struct Prepared {
     samples: Vec<f32>,
 }
 
-impl Prepared {
-    pub fn from_decoded(audio: &DecodedAudio, rate: u32) -> Result<Self> {
-        let (left, right) = split_stereo(audio);
-        let (left, right) = if audio.sample_rate == rate {
-            (left, right)
-        } else {
-            resample_pair(&left, &right, audio.sample_rate, rate)?
-        };
-        Ok(Self::from_channels(&left, &right))
+/// A decoded file made ready for playback at one output rate. Preparing is the expensive part of
+/// loading (resampling), so do it on a worker thread; the handle is cheap to clone and to hand to
+/// the player.
+#[derive(Clone)]
+pub struct PreparedAudio {
+    inner: Arc<Prepared>,
+    rate: u32,
+}
+
+impl std::fmt::Debug for PreparedAudio {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedAudio")
+            .field("sample_rate", &self.rate)
+            .field("frames", &self.frames())
+            .finish()
+    }
+}
+
+impl PreparedAudio {
+    /// `output_rate` must be the player's `sample_rate()`.
+    pub fn new(audio: &DecodedAudio, output_rate: u32) -> Result<Self> {
+        Ok(Self {
+            inner: Arc::new(Prepared::from_decoded(audio, output_rate)?),
+            rate: output_rate,
+        })
     }
 
+    pub fn sample_rate(&self) -> u32 {
+        self.rate
+    }
+
+    pub fn frames(&self) -> usize {
+        self.inner.frames()
+    }
+
+    pub fn duration_sec(&self) -> f64 {
+        self.frames() as f64 / f64::from(self.rate)
+    }
+
+    pub(crate) fn shared(&self) -> &Arc<Prepared> {
+        &self.inner
+    }
+}
+
+impl Prepared {
+    pub fn from_decoded(audio: &DecodedAudio, rate: u32) -> Result<Self> {
+        let samples = if audio.sample_rate == rate {
+            to_stereo(audio)
+        } else {
+            resample_to_stereo(audio, rate)?
+        };
+        Ok(Self { samples })
+    }
+
+    #[cfg(test)]
     pub fn from_channels(left: &[f32], right: &[f32]) -> Self {
         let samples = left.iter().zip(right).flat_map(|(&l, &r)| [l, r]).collect();
         Self { samples }
@@ -79,37 +125,63 @@ impl Prepared {
     }
 }
 
-fn split_stereo(audio: &DecodedAudio) -> (Vec<f32>, Vec<f32>) {
+/// One allocation, one pass; stereo input is a plain copy.
+fn to_stereo(audio: &DecodedAudio) -> Vec<f32> {
     let width = usize::from(audio.channels);
-    match width {
-        1 => (audio.interleaved.clone(), audio.interleaved.clone()),
-        _ => audio
-            .interleaved
-            .chunks_exact(width)
-            .map(|frame| (frame[0], frame[1]))
-            .unzip(),
+    if width == 2 {
+        return audio.interleaved.clone();
     }
+    let right = width.min(2) - 1;
+    let mut out = vec![0.0; 2 * audio.frames()];
+    for (dst, src) in out.chunks_exact_mut(2).zip(audio.interleaved.chunks_exact(width)) {
+        dst[0] = src[0];
+        dst[1] = src[right];
+    }
+    out
 }
 
 fn resample_err(e: impl std::fmt::Display) -> AudioError {
     AudioError::Resample(e.to_string())
 }
 
-fn resample_pair(left: &[f32], right: &[f32], from: u32, to: u32) -> Result<(Vec<f32>, Vec<f32>)> {
-    let mut resampler =
-        FftFixedIn::<f32>::new(from as usize, to as usize, CHUNK_FRAMES, 2, 2).map_err(resample_err)?;
-    let frames = left.len();
-    let delay = resampler.output_delay();
-    let expected = (frames as f64 * f64::from(to) / f64::from(from)).round() as usize;
-    let mut out = [
-        Vec::with_capacity(expected + delay + CHUNK_FRAMES),
-        Vec::with_capacity(expected + delay + CHUNK_FRAMES),
-    ];
-    fn append(out: &mut [Vec<f32>; 2], chunk: Vec<Vec<f32>>) {
-        for (dst, src) in out.iter_mut().zip(chunk) {
-            dst.extend(src);
+/// Receives resampler output, drops the filter delay at the start and everything past the
+/// expected length, and interleaves into the final buffer.
+struct Sink {
+    out: Vec<f32>,
+    skip: usize,
+    remaining: usize,
+}
+
+impl Sink {
+    fn push(&mut self, channels: &[Vec<f32>], produced: usize) {
+        let skipped = self.skip.min(produced);
+        self.skip -= skipped;
+        let take = (produced - skipped).min(self.remaining);
+        self.remaining -= take;
+        let (left, right) = (&channels[0][skipped..skipped + take], &channels[1][skipped..skipped + take]);
+        for (&l, &r) in left.iter().zip(right) {
+            self.out.push(l);
+            self.out.push(r);
         }
     }
+}
+
+/// Streams the source in small chunks so no full-length per-channel buffer ever exists: the only
+/// large allocation is the interleaved result.
+fn resample_to_stereo(audio: &DecodedAudio, to: u32) -> Result<Vec<f32>> {
+    let width = usize::from(audio.channels);
+    let right = width.min(2) - 1;
+    let frames = audio.frames();
+    let mut resampler = FftFixedIn::<f32>::new(audio.sample_rate as usize, to as usize, CHUNK_FRAMES, 2, 2)
+        .map_err(resample_err)?;
+    let expected = (frames as f64 * f64::from(to) / f64::from(audio.sample_rate)).round() as usize;
+    let mut sink = Sink {
+        out: Vec::with_capacity(2 * expected),
+        skip: resampler.output_delay(),
+        remaining: expected,
+    };
+    let mut input = resampler.input_buffer_allocate(true);
+    let mut output = resampler.output_buffer_allocate(true);
 
     let mut pos = 0;
     loop {
@@ -117,28 +189,48 @@ fn resample_pair(left: &[f32], right: &[f32], from: u32, to: u32) -> Result<(Vec
         if pos + need > frames {
             break;
         }
-        let input = [&left[pos..pos + need], &right[pos..pos + need]];
-        append(&mut out, resampler.process(&input, None).map_err(resample_err)?);
+        let [left, right_channel] = &mut input[..] else {
+            return Err(resample_err("unexpected channel count"));
+        };
+        let chunk = audio.interleaved[pos * width..(pos + need) * width].chunks_exact(width);
+        for ((l, r), frame) in left.iter_mut().zip(right_channel.iter_mut()).zip(chunk) {
+            *l = frame[0];
+            *r = frame[right];
+        }
+        let (_, produced) = resampler
+            .process_into_buffer(&input, &mut output, None)
+            .map_err(resample_err)?;
+        sink.push(&output, produced);
         pos += need;
     }
+
     if pos < frames {
-        let input = [&left[pos..], &right[pos..]];
-        let chunk = resampler.process_partial(Some(&input), None).map_err(resample_err)?;
-        append(&mut out, chunk);
-    }
-    while out[0].len() < expected + delay {
-        let chunk = resampler
-            .process_partial(None::<&[Vec<f32>]>, None)
+        let rest = frames - pos;
+        let [left, right_channel] = &mut input[..] else {
+            return Err(resample_err("unexpected channel count"));
+        };
+        let chunk = audio.interleaved[pos * width..].chunks_exact(width);
+        for ((l, r), frame) in left.iter_mut().zip(right_channel.iter_mut()).zip(chunk) {
+            *l = frame[0];
+            *r = frame[right];
+        }
+        let partial = [&input[0][..rest], &input[1][..rest]];
+        let (_, produced) = resampler
+            .process_partial_into_buffer(Some(&partial), &mut output, None)
             .map_err(resample_err)?;
-        append(&mut out, chunk);
+        sink.push(&output, produced);
     }
 
-    let [mut l, mut r] = out;
-    for channel in [&mut l, &mut r] {
-        channel.drain(..delay);
-        channel.truncate(expected);
+    while sink.remaining > 0 {
+        let (_, produced) = resampler
+            .process_partial_into_buffer(None::<&[Vec<f32>]>, &mut output, None)
+            .map_err(resample_err)?;
+        if produced == 0 {
+            return Err(resample_err("the resampler stopped producing output"));
+        }
+        sink.push(&output, produced);
     }
-    Ok((l, r))
+    Ok(sink.out)
 }
 
 #[cfg(test)]
@@ -160,6 +252,91 @@ mod tests {
         }
         let n = crossings.len() - 1;
         f64::from(rate) * n as f64 / (crossings[n] - crossings[0])
+    }
+
+    /// The original whole-buffer implementation, kept to prove the streaming one is equivalent.
+    fn reference_resample(audio: &DecodedAudio, to: u32) -> Vec<f32> {
+        let width = usize::from(audio.channels);
+        let right = width.min(2) - 1;
+        let (left, right): (Vec<f32>, Vec<f32>) = audio
+            .interleaved
+            .chunks_exact(width)
+            .map(|frame| (frame[0], frame[right]))
+            .unzip();
+        let mut resampler =
+            FftFixedIn::<f32>::new(audio.sample_rate as usize, to as usize, CHUNK_FRAMES, 2, 2).unwrap();
+        let frames = left.len();
+        let delay = resampler.output_delay();
+        let expected = (frames as f64 * f64::from(to) / f64::from(audio.sample_rate)).round() as usize;
+        let mut out = [Vec::new(), Vec::new()];
+        let mut pos = 0;
+        while pos + resampler.input_frames_next() <= frames {
+            let need = resampler.input_frames_next();
+            let input = [&left[pos..pos + need], &right[pos..pos + need]];
+            for (dst, src) in out.iter_mut().zip(resampler.process(&input, None).unwrap()) {
+                dst.extend(src);
+            }
+            pos += need;
+        }
+        if pos < frames {
+            let input = [&left[pos..], &right[pos..]];
+            for (dst, src) in out.iter_mut().zip(resampler.process_partial(Some(&input), None).unwrap()) {
+                dst.extend(src);
+            }
+        }
+        while out[0].len() < expected + delay {
+            for (dst, src) in out
+                .iter_mut()
+                .zip(resampler.process_partial(None::<&[Vec<f32>]>, None).unwrap())
+            {
+                dst.extend(src);
+            }
+        }
+        let [l, r] = out;
+        l[delay..delay + expected]
+            .iter()
+            .zip(&r[delay..delay + expected])
+            .flat_map(|(&a, &b)| [a, b])
+            .collect()
+    }
+
+    #[test]
+    fn streaming_resample_is_identical_to_the_reference_implementation() {
+        let cases = [
+            (44_100, 48_000, 1, 100_000),
+            (44_100, 48_000, 2, 100_001),
+            (22_050, 48_000, 2, 5_000),
+            (48_000, 44_100, 2, 70_001),
+            (96_000, 48_000, 3, 30_000),
+            (44_100, 48_000, 2, 700),
+            (44_100, 48_000, 2, 1_024),
+        ];
+        for (from, to, channels, frames) in cases {
+            let samples: Vec<f32> = (0..frames * channels)
+                .map(|i| ((i * 7919) % 2003) as f32 / 1001.5 - 1.0)
+                .collect();
+            let audio = DecodedAudio::from_interleaved(from, channels as u16, samples).unwrap();
+            let streamed = resample_to_stereo(&audio, to).unwrap();
+            let reference = reference_resample(&audio, to);
+            assert_eq!(streamed.len(), reference.len(), "{from}->{to} ch{channels} n{frames}");
+            let worst = streamed
+                .iter()
+                .zip(&reference)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f32::max);
+            assert!(worst < 1e-6, "{from}->{to} ch{channels} n{frames}: {worst}");
+        }
+    }
+
+    #[test]
+    fn same_rate_preparation_is_a_plain_conversion() {
+        let stereo = DecodedAudio::from_interleaved(48_000, 2, vec![0.1, 0.2, 0.3, 0.4]).unwrap();
+        assert_eq!(to_stereo(&stereo), [0.1, 0.2, 0.3, 0.4]);
+        let mono = DecodedAudio::from_interleaved(48_000, 1, vec![0.5, 0.6]).unwrap();
+        assert_eq!(to_stereo(&mono), [0.5, 0.5, 0.6, 0.6]);
+        let handle = PreparedAudio::new(&stereo, 48_000).unwrap();
+        assert_eq!((handle.sample_rate(), handle.frames()), (48_000, 2));
+        assert!((handle.duration_sec() - 2.0 / 48_000.0).abs() < 1e-12);
     }
 
     #[test]

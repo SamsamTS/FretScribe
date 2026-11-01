@@ -16,6 +16,8 @@ pub enum AudioError {
     Resample(String),
     #[error("duplicate track id {0}")]
     DuplicateTrack(u64),
+    #[error("prepared audio is at {found} Hz but the player runs at {expected} Hz")]
+    RateMismatch { expected: u32, found: u32 },
     #[error("no audio output device available")]
     NoOutputDevice,
     #[error("audio output error: {0}")]

@@ -12,6 +12,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use crate::error::{AudioError, Result};
+use crate::parallel::parallel_map;
 
 #[derive(Clone)]
 pub struct DecodedAudio {
@@ -143,6 +144,11 @@ pub fn decode_file(path: impl AsRef<Path>) -> Result<DecodedAudio> {
     DecodedAudio::from_interleaved(sample_rate, channels, samples)
 }
 
+/// Decodes several files concurrently. Results keep the input order, each with its own error.
+pub fn decode_files<P: AsRef<Path> + Sync>(paths: &[P]) -> Vec<Result<DecodedAudio>> {
+    parallel_map(paths, |path| decode_file(path))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -233,6 +239,19 @@ pub(crate) mod tests {
         assert!(matches!(decode_file(&junk), Err(AudioError::Decode(_))));
         let empty = write(dir.path(), "empty.wav", &wav_bytes(44_100, 1, &[]));
         assert!(decode_file(&empty).is_err());
+    }
+
+    #[test]
+    fn decode_files_keeps_order_and_reports_each_error() {
+        let dir = tempdir().unwrap();
+        let a = write(dir.path(), "a.wav", &wav_bytes(44_100, 1, &sine_i16(440.0, 44_100, 4_410, 0.5)));
+        let b = write(dir.path(), "b.wav", &wav_bytes(48_000, 2, &[1_000; 9_600]));
+        let missing = dir.path().join("missing.wav");
+        let results = decode_files(&[a, missing, b]);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_ref().map(|r| r.sample_rate).ok(), Some(44_100));
+        assert!(matches!(results[1], Err(AudioError::Io(_))));
+        assert_eq!(results[2].as_ref().map(|r| (r.sample_rate, r.channels)).ok(), Some((48_000, 2)));
     }
 
     #[test]

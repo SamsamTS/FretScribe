@@ -7,11 +7,10 @@
 use std::error::Error;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use fretscribe_audio::{decode_file, Player, TrackAudio};
+use fretscribe_audio::{decode_files, Player, PreparedAudio, PreparedTrack};
 
 const USAGE: &str = "usage: play [--seek SECONDS] PATH[:OFFSET_MS]...";
 const REPORT_EVERY: Duration = Duration::from_millis(250);
@@ -56,9 +55,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
+    let player = Player::new()?;
+    let paths: Vec<&PathBuf> = args.inputs.iter().map(|(path, _)| path).collect();
+    let decoded = decode_files(&paths);
+
     let mut tracks = Vec::with_capacity(args.inputs.len());
-    for (id, (path, offset_sec)) in (1u64..).zip(&args.inputs) {
-        let audio = decode_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    for (id, ((path, offset_sec), audio)) in (1u64..).zip(args.inputs.iter().zip(decoded)) {
+        let audio = audio.map_err(|e| format!("{}: {e}", path.display()))?;
         println!(
             "track {id}: {} ({} Hz, {} ch, {:.2} s, offset {:+.0} ms)",
             path.display(),
@@ -67,18 +70,34 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             audio.duration_sec,
             offset_sec * 1000.0
         );
-        tracks.push(TrackAudio {
-            id,
-            audio: Arc::new(audio),
-            offset_sec: *offset_sec,
-            volume: 1.0,
-            muted: false,
-            solo: false,
-        });
+        tracks.push((id, *offset_sec, audio));
     }
 
-    let player = Player::new()?;
-    player.set_tracks(tracks)?;
+    let rate = player.output_rate();
+    let prepared = thread::scope(|scope| {
+        let workers: Vec<_> = tracks
+            .iter()
+            .map(|(_, _, audio)| scope.spawn(move || PreparedAudio::new(audio, rate)))
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().map_err(|_| "a preparation thread panicked".to_owned())?.map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, String>>()
+    })?;
+    player.set_prepared_tracks(
+        tracks
+            .iter()
+            .zip(prepared)
+            .map(|(&(id, offset_sec, _), audio)| PreparedTrack {
+                id,
+                audio,
+                offset_sec,
+                volume: 1.0,
+                muted: false,
+                solo: false,
+            })
+            .collect(),
+    )?;
     player.seek(args.seek_sec);
     player.play();
     let duration = player.duration_sec();

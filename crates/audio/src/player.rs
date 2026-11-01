@@ -10,9 +10,10 @@ use rodio::{DeviceTrait, OutputStream, OutputStreamHandle, Source};
 
 use crate::decode::DecodedAudio;
 use crate::engine::{Command, Engine, Shared, SpeedMode, BLOCK_FRAMES, MAX_SPEED, MIN_SPEED};
-use crate::error::{AudioError, Result};
-use crate::resample::Prepared;
 use crate::engine::TrackState;
+use crate::error::{AudioError, Result};
+use crate::parallel::parallel_map;
+use crate::resample::PreparedAudio;
 
 /// One audio track of the mix. `project_time = audio_time + offset_sec`, and the offset may be
 /// negative (the first seconds of the file are then never heard).
@@ -20,6 +21,18 @@ use crate::engine::TrackState;
 pub struct TrackAudio {
     pub id: u64,
     pub audio: Arc<DecodedAudio>,
+    pub offset_sec: f64,
+    pub volume: f32,
+    pub muted: bool,
+    pub solo: bool,
+}
+
+/// A track whose audio is already prepared for this player's output rate (see
+/// `PreparedAudio::new`), so installing it is cheap.
+#[derive(Clone, Debug)]
+pub struct PreparedTrack {
+    pub id: u64,
+    pub audio: PreparedAudio,
     pub offset_sec: f64,
     pub volume: f32,
     pub muted: bool,
@@ -35,7 +48,7 @@ struct TrackInfo {
 #[derive(Default)]
 struct State {
     /// Keyed by the address of the decoded audio, which the entry keeps alive.
-    cache: HashMap<usize, (Arc<DecodedAudio>, Arc<Prepared>)>,
+    cache: HashMap<usize, (Arc<DecodedAudio>, PreparedAudio)>,
     tracks: Vec<TrackInfo>,
 }
 
@@ -60,6 +73,15 @@ fn clamp_volume(volume: f32) -> f32 {
     } else {
         1.0
     }
+}
+
+fn ensure_unique(ids: impl Iterator<Item = u64> + Clone) -> Result<()> {
+    for (i, id) in ids.clone().enumerate() {
+        if ids.clone().take(i).any(|earlier| earlier == id) {
+            return Err(AudioError::DuplicateTrack(id));
+        }
+    }
+    Ok(())
 }
 
 fn clean_offset(offset: f64) -> f64 {
@@ -130,41 +152,84 @@ impl Player {
         self.rate
     }
 
+    /// The rate `PreparedAudio::new` must be given, so a worker thread can prepare without
+    /// holding the player.
+    pub fn output_rate(&self) -> u32 {
+        self.rate
+    }
+
     /// Replaces the whole mix. Tracks are resampled to the output rate here (once per decoded
-    /// file), so call it from a worker thread for long files. Tracks that disappear are cut off
-    /// without a fade; surviving ones keep their gain state.
+    /// file, in parallel), which can take seconds for long files: from a UI thread prefer
+    /// `PreparedAudio::new` on a worker followed by `set_prepared_tracks`. Tracks that disappear
+    /// are cut off without a fade; surviving ones keep their gain state.
     pub fn set_tracks(&self, tracks: Vec<TrackAudio>) -> Result<()> {
-        for (i, track) in tracks.iter().enumerate() {
-            if tracks[..i].iter().any(|t| t.id == track.id) {
-                return Err(AudioError::DuplicateTrack(track.id));
+        ensure_unique(tracks.iter().map(|t| t.id))?;
+        let keys: Vec<usize> = tracks.iter().map(|t| Arc::as_ptr(&t.audio) as usize).collect();
+
+        let mut missing: Vec<usize> = Vec::new();
+        {
+            let state = self.state();
+            for (i, key) in keys.iter().enumerate() {
+                if !state.cache.contains_key(key) && !missing.iter().any(|&j| keys[j] == *key) {
+                    missing.push(i);
+                }
             }
         }
+        let rate = self.rate;
+        let prepared = parallel_map(&missing, |&i| PreparedAudio::new(&tracks[i].audio, rate));
+
         let mut state = self.state();
+        for (&i, result) in missing.iter().zip(prepared) {
+            state.cache.insert(keys[i], (Arc::clone(&tracks[i].audio), result?));
+        }
+        let mut ready = Vec::with_capacity(tracks.len());
+        for (track, key) in tracks.iter().zip(&keys) {
+            let Some((_, audio)) = state.cache.get(key) else {
+                return Err(AudioError::Resample("prepared audio went missing".to_owned()));
+            };
+            ready.push(PreparedTrack {
+                id: track.id,
+                audio: audio.clone(),
+                offset_sec: track.offset_sec,
+                volume: track.volume,
+                muted: track.muted,
+                solo: track.solo,
+            });
+        }
+        state.cache.retain(|key, _| keys.contains(key));
+        self.install(state, ready);
+        Ok(())
+    }
+
+    /// Replaces the whole mix with already prepared tracks. Cheap enough for any thread. The
+    /// cache `set_tracks` keeps is dropped, since these tracks are owned by the caller.
+    pub fn set_prepared_tracks(&self, tracks: Vec<PreparedTrack>) -> Result<()> {
+        ensure_unique(tracks.iter().map(|t| t.id))?;
+        if let Some(track) = tracks.iter().find(|t| t.audio.sample_rate() != self.rate) {
+            return Err(AudioError::RateMismatch {
+                expected: self.rate,
+                found: track.audio.sample_rate(),
+            });
+        }
+        let mut state = self.state();
+        state.cache.clear();
+        self.install(state, tracks);
+        Ok(())
+    }
+
+    fn install(&self, mut state: MutexGuard<'_, State>, tracks: Vec<PreparedTrack>) {
         let mut states = Vec::with_capacity(tracks.len());
         let mut infos = Vec::with_capacity(tracks.len());
-        let mut keep = Vec::with_capacity(tracks.len());
-        for track in &tracks {
-            let key = Arc::as_ptr(&track.audio) as usize;
-            let prepared = match state.cache.get(&key) {
-                Some((_, prepared)) => Arc::clone(prepared),
-                None => {
-                    let prepared = Arc::new(Prepared::from_decoded(&track.audio, self.rate)?);
-                    state
-                        .cache
-                        .insert(key, (Arc::clone(&track.audio), Arc::clone(&prepared)));
-                    prepared
-                }
-            };
-            keep.push(key);
+        for track in tracks {
             let offset = clean_offset(track.offset_sec);
             infos.push(TrackInfo {
                 id: track.id,
-                duration_sec: prepared.frames() as f64 / f64::from(self.rate),
+                duration_sec: track.audio.duration_sec(),
                 offset_sec: offset,
             });
             states.push(TrackState::new(
                 track.id,
-                prepared,
+                Arc::clone(track.audio.shared()),
                 offset,
                 clamp_volume(track.volume),
                 track.muted,
@@ -172,11 +237,9 @@ impl Player {
                 self.rate,
             ));
         }
-        state.cache.retain(|key, _| keep.contains(key));
         state.tracks = infos;
         drop(state);
         self.send(Command::SetTracks(states));
-        Ok(())
     }
 
     /// One-track convenience: replaces the mix with `audio` (track id 1) and rewinds.
@@ -402,5 +465,165 @@ impl Source for EngineSource {
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+    use crate::testutil::*;
+
+    fn prepared(id: u64, audio: &Arc<DecodedAudio>) -> PreparedTrack {
+        PreparedTrack {
+            id,
+            audio: PreparedAudio::new(audio, RATE).unwrap(),
+            offset_sec: 0.0,
+            volume: 1.0,
+            muted: false,
+            solo: false,
+        }
+    }
+
+    #[test]
+    fn installing_prepared_tracks_is_fast_for_long_audio() {
+        let (player, _engine) = Player::headless(RATE);
+        let audio = mono_audio(RATE, dc(380.0, 0.1));
+        let tracks = vec![prepared(1, &audio), prepared(2, &audio)];
+        let best = (0..3)
+            .map(|_| {
+                let started = Instant::now();
+                player.set_prepared_tracks(tracks.clone()).unwrap();
+                started.elapsed()
+            })
+            .min()
+            .unwrap();
+        assert!(best < Duration::from_millis(50), "{best:?}");
+        assert!((player.duration_sec() - 380.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn preparing_on_another_thread_sounds_identical_to_set_tracks() {
+        let source: Vec<f32> = sine(330.0, 44_100, 2.0, 0.4);
+        let audio = mono_audio(44_100, source);
+
+        let (blocking, mut blocking_engine) = Player::headless(RATE);
+        blocking
+            .set_tracks(vec![TrackAudio {
+                id: 4,
+                audio: Arc::clone(&audio),
+                offset_sec: 0.25,
+                volume: 0.8,
+                muted: false,
+                solo: false,
+            }])
+            .unwrap();
+
+        let (swapped, mut swapped_engine) = Player::headless(RATE);
+        let rate = swapped.output_rate();
+        let worker_audio = Arc::clone(&audio);
+        let handle = std::thread::spawn(move || PreparedAudio::new(&worker_audio, rate));
+        let ready = handle.join().unwrap().unwrap();
+        swapped
+            .set_prepared_tracks(vec![PreparedTrack {
+                id: 4,
+                audio: ready,
+                offset_sec: 0.25,
+                volume: 0.8,
+                muted: false,
+                solo: false,
+            }])
+            .unwrap();
+
+        assert_eq!(blocking.duration_sec(), swapped.duration_sec());
+        blocking.play();
+        swapped.play();
+        let a = render_sec(&blocking, &mut blocking_engine, 1.0);
+        let b = render_sec(&swapped, &mut swapped_engine, 1.0);
+        assert_eq!(a.left, b.left);
+        assert!(rms(&a.left[SKIP..]) > 0.1);
+    }
+
+    const SKIP: usize = 24_000;
+
+    #[test]
+    fn unchanged_tracks_are_never_prepared_again() {
+        let (player, _engine) = Player::headless(RATE);
+        let first = mono_audio(44_100, sine(220.0, 44_100, 0.5, 0.3));
+        let second = mono_audio(44_100, sine(330.0, 44_100, 0.5, 0.3));
+        let mix = |audio: &Arc<DecodedAudio>, id| TrackAudio {
+            id,
+            audio: Arc::clone(audio),
+            offset_sec: 0.0,
+            volume: 1.0,
+            muted: false,
+            solo: false,
+        };
+        let cached_ptr = |player: &Player, audio: &Arc<DecodedAudio>| {
+            let state = player.state();
+            let (_, prepared) = state.cache.get(&(Arc::as_ptr(audio) as usize)).unwrap();
+            Arc::as_ptr(prepared.shared())
+        };
+
+        player.set_tracks(vec![mix(&first, 1)]).unwrap();
+        let before = cached_ptr(&player, &first);
+        player.set_tracks(vec![mix(&first, 1), mix(&second, 2), mix(&second, 3)]).unwrap();
+        assert_eq!(cached_ptr(&player, &first), before);
+        assert_eq!(player.state().cache.len(), 2);
+
+        player.set_tracks(vec![mix(&second, 2)]).unwrap();
+        assert_eq!(player.state().cache.len(), 1);
+    }
+
+    #[test]
+    fn prepared_tracks_are_validated() {
+        let (player, _engine) = Player::headless(RATE);
+        let audio = mono_audio(RATE, dc(1.0, 0.1));
+        let duplicate = player.set_prepared_tracks(vec![prepared(3, &audio), prepared(3, &audio)]);
+        assert!(matches!(duplicate, Err(AudioError::DuplicateTrack(3))));
+
+        let other_rate = mono_audio(44_100, dc(1.0, 0.1));
+        let wrong = PreparedTrack {
+            audio: PreparedAudio::new(&other_rate, 44_100).unwrap(),
+            ..prepared(1, &audio)
+        };
+        assert!(matches!(
+            player.set_prepared_tracks(vec![wrong]),
+            Err(AudioError::RateMismatch { expected: RATE, found: 44_100 })
+        ));
+        assert_eq!(player.duration_sec(), 0.0);
+    }
+
+    #[test]
+    fn the_state_lock_is_not_held_while_preparing() {
+        let (player, _engine) = Player::headless(RATE);
+        let long = mono_audio(44_100, vec![0.1; 120 * 44_100]);
+        let player = Arc::new(player);
+        let loader = {
+            let player = Arc::clone(&player);
+            std::thread::spawn(move || {
+                player
+                    .set_tracks(vec![TrackAudio {
+                        id: 1,
+                        audio: long,
+                        offset_sec: 0.0,
+                        volume: 1.0,
+                        muted: false,
+                        solo: false,
+                    }])
+                    .unwrap();
+            })
+        };
+        let mut slowest = Duration::ZERO;
+        while !loader.is_finished() {
+            let started = Instant::now();
+            let _ = player.duration_sec();
+            slowest = slowest.max(started.elapsed());
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        loader.join().unwrap();
+        assert!(slowest < Duration::from_millis(100), "{slowest:?}");
+        assert!((player.duration_sec() - 120.0).abs() < 1e-3);
     }
 }
