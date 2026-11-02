@@ -6,3 +6,16 @@ publish.workspace = true
 
 [dependencies]
 fretscribe-core.workspace = true
+realfft.workspace = true
+rayon.workspace = true
+image.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+fretscribe-audio.workspace = true
+tempfile.workspace = true
+
+[[test]]
+name = "export_png"
+harness = false
