@@ -10,8 +10,8 @@ mod spectrogram;
 mod spectrogram_tests;
 
 pub use display::{
-    apply_gamma, apply_levels, clamp_gamma, Levels, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN,
-    MIN_LEVELS_GAP,
+    apply_gamma, apply_levels, clamp_gamma, Levels, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX,
+    GAMMA_MIN, MIN_LEVELS_GAP,
 };
 pub use error::AnalysisError;
 pub use lut::{discover_luts, Lut, LUT_SIZE};

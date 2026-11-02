@@ -5,6 +5,7 @@ use fretscribe_core::{cents_of, PitchRef};
 use rayon::prelude::*;
 
 use crate::cqt::{Plan, Scratch};
+use crate::display::{Levels, APP_WHITE, MIN_LEVELS_GAP};
 
 const BLOCK_FRAMES: usize = 128;
 
@@ -131,6 +132,23 @@ impl Spectrogram {
 
     pub fn row(&self, row: usize) -> &[f32] {
         &self.data[row * self.n_frames..][..self.n_frames]
+    }
+
+    /// Black at 0 and white at the strongest value, for when a track is first loaded. Silent or
+    /// empty data falls back to `APP_WHITE`.
+    pub fn suggested_levels(&self) -> Levels {
+        let max = self
+            .data
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(0.0, f32::max);
+        let white = if max >= MIN_LEVELS_GAP {
+            max
+        } else {
+            APP_WHITE
+        };
+        Levels::new(0.0, white)
     }
 
     pub fn frame_to_sec(&self, frame: f64) -> f64 {

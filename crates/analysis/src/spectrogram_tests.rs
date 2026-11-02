@@ -5,8 +5,8 @@ use fretscribe_core::{freq_to_midi_float, PitchRef};
 
 use crate::lut::Lut;
 use crate::{
-    apply_gamma, compute_spectrogram, compute_spectrogram_streaming, Levels, Spectrogram,
-    SpectrogramParams,
+    apply_gamma, apply_levels, compute_spectrogram, compute_spectrogram_streaming, Levels,
+    Spectrogram, SpectrogramParams,
 };
 
 const RATE: u32 = 44_100;
@@ -356,4 +356,23 @@ fn render_places_pitch_with_y_up_and_follows_reference_pitch() {
     let sharp = PitchRef::new(450.0).expect("reference");
     let shifted = bright_midi(&sharp);
     assert!((shifted - 68.61).abs() < 0.2, "{shifted}");
+}
+
+#[test]
+fn suggested_levels_put_white_on_the_strongest_value() {
+    let spec = compute_spectrogram(&tone(440.0, 1.0), RATE, &SpectrogramParams::default());
+    let max = spec.data.iter().copied().fold(0.0, f32::max);
+    assert_eq!(spec.suggested_levels(), Levels::new(0.0, max));
+    let loud = apply_levels(max, spec.suggested_levels());
+    assert!((loud - 1.0).abs() < 1e-6);
+
+    let silent = compute_spectrogram(&vec![0.0; 20_000], RATE, &SpectrogramParams::default());
+    assert_eq!(
+        silent.suggested_levels(),
+        Levels::new(0.0, crate::APP_WHITE)
+    );
+    assert_eq!(
+        hand_made(&[]).suggested_levels(),
+        Levels::new(0.0, crate::APP_WHITE)
+    );
 }

@@ -6,6 +6,9 @@ pub const MIN_LEVELS_GAP: f32 = 0.02;
 pub const GAMMA_MIN: f32 = 0.2;
 pub const GAMMA_MAX: f32 = 5.0;
 pub const GAMMA_DEFAULT: f32 = 1.0;
+/// Starting display values for the application (tuned by eye), distinct from the identity defaults.
+pub const APP_GAMMA: f32 = 0.25;
+pub const APP_WHITE: f32 = 0.8;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Levels {
