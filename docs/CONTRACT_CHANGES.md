@@ -53,5 +53,5 @@ Design notes: half-octave bands, each with its own FFT size and a Hann window of
 
 ## 2026-11-02 - analysis crate: application display defaults
 
-- `APP_GAMMA = 0.25` and `APP_WHITE = 0.8` (black 0.0): the starting display values chosen by eye. The identity defaults (`Levels::default()`, `GAMMA_DEFAULT = 1.0`) are unchanged.
+- `APP_GAMMA = 0.8` and `APP_WHITE = 0.8` (black 0.0): the starting display values chosen by eye. The identity defaults (`Levels::default()`, `GAMMA_DEFAULT = 1.0`) are unchanged.
 - `Spectrogram::suggested_levels()` returns black 0.0 and white at the strongest value of the data, for when a track is first loaded (falls back to `APP_WHITE` for silent or empty data). The user can then adjust with the slider.
