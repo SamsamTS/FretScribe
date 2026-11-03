@@ -62,6 +62,14 @@ fn check_index(measures: &[Measure], index: usize) -> Result<(), EditError> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Propagation {
+    /// The edit also applies to the contiguous following measures that had the same old value.
+    #[default]
+    Following,
+    Single,
+}
+
 /// Edits `index` and every contiguous following measure that had the same tempo as `index`
 /// before the edit, stopping at the first that differs. Returns the edited range.
 pub fn set_tempo(
@@ -69,16 +77,30 @@ pub fn set_tempo(
     index: usize,
     new_bpm: f64,
 ) -> Result<Range<usize>, EditError> {
+    set_tempo_scoped(measures, index, new_bpm, Propagation::Following)
+}
+
+pub fn set_tempo_scoped(
+    measures: &mut [Measure],
+    index: usize,
+    new_bpm: f64,
+    propagation: Propagation,
+) -> Result<Range<usize>, EditError> {
     check_index(measures, index)?;
     if !valid_tempo(new_bpm) {
         return Err(EditError::InvalidTempo(new_bpm));
     }
     let old = measures[index].tempo_bpm;
-    let end = index
-        + measures[index..]
-            .iter()
-            .take_while(|m| (m.tempo_bpm - old).abs() < SAME_VALUE_EPS)
-            .count();
+    let end = match propagation {
+        Propagation::Following => {
+            index
+                + measures[index..]
+                    .iter()
+                    .take_while(|m| (m.tempo_bpm - old).abs() < SAME_VALUE_EPS)
+                    .count()
+        }
+        Propagation::Single => index + 1,
+    };
     for m in &mut measures[index..end] {
         m.tempo_bpm = new_bpm;
     }
@@ -92,16 +114,30 @@ pub fn set_time_sig(
     index: usize,
     new_sig: TimeSignature,
 ) -> Result<Range<usize>, EditError> {
+    set_time_sig_scoped(measures, index, new_sig, Propagation::Following)
+}
+
+pub fn set_time_sig_scoped(
+    measures: &mut [Measure],
+    index: usize,
+    new_sig: TimeSignature,
+    propagation: Propagation,
+) -> Result<Range<usize>, EditError> {
     check_index(measures, index)?;
     if !new_sig.is_valid() {
         return Err(EditError::InvalidTimeSignature(new_sig));
     }
     let old = measures[index].time_sig;
-    let end = index
-        + measures[index..]
-            .iter()
-            .take_while(|m| m.time_sig == old)
-            .count();
+    let end = match propagation {
+        Propagation::Following => {
+            index
+                + measures[index..]
+                    .iter()
+                    .take_while(|m| m.time_sig == old)
+                    .count()
+        }
+        Propagation::Single => index + 1,
+    };
     for m in &mut measures[index..end] {
         m.time_sig = new_sig;
     }
@@ -175,6 +211,32 @@ pub(crate) mod tests {
         assert_eq!(range, 0..3);
         let tempos: Vec<f64> = ms.iter().map(|m| m.tempo_bpm).collect();
         assert_eq!(tempos, [60.0, 60.0, 60.0, 90.0, 120.0]);
+    }
+
+    #[test]
+    fn single_tempo_edit_leaves_equal_followers_alone() {
+        let mut ms = grid(&[120.0, 120.0, 120.0]);
+        let range = set_tempo_scoped(&mut ms, 0, 60.0, Propagation::Single).unwrap();
+        assert_eq!(range, 0..1);
+        let tempos: Vec<f64> = ms.iter().map(|m| m.tempo_bpm).collect();
+        assert_eq!(tempos, [60.0, 120.0, 120.0]);
+        close(ms[1].start_sec, 4.0);
+        close(ms[2].start_sec, 6.0);
+        assert_eq!(
+            set_tempo_scoped(&mut ms, 0, 60.0, Propagation::Following).unwrap(),
+            0..1
+        );
+    }
+
+    #[test]
+    fn single_time_sig_edit_leaves_equal_followers_alone() {
+        let mut ms = grid(&[120.0; 3]);
+        let range = set_time_sig_scoped(&mut ms, 1, TimeSignature::new(3, 4), Propagation::Single).unwrap();
+        assert_eq!(range, 1..2);
+        assert_eq!(ms[1].time_sig, TimeSignature::new(3, 4));
+        assert_eq!(ms[2].time_sig, TimeSignature::COMMON);
+        close(ms[2].start_sec, 3.5);
+        assert!(set_time_sig_scoped(&mut ms, 0, TimeSignature::new(4, 3), Propagation::Single).is_err());
     }
 
     #[test]

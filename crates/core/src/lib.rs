@@ -9,10 +9,14 @@ pub mod pitch;
 pub mod snap;
 pub mod tempo;
 pub mod tracks;
+pub mod undo;
 
 pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
 pub use error::{CoreError, EditError};
-pub use measures::{generate_measures, set_tempo, set_time_sig, valid_tempo};
+pub use measures::{
+    generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped,
+    valid_tempo, Propagation,
+};
 pub use model::{
     GraceKind, GraceNote, Legato, LegatoLink, Measure, Note, Project, Technique, TimePos,
     TimeSignature, Track, TrackRole, Tuning, MAX_BPM, MIN_BPM,
@@ -27,3 +31,4 @@ pub use pitch::{
 pub use snap::{SnapGrid, SnapPreset, SNAP_DIVISIONS};
 pub use tempo::{BeatKind, BeatLine, NoteTimes, TempoMap};
 pub use tracks::{audible_tracks, next_note_id, project_end_sec, shift_track};
+pub use undo::{UndoStack, DEFAULT_UNDO_LIMIT};

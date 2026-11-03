@@ -67,3 +67,9 @@ New public API in `fretscribe-analysis` (module `waveform`, also re-exported at 
 - `Lut::color(t) -> [u8; 4]` (in `lut.rs`): lookup for `t` in 0..=1, clamped, NaN gives the weakest colour. Same index maths as the spectrogram renderer. The spectrogram module and its `Lut` already existed, so no LUT stub was added.
 
 Tests and tooling: unit tests in `waveform.rs` and `lut.rs`; `cargo test -p fretscribe-analysis --test export_waveform_png -- --audio <file> --seconds <n> [--start <s>] [--lut Classic|Heat] [--width <px>] [--height <px>] [--out <png>]` writes a PNG (prints the usage and succeeds without arguments); `cargo run --release -p fretscribe-analysis --example waveform_peaks -- <file>` prints peaks.
+
+## 2026-11-03 - ui crate: measure grid (core additions)
+
+Backward compatible; no existing signature or behaviour changed.
+- `Propagation { Following (default), Single }` and `set_tempo_scoped` / `set_time_sig_scoped`, both as functions in `measures` and as `Project` methods (`Project::set_tempo_scoped(index, bpm, propagation, policy)`, `Project::set_time_sig_scoped(...)`). `set_tempo` / `set_time_sig` are now thin wrappers using `Following`, so they behave exactly as before. `Single` edits only `index`, which backs the "apply to following identical measures" checkbox of the grid popup.
+- `UndoStack` (`undo` module, also re-exported with `DEFAULT_UNDO_LIMIT = 200`): linear history of `ProjectEdit`. `push`, `undo(&mut Project) -> Option<&ProjectEdit>`, `redo(...)`, `can_undo`, `can_redo`, `undo_label`, `redo_label`, `clear`, `with_limit`. Pushing discards the redo branch and the oldest edits are dropped beyond the limit. It is not generic: every edit already produces a `ProjectEdit` snapshot pair, so `UndoStack<ProjectEdit>` would be the only instantiation.
