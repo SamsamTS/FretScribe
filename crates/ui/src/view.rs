@@ -87,6 +87,80 @@ impl TimelineView {
     }
 }
 
+/// Shortest selectable region.
+pub const MIN_REGION_SEC: f64 = 0.05;
+
+/// A selected stretch of the audio, shared by the overview timeline and the spectrogram so both can
+/// draw and edit it. Always `start_sec < end_sec`, inside the audio, at least `MIN_REGION_SEC` long.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RegionSelection {
+    pub start_sec: f64,
+    pub end_sec: f64,
+}
+
+impl RegionSelection {
+    /// Orders the two ends, clamps them to the audio and enforces the minimum length (extending the
+    /// end, or shifting back from the end of the audio). `None` for non-finite input or audio
+    /// shorter than the minimum.
+    pub fn normalised(a: f64, b: f64, audio_len_sec: f64) -> Option<Self> {
+        if !(a.is_finite() && b.is_finite() && audio_len_sec.is_finite())
+            || audio_len_sec < MIN_REGION_SEC
+        {
+            return None;
+        }
+        let start = a.min(b).clamp(0.0, audio_len_sec);
+        let mut end = a.max(b).clamp(0.0, audio_len_sec);
+        let mut start = start;
+        if end - start < MIN_REGION_SEC {
+            end = start + MIN_REGION_SEC;
+            if end > audio_len_sec {
+                end = audio_len_sec;
+                start = audio_len_sec - MIN_REGION_SEC;
+            }
+        }
+        Some(Self { start_sec: start, end_sec: end })
+    }
+
+    pub fn len_sec(&self) -> f64 {
+        self.end_sec - self.start_sec
+    }
+
+    pub fn contains(&self, sec: f64) -> bool {
+        sec >= self.start_sec && sec <= self.end_sec
+    }
+
+    /// Moves the start edge; it stops `MIN_REGION_SEC` before the end and at 0.
+    pub fn with_start(self, sec: f64) -> Self {
+        if !sec.is_finite() {
+            return self;
+        }
+        Self { start_sec: sec.min(self.end_sec - MIN_REGION_SEC).max(0.0), ..self }
+    }
+
+    /// Moves the end edge; it stops `MIN_REGION_SEC` after the start and at the end of the audio.
+    pub fn with_end(self, sec: f64, audio_len_sec: f64) -> Self {
+        if !sec.is_finite() {
+            return self;
+        }
+        Self { end_sec: sec.min(audio_len_sec).max(self.start_sec + MIN_REGION_SEC), ..self }
+    }
+
+    /// Shifts the whole region, keeping its length and staying inside the audio.
+    pub fn moved_by(self, delta_sec: f64, audio_len_sec: f64) -> Self {
+        if !delta_sec.is_finite() {
+            return self;
+        }
+        let len = self.len_sec();
+        let start = (self.start_sec + delta_sec).min(audio_len_sec - len).max(0.0);
+        Self { start_sec: start, end_sec: start + len }
+    }
+
+    /// Left and right x of the region in a widget showing `view`, for drawing it.
+    pub fn x_range(&self, view: &TimelineView) -> (f32, f32) {
+        (view.sec_to_x(self.start_sec), view.sec_to_x(self.end_sec))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +240,54 @@ mod tests {
         let state: ViewState = v.into();
         assert_eq!(TimelineView::from(state), v);
         assert_eq!(TimelineView::default(), ViewState::default().into());
+    }
+
+    #[test]
+    fn region_is_ordered_clamped_and_never_shorter_than_the_minimum() {
+        let r = RegionSelection::normalised(8.0, 2.0, 10.0).unwrap();
+        assert_eq!((r.start_sec, r.end_sec), (2.0, 8.0));
+        let r = RegionSelection::normalised(-3.0, 50.0, 10.0).unwrap();
+        assert_eq!((r.start_sec, r.end_sec), (0.0, 10.0));
+        let r = RegionSelection::normalised(4.0, 4.01, 10.0).unwrap();
+        assert!((r.len_sec() - MIN_REGION_SEC).abs() < 1e-12 && r.start_sec == 4.0);
+        let r = RegionSelection::normalised(9.99, 9.995, 10.0).unwrap();
+        assert_eq!((r.end_sec, r.len_sec() >= MIN_REGION_SEC - 1e-12), (10.0, true));
+        let r = RegionSelection::normalised(30.0, 40.0, 10.0).unwrap();
+        assert_eq!((r.end_sec, r.len_sec() >= MIN_REGION_SEC - 1e-12), (10.0, true));
+    }
+
+    #[test]
+    fn region_rejects_bad_input() {
+        assert!(RegionSelection::normalised(f64::NAN, 1.0, 10.0).is_none());
+        assert!(RegionSelection::normalised(0.0, 1.0, f64::INFINITY).is_none());
+        assert!(RegionSelection::normalised(0.0, 0.02, 0.03).is_none());
+        assert!(RegionSelection::normalised(0.0, 0.02, 0.05).is_some());
+    }
+
+    #[test]
+    fn region_edges_stop_at_each_other_and_at_the_audio() {
+        let r = RegionSelection { start_sec: 2.0, end_sec: 4.0 };
+        assert_eq!(r.with_start(9.0).start_sec, 4.0 - MIN_REGION_SEC);
+        assert_eq!(r.with_start(-1.0).start_sec, 0.0);
+        assert_eq!(r.with_end(0.0, 10.0).end_sec, 2.0 + MIN_REGION_SEC);
+        assert_eq!(r.with_end(99.0, 10.0).end_sec, 10.0);
+        assert_eq!(r.with_start(f64::NAN), r);
+        assert_eq!(r.with_end(f64::NAN, 10.0), r);
+    }
+
+    #[test]
+    fn region_moves_whole_and_keeps_its_length() {
+        let r = RegionSelection { start_sec: 2.0, end_sec: 4.0 };
+        assert_eq!(r.moved_by(1.5, 10.0), RegionSelection { start_sec: 3.5, end_sec: 5.5 });
+        assert_eq!(r.moved_by(-9.0, 10.0), RegionSelection { start_sec: 0.0, end_sec: 2.0 });
+        assert_eq!(r.moved_by(99.0, 10.0), RegionSelection { start_sec: 8.0, end_sec: 10.0 });
+        assert_eq!(r.moved_by(f64::NAN, 10.0), r);
+        assert!(r.contains(2.0) && r.contains(3.0) && !r.contains(4.1));
+    }
+
+    #[test]
+    fn region_x_range_uses_the_view() {
+        let r = RegionSelection { start_sec: 2.0, end_sec: 4.0 };
+        assert_eq!(r.x_range(&view(1.0, 100.0)), (100.0, 300.0));
     }
 }
