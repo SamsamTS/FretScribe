@@ -55,3 +55,15 @@ Design notes: half-octave bands, each with its own FFT size and a Hann window of
 
 - `APP_GAMMA = 0.8` and `APP_WHITE = 0.8` (black 0.0): the starting display values chosen by eye. The identity defaults (`Levels::default()`, `GAMMA_DEFAULT = 1.0`) are unchanged.
 - `Spectrogram::suggested_levels()` returns black 0.0 and white at the strongest value of the data, for when a track is first loaded (falls back to `APP_WHITE` for silent or empty data). The user can then adjust with the slider.
+
+## 2026-11-03 - analysis crate: waveform peaks
+
+No workspace dependency change (`rayon` and `image` were already in `fretscribe-analysis`). The `[[test]] export_waveform_png` target is declared with `harness = false`.
+
+New public API in `fretscribe-analysis` (module `waveform`, also re-exported at the crate root):
+- `WaveformPyramid::build(&[f32], sample_rate)`: min/max/sum-of-squares blocks, base block `BASE_BLOCK = 64` samples, each level merging pairs of the previous one; built in parallel with rayon. Accessors `sample_rate()` and `duration_sec()`.
+- `WaveformPyramid::peaks((start_sec, end_sec), pixel_width) -> Vec<(min, max, rms)>`: exactly `pixel_width` columns, from the coarsest level whose blocks fit in a pixel. Zero width gives an empty vector; invalid or empty ranges, and the parts of a range outside the audio, give silent `(0, 0, 0)` columns. The finest resolution is one base block (no raw samples are kept), so zooming in beyond 64 samples per pixel repeats blocks instead of leaving gaps. Non-finite samples count as 0.
+- `waveform::render_rgba(&[(min, max, rms)], height, &Lut) -> Vec<u8>` (crate-root alias `render_waveform_rgba`): one column per peak, row 0 on top, background = `lut.colors[0]`, a centre line, the min..max envelope coloured by the column's loudness and a brighter RMS body. Amplitude goes through `apply_gamma` with the module constant `waveform::WAVEFORM_GAMMA` (1.0), which is deliberately not a parameter or setting.
+- `Lut::color(t) -> [u8; 4]` (in `lut.rs`): lookup for `t` in 0..=1, clamped, NaN gives the weakest colour. Same index maths as the spectrogram renderer. The spectrogram module and its `Lut` already existed, so no LUT stub was added.
+
+Tests and tooling: unit tests in `waveform.rs` and `lut.rs`; `cargo test -p fretscribe-analysis --test export_waveform_png -- --audio <file> --seconds <n> [--start <s>] [--lut Classic|Heat] [--width <px>] [--height <px>] [--out <png>]` writes a PNG (prints the usage and succeeds without arguments); `cargo run --release -p fretscribe-analysis --example waveform_peaks -- <file>` prints peaks.

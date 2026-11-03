@@ -19,3 +19,7 @@ tempfile.workspace = true
 [[test]]
 name = "export_png"
 harness = false
+
+[[test]]
+name = "export_waveform_png"
+harness = false
