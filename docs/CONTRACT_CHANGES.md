@@ -49,7 +49,7 @@ New public API in `fretscribe-analysis` (all in project time, seconds):
 
 Design notes: half-octave bands, each with its own FFT size and a Hann window of `q / f_lowest_of_band` seconds (clamped), so every row has at least the resolution `q` promises (at most 1.4x less time resolution at the top of a band). Long-window bands are evaluated every `window / 8` frames and interpolated in time. A 300 s file takes about 1.8 s in release on 2 cores.
 
-`cargo test -p fretscribe-analysis --test export_png -- <args>` is a plain `fn main()` (`harness = false`); it also ignores `--nocapture`, `--quiet` and `-q` so `cargo test --workspace -- --nocapture` keeps working.
+`cargo test -p fretscribe-analysis --test export_spectrogram_png -- <args>` is a plain `fn main()` (`harness = false`); it also ignores `--nocapture`, `--quiet` and `-q` so `cargo test --workspace -- --nocapture` keeps working.
 
 ## 2026-11-02 - analysis crate: application display defaults
 

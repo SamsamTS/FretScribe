@@ -17,7 +17,7 @@ fretscribe-audio.workspace = true
 tempfile.workspace = true
 
 [[test]]
-name = "export_png"
+name = "export_spectrogram_png"
 harness = false
 
 [[test]]

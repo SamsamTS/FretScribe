@@ -1,6 +1,6 @@
 //! Exports an excerpt from the middle of a track as PNG(s) for visual inspection, and checks the
 //! render pipeline. `harness = false`: run it with `cargo test -p fretscribe-analysis --test
-//! export_png -- --audio song.flac --lut Heat --black 0.25 --white 0.9 --gamma 0.7,1.0,1.5`.
+//! export_spectrogram_png -- --audio song.flac --lut Heat --black 0.25 --white 0.9 --gamma 0.7,1.0,1.5`.
 
 use std::collections::HashSet;
 use std::f32::consts::TAU;
@@ -17,7 +17,7 @@ const HEIGHT: usize = 640;
 const SYNTH_RATE: u32 = 44_100;
 const SYNTH_SECONDS: f32 = 20.0;
 const USAGE: &str = "\
-usage: export_png [--audio <path>] [--seconds <f>] [--lut <name>] [--black <f>] [--white <f>]
+usage: export_spectrogram_png [--audio <path>] [--seconds <f>] [--lut <name>] [--black <f>] [--white <f>]
                   [--gamma <v[,v,...]>] [--out <dir>]
   --audio    audio file (default: synthetic 20 s chord)
   --seconds  excerpt length, centred on the middle of the track (default 5.0)
