@@ -3,9 +3,10 @@
 //! the returned events.
 //!
 //! Interactions on the strip:
-//! - left click or left drag: move the seek point (scrub). Dragging the viewport box instead pans
-//!   the main view (body) or zooms it (edges); a plain click on the box still seeks
-//! - right drag: create a region; right-drag its handles to resize it, or inside it to move it
+//! - left click or left drag: move the seek point (scrub). Dragging a region edge resizes the
+//!   region, and dragging the viewport box pans the main view (body) or zooms it (edges); a plain
+//!   click on any of them still seeks
+//! - right drag: create a region; right-drag its edges to resize it, or inside it to move it
 //!   (Shift+right drag always starts a new one); single right click: clear the selection
 //! - Ctrl (Cmd on macOS) while dragging a region, or `snap_region(true)`: edges snap to the nearest
 //!   measure start
@@ -239,7 +240,7 @@ where
             state = origin.and_then(|origin| {
                 let (x, in_wave) = (origin.x - rect.left(), origin.y >= wave_top);
                 let mode = if response.drag_started_by(PointerButton::Primary) {
-                    hit_test_primary(x, vp_x, in_wave)
+                    hit_test_primary(x, &map, *region, vp_x, in_wave)
                 } else if response.drag_started_by(PointerButton::Secondary) {
                     hit_test_secondary(x, &map, *region, in_wave, shift)
                 } else {
@@ -293,7 +294,7 @@ where
             let (x, in_wave) = (pos.x - rect.left(), pos.y >= wave_top);
             Some(match hit_test_secondary(x, &map, *region, in_wave, false) {
                 handle @ (DragMode::RegionStart | DragMode::RegionEnd) => handle,
-                _ => hit_test_primary(x, vp_x, in_wave),
+                _ => hit_test_primary(x, &map, *region, vp_x, in_wave),
             })
         });
         let icon = match hover_mode {

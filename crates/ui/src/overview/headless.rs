@@ -289,13 +289,28 @@ fn right_handles_resize_and_the_body_moves() {
 }
 
 #[test]
-fn left_drag_never_edits_the_region() {
+fn left_drag_on_a_region_edge_resizes_it_without_moving_the_seek_point() {
     let mut h = Harness::new();
-    let region = RegionSelection { start_sec: 60.0, end_sec: 80.0 };
+    h.region = Some(RegionSelection { start_sec: 60.0, end_sec: 80.0 });
+    let events = h.drag(80.0, 90.0, LEFT, Modifiers::NONE);
+    let r = h.region.unwrap();
+    assert!((r.start_sec - 60.0).abs() < 1e-9 && (r.end_sec - 90.0).abs() < 0.6, "{r:?}");
+    assert!(seeks(&events).is_empty(), "{events:?}");
+    assert_eq!(h.playhead, 10.0);
+    let events = h.drag(60.0, 50.0, LEFT, Modifiers::NONE);
+    let r = h.region.unwrap();
+    assert!((r.start_sec - 50.0).abs() < 0.6 && (r.end_sec - 90.0).abs() < 0.6, "{r:?}");
+    assert!(seeks(&events).is_empty());
+}
+
+#[test]
+fn left_drag_inside_the_region_still_scrubs_and_leaves_it_alone() {
+    let mut h = Harness::new();
+    let region = RegionSelection { start_sec: 60.0, end_sec: 100.0 };
     h.region = Some(region);
-    h.drag(80.0, 90.0, LEFT, Modifiers::NONE);
-    h.drag(70.0, 75.0, LEFT, Modifiers::NONE);
+    let events = h.drag(70.0, 75.0, LEFT, Modifiers::NONE);
     assert_eq!(h.region, Some(region));
+    assert!(!seeks(&events).is_empty(), "{events:?}");
 }
 
 #[test]

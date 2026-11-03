@@ -140,11 +140,27 @@ pub enum DragMode {
     MoveRegion,
 }
 
-/// Left button. The viewport box (handles zoom, body pans) only exists below the ruler; anywhere
-/// else, and on a plain click, the left button seeks.
-pub fn hit_test_primary(x: f32, viewport_x: (f32, f32), in_wave: bool) -> DragMode {
+/// Near an edge of the region, either button grabs the handle.
+fn region_handle(x: f32, map: &OverviewMap, region: Option<RegionSelection>) -> Option<DragMode> {
+    let r = region?;
+    let (dl, dr) = ((x - map.sec_to_x(r.start_sec)).abs(), (x - map.sec_to_x(r.end_sec)).abs());
+    (dl.min(dr) <= HANDLE_PX).then_some(if dl <= dr { DragMode::RegionStart } else { DragMode::RegionEnd })
+}
+
+/// Left button. Below the ruler: the region handles resize the region, the viewport box handles
+/// zoom the main view and its body pans it. Anywhere else, and on a plain click, it seeks.
+pub fn hit_test_primary(
+    x: f32,
+    map: &OverviewMap,
+    region: Option<RegionSelection>,
+    viewport_x: (f32, f32),
+    in_wave: bool,
+) -> DragMode {
     if !in_wave {
         return DragMode::Seek;
+    }
+    if let Some(handle) = region_handle(x, map, region) {
+        return handle;
     }
     let (left, right) = viewport_x;
     let handle = HANDLE_PX.min((right - left) / 3.0);
@@ -168,11 +184,8 @@ pub fn hit_test_secondary(
     shift: bool,
 ) -> DragMode {
     let region_x = region.map(|r| (map.sec_to_x(r.start_sec), map.sec_to_x(r.end_sec)));
-    if let (true, Some((left, right))) = (in_wave, region_x) {
-        let (dl, dr) = ((x - left).abs(), (x - right).abs());
-        if dl.min(dr) <= HANDLE_PX {
-            return if dl <= dr { DragMode::RegionStart } else { DragMode::RegionEnd };
-        }
+    if let Some(handle) = region_handle(x, map, region).filter(|_| in_wave) {
+        return handle;
     }
     if shift {
         return DragMode::CreateRegion;
@@ -356,7 +369,7 @@ mod tests {
     }
 
     fn primary(x: f32, in_wave: bool) -> DragMode {
-        hit_test_primary(x, (200.0, 300.0), in_wave)
+        hit_test_primary(x, &map(), None, (200.0, 300.0), in_wave)
     }
 
     fn secondary(x: f32, region: Option<RegionSelection>, in_wave: bool, shift: bool) -> DragMode {
@@ -373,6 +386,17 @@ mod tests {
     }
 
     #[test]
+    fn left_button_grabs_region_handles_before_anything_else() {
+        let r = Some(region(20.0, 40.0)); // 200..400 px; the start handle sits on the viewport edge
+        let left = |x: f32, in_wave: bool| hit_test_primary(x, &map(), r, (200.0, 300.0), in_wave);
+        assert_eq!(left(198.0, true), DragMode::RegionStart);
+        assert_eq!(left(403.0, true), DragMode::RegionEnd);
+        assert_eq!(left(350.0, true), DragMode::Seek, "inside the region the left button still seeks");
+        assert_eq!(left(250.0, true), DragMode::PanViewport);
+        assert_eq!(left(198.0, false), DragMode::Seek, "not in the ruler band");
+    }
+
+    #[test]
     fn the_viewport_box_does_not_exist_in_the_ruler_band() {
         for x in [203.0, 250.0, 297.0, 700.0] {
             assert_eq!(primary(x, false), DragMode::Seek);
@@ -381,8 +405,8 @@ mod tests {
 
     #[test]
     fn narrow_viewport_keeps_a_body_zone() {
-        assert_eq!(hit_test_primary(100.0, (96.0, 104.0), true), DragMode::PanViewport);
-        assert_eq!(hit_test_primary(96.0, (96.0, 104.0), true), DragMode::ViewportLeft);
+        assert_eq!(hit_test_primary(100.0, &map(), None, (96.0, 104.0), true), DragMode::PanViewport);
+        assert_eq!(hit_test_primary(96.0, &map(), None, (96.0, 104.0), true), DragMode::ViewportLeft);
     }
 
     #[test]
