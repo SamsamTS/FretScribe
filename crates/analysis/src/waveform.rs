@@ -165,9 +165,68 @@ fn rows_for(low: f32, high: f32, height: u32) -> (u32, u32) {
     (top as u32, bottom as u32)
 }
 
+/// Width in pixels of the moving average applied to the column colours along the time axis
+/// (window of `2 * (n / 2) + 1` pixels, 0 or 1 disables it). Only colours are smoothed: the
+/// envelope and body outlines always follow the peaks exactly.
+pub const WAVEFORM_COLOR_SMOOTHING_PX: usize = 15;
+
+struct Column {
+    envelope: (u32, u32),
+    body: Option<(u32, u32)>,
+    level: f32,
+}
+
+fn column_for(peak: Peak, height: u32) -> Option<Column> {
+    let (min, max, rms) = (sanitise(peak.0), sanitise(peak.1), sanitise(peak.2).abs());
+    let (low, high) = (min.min(max), min.max(max));
+    let loudness = low.abs().max(high.abs());
+    if loudness <= 0.0 {
+        return None;
+    }
+    let envelope = rows_for(low, high, height);
+    let body = rows_for(-rms, rms, height);
+    let body = (body.0.max(envelope.0), body.1.min(envelope.1));
+    Some(Column {
+        envelope,
+        body: (body.0 <= body.1).then_some(body),
+        level: apply_gamma(loudness, WAVEFORM_GAMMA),
+    })
+}
+
+/// Moving average over the drawn columns only, so notes do not fade into the silence around them.
+fn smoothed_levels(columns: &[Option<Column>], pixels: usize) -> Vec<f32> {
+    let radius = pixels / 2;
+    let mut sums = vec![0.0f64];
+    let mut counts = vec![0usize];
+    for column in columns {
+        let (level, drawn) = column
+            .as_ref()
+            .map_or((0.0, 0), |c| (f64::from(c.level), 1));
+        sums.push(sums[sums.len() - 1] + level);
+        counts.push(counts[counts.len() - 1] + drawn);
+    }
+    (0..columns.len())
+        .map(|x| {
+            let (lo, hi) = (
+                x.saturating_sub(radius),
+                (x + radius + 1).min(columns.len()),
+            );
+            match counts[hi] - counts[lo] {
+                0 => 0.0,
+                n => ((sums[hi] - sums[lo]) / n as f64) as f32,
+            }
+        })
+        .collect()
+}
+
 /// One RGBA column per peak, `height` rows, row 0 on top. The background is the LUT's lowest
-/// colour; columns are coloured by their loudness, with the RMS body brighter than the envelope.
+/// colour; columns are coloured by their loudness (smoothed over `WAVEFORM_COLOR_SMOOTHING_PX`
+/// pixels), with the RMS body brighter than the envelope.
 pub fn render_rgba(peaks: &[Peak], height: u32, lut: &Lut) -> Vec<u8> {
+    render_with_smoothing(peaks, height, lut, WAVEFORM_COLOR_SMOOTHING_PX)
+}
+
+fn render_with_smoothing(peaks: &[Peak], height: u32, lut: &Lut, smoothing_px: usize) -> Vec<u8> {
     let width = peaks.len();
     if width == 0 || height == 0 {
         return Vec::new();
@@ -181,27 +240,19 @@ pub fn render_rgba(peaks: &[Peak], height: u32, lut: &Lut) -> Vec<u8> {
         pixel.copy_from_slice(&centre_colour);
     }
 
+    let columns: Vec<Option<Column>> = peaks.iter().map(|&p| column_for(p, height)).collect();
+    let levels = smoothed_levels(&columns, smoothing_px);
     let mut paint = |x: usize, rows: (u32, u32), colour: [u8; 4]| {
         for y in rows.0..=rows.1 {
             let at = y as usize * stride + x * 4;
             buffer[at..at + 4].copy_from_slice(&colour);
         }
     };
-    for (x, &(min, max, rms)) in peaks.iter().enumerate() {
-        let (min, max, rms) = (sanitise(min), sanitise(max), sanitise(rms).abs());
-        let (low, high) = (min.min(max), min.max(max));
-        let loudness = low.abs().max(high.abs());
-        if loudness <= 0.0 {
-            continue;
-        }
-        let envelope = rows_for(low, high, height);
-        let level = apply_gamma(loudness, WAVEFORM_GAMMA);
-        paint(x, envelope, lut.color(level));
-
-        let body = rows_for(-rms, rms, height);
-        let body = (body.0.max(envelope.0), body.1.min(envelope.1));
-        if body.0 <= body.1 {
-            paint(x, body, lut.color(level + BODY_LIFT));
+    for (x, column) in columns.iter().enumerate() {
+        let Some(column) = column else { continue };
+        paint(x, column.envelope, lut.color(levels[x]));
+        if let Some(body) = column.body {
+            paint(x, body, lut.color(levels[x] + BODY_LIFT));
         }
     }
     buffer
@@ -437,7 +488,7 @@ mod tests {
     #[test]
     fn louder_columns_are_brighter() {
         let lut = grey_lut();
-        let buffer = render_rgba(&[(-0.2, 0.2, 0.1), (-0.8, 0.8, 0.1)], 100, &lut);
+        let buffer = render_with_smoothing(&[(-0.2, 0.2, 0.1), (-0.8, 0.8, 0.1)], 100, &lut, 0);
         let top_of = |x: usize| (0..100).find(|&y| pixel(&buffer, 2, x, y)[0] > 0).unwrap();
         assert!(top_of(1) < top_of(0));
         assert!(pixel(&buffer, 2, 1, top_of(1))[0] > pixel(&buffer, 2, 0, top_of(0))[0]);
@@ -467,5 +518,80 @@ mod tests {
             );
             assert_eq!(buffer[3], 255);
         }
+    }
+
+    fn drawn_mask(buffer: &[u8], lut: &Lut) -> Vec<bool> {
+        buffer
+            .chunks_exact(4)
+            .map(|p| p != lut.colors[0].as_slice())
+            .collect()
+    }
+
+    fn alternating(columns: usize) -> Vec<Peak> {
+        (0..columns)
+            .map(|x| {
+                if x % 2 == 0 {
+                    (-0.9, 0.9, 0.4)
+                } else {
+                    (-0.3, 0.3, 0.1)
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn smoothing_changes_colours_but_not_the_contour() {
+        let lut = grey_lut();
+        let peaks = alternating(60);
+        let sharp = render_with_smoothing(&peaks, 80, &lut, 0);
+        let smooth = render_with_smoothing(&peaks, 80, &lut, 15);
+        assert_ne!(sharp, smooth);
+        assert_eq!(drawn_mask(&sharp, &lut), drawn_mask(&smooth, &lut));
+    }
+
+    #[test]
+    fn smoothing_evens_out_neighbouring_columns() {
+        let lut = grey_lut();
+        let peaks = alternating(60);
+        let row = 40;
+        let spread = |smoothing| {
+            let buffer = render_with_smoothing(&peaks, 80, &lut, smoothing);
+            let a = i32::from(pixel(&buffer, 60, 30, row)[0]);
+            let b = i32::from(pixel(&buffer, 60, 31, row)[0]);
+            (a, b)
+        };
+        let (a, b) = spread(0);
+        assert!(a > 0 && b > 0 && (a - b).abs() > 40, "{a} {b}");
+        let (a, b) = spread(15);
+        assert!((a - b).abs() <= 12, "{a} {b}");
+    }
+
+    #[test]
+    fn smoothing_of_zero_or_one_pixel_is_the_identity() {
+        let lut = grey_lut();
+        let peaks = alternating(20);
+        let off = render_with_smoothing(&peaks, 50, &lut, 0);
+        assert_eq!(render_with_smoothing(&peaks, 50, &lut, 1), off);
+    }
+
+    #[test]
+    fn silence_does_not_dim_the_edges_of_a_note() {
+        let lut = grey_lut();
+        let mut peaks = vec![(0.0, 0.0, 0.0); 20];
+        peaks.extend(vec![(-0.6, 0.6, 0.3); 20]);
+        peaks.extend(vec![(0.0, 0.0, 0.0); 20]);
+        let sharp = render_with_smoothing(&peaks, 60, &lut, 0);
+        let smooth = render_with_smoothing(&peaks, 60, &lut, 15);
+        assert_eq!(sharp, smooth);
+    }
+
+    #[test]
+    fn default_smoothing_applies_to_render_rgba() {
+        let lut = grey_lut();
+        let peaks = alternating(60);
+        assert_eq!(
+            render_rgba(&peaks, 80, &lut),
+            render_with_smoothing(&peaks, 80, &lut, WAVEFORM_COLOR_SMOOTHING_PX)
+        );
     }
 }
