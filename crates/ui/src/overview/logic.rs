@@ -1,4 +1,4 @@
-//! Pure geometry and drag logic of the overview timeline (no egui types besides nothing at all).
+//! Pure geometry and drag logic of the overview timeline (no egui types).
 
 use crate::view::{RegionSelection, TimelineView, MAX_PIXELS_PER_SEC, MIN_PIXELS_PER_SEC};
 
@@ -107,56 +107,58 @@ pub fn snap_to(sec: f64, points: &[f64]) -> f64 {
         .unwrap_or(sec)
 }
 
+/// What a drag started on the strip does. The left button seeks and drives the viewport box, the
+/// right button edits the region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DragMode {
+    Seek,
+    PanViewport,
+    ViewportLeft,
+    ViewportRight,
     CreateRegion,
     RegionStart,
     RegionEnd,
     MoveRegion,
-    PanViewport,
-    ViewportLeft,
-    ViewportRight,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Keys {
-    pub shift: bool,
-    pub alt: bool,
+/// Left button. The viewport box (handles zoom, body pans) only exists below the ruler; anywhere
+/// else, and on a plain click, the left button seeks.
+pub fn hit_test_primary(x: f32, viewport_x: (f32, f32), in_wave: bool) -> DragMode {
+    if !in_wave {
+        return DragMode::Seek;
+    }
+    let (left, right) = viewport_x;
+    let handle = HANDLE_PX.min((right - left) / 3.0);
+    let (dl, dr) = ((x - left).abs(), (x - right).abs());
+    if dl.min(dr) <= handle {
+        return if dl <= dr { DragMode::ViewportLeft } else { DragMode::ViewportRight };
+    }
+    if x > left && x < right {
+        return DragMode::PanViewport;
+    }
+    DragMode::Seek
 }
 
-/// What a press at `x` grabs. Priority: region handles, viewport handles, Alt = move the region,
-/// Shift = create a region (even over the viewport), viewport body, region body, otherwise create.
-pub fn hit_test(
+/// Right button: the region handles resize it, a press inside it moves it, anything else (or
+/// Shift, or the ruler band) starts a new region.
+pub fn hit_test_secondary(
     x: f32,
     map: &OverviewMap,
     region: Option<RegionSelection>,
-    viewport_x: (f32, f32),
-    keys: Keys,
+    in_wave: bool,
+    shift: bool,
 ) -> DragMode {
     let region_x = region.map(|r| (map.sec_to_x(r.start_sec), map.sec_to_x(r.end_sec)));
-    if let Some((left, right)) = region_x {
+    if let (true, Some((left, right))) = (in_wave, region_x) {
         let (dl, dr) = ((x - left).abs(), (x - right).abs());
         if dl.min(dr) <= HANDLE_PX {
             return if dl <= dr { DragMode::RegionStart } else { DragMode::RegionEnd };
         }
     }
-    let (vl, vr) = viewport_x;
-    let handle = HANDLE_PX.min((vr - vl) / 3.0);
-    let (dl, dr) = ((x - vl).abs(), (x - vr).abs());
-    if dl.min(dr) <= handle {
-        return if dl <= dr { DragMode::ViewportLeft } else { DragMode::ViewportRight };
-    }
-    let in_region = region_x.is_some_and(|(left, right)| x >= left && x <= right);
-    if keys.alt && in_region {
-        return DragMode::MoveRegion;
-    }
-    if keys.shift {
+    if shift {
         return DragMode::CreateRegion;
     }
-    if x > vl && x < vr {
-        return DragMode::PanViewport;
-    }
-    if in_region {
+    if in_wave && region_x.is_some_and(|(left, right)| x >= left && x <= right) {
         return DragMode::MoveRegion;
     }
     DragMode::CreateRegion
@@ -180,6 +182,7 @@ pub struct DragContext<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DragUpdate {
+    Seek(f64),
     Region(RegionSelection),
     Viewport(TimelineView),
     Nothing,
@@ -190,6 +193,7 @@ pub fn drag_update(state: &DragState, pointer_sec: f64, ctx: &DragContext) -> Dr
     let snap = |t: f64| ctx.snap.map_or(t, |points| snap_to(t, points));
     let region = |r: Option<RegionSelection>| r.map_or(DragUpdate::Nothing, DragUpdate::Region);
     match state.mode {
+        DragMode::Seek => DragUpdate::Seek(pointer_sec),
         DragMode::CreateRegion => region(RegionSelection::normalised(snap(state.origin_sec), snap(pointer_sec), len)),
         DragMode::RegionStart => region(state.region.map(|r| r.with_start(snap(pointer_sec)))),
         DragMode::RegionEnd => region(state.region.map(|r| r.with_end(snap(pointer_sec), len))),
@@ -313,42 +317,60 @@ mod tests {
         assert_eq!(snap_to(3.3, &[f64::NAN]), 3.3);
     }
 
-    fn hit(x: f32, region: Option<RegionSelection>, keys: Keys) -> DragMode {
-        // viewport 200..300 px, region (if any) given in seconds on the 10 px/s map
-        hit_test(x, &map(), region, (200.0, 300.0), keys)
+    fn primary(x: f32, in_wave: bool) -> DragMode {
+        hit_test_primary(x, (200.0, 300.0), in_wave)
+    }
+
+    fn secondary(x: f32, region: Option<RegionSelection>, in_wave: bool, shift: bool) -> DragMode {
+        hit_test_secondary(x, &map(), region, in_wave, shift)
     }
 
     #[test]
-    fn region_handles_win_over_everything() {
-        let r = Some(region(20.0, 40.0)); // 200..400 px, its start handle sits on the viewport edge
-        assert_eq!(hit(198.0, r, Keys::default()), DragMode::RegionStart);
-        assert_eq!(hit(403.0, r, Keys { shift: true, alt: true }), DragMode::RegionEnd);
+    fn left_button_seeks_except_on_the_viewport_box() {
+        assert_eq!(primary(203.0, true), DragMode::ViewportLeft);
+        assert_eq!(primary(297.0, true), DragMode::ViewportRight);
+        assert_eq!(primary(250.0, true), DragMode::PanViewport);
+        assert_eq!(primary(700.0, true), DragMode::Seek);
+        assert_eq!(primary(100.0, true), DragMode::Seek);
     }
 
     #[test]
-    fn viewport_handles_and_body() {
-        assert_eq!(hit(203.0, None, Keys::default()), DragMode::ViewportLeft);
-        assert_eq!(hit(297.0, None, Keys::default()), DragMode::ViewportRight);
-        assert_eq!(hit(250.0, None, Keys::default()), DragMode::PanViewport);
-        assert_eq!(hit(700.0, None, Keys::default()), DragMode::CreateRegion);
-    }
-
-    #[test]
-    fn shift_creates_inside_the_viewport_and_alt_moves_the_region() {
-        assert_eq!(hit(250.0, None, Keys { shift: true, alt: false }), DragMode::CreateRegion);
-        let r = Some(region(22.0, 28.0)); // 220..280 px, inside the viewport
-        assert_eq!(hit(250.0, r, Keys::default()), DragMode::PanViewport);
-        assert_eq!(hit(250.0, r, Keys { shift: false, alt: true }), DragMode::MoveRegion);
-        let r = Some(region(50.0, 70.0));
-        assert_eq!(hit(600.0, r, Keys::default()), DragMode::MoveRegion);
-        assert_eq!(hit(600.0, r, Keys { shift: true, alt: false }), DragMode::CreateRegion);
+    fn the_viewport_box_does_not_exist_in_the_ruler_band() {
+        for x in [203.0, 250.0, 297.0, 700.0] {
+            assert_eq!(primary(x, false), DragMode::Seek);
+        }
     }
 
     #[test]
     fn narrow_viewport_keeps_a_body_zone() {
-        let mode = hit_test(100.0, &map(), None, (96.0, 104.0), Keys::default());
-        assert_eq!(mode, DragMode::PanViewport);
-        assert_eq!(hit_test(96.0, &map(), None, (96.0, 104.0), Keys::default()), DragMode::ViewportLeft);
+        assert_eq!(hit_test_primary(100.0, (96.0, 104.0), true), DragMode::PanViewport);
+        assert_eq!(hit_test_primary(96.0, (96.0, 104.0), true), DragMode::ViewportLeft);
+    }
+
+    #[test]
+    fn right_button_resizes_moves_or_creates() {
+        let r = Some(region(20.0, 40.0)); // 200..400 px
+        assert_eq!(secondary(198.0, r, true, false), DragMode::RegionStart);
+        assert_eq!(secondary(403.0, r, true, true), DragMode::RegionEnd);
+        assert_eq!(secondary(300.0, r, true, false), DragMode::MoveRegion);
+        assert_eq!(secondary(300.0, r, true, true), DragMode::CreateRegion);
+        assert_eq!(secondary(700.0, r, true, false), DragMode::CreateRegion);
+        assert_eq!(secondary(300.0, None, true, false), DragMode::CreateRegion);
+    }
+
+    #[test]
+    fn the_region_does_not_exist_in_the_ruler_band() {
+        let r = Some(region(20.0, 40.0));
+        for x in [198.0, 300.0, 403.0] {
+            assert_eq!(secondary(x, r, false, false), DragMode::CreateRegion);
+        }
+    }
+
+    #[test]
+    fn seeking_follows_the_pointer() {
+        let s = state(DragMode::Seek, 10.0, None, TimelineView::default());
+        assert_eq!(drag_update(&s, 33.0, &ctx(None)), DragUpdate::Seek(33.0));
+        assert_eq!(drag_update(&s, 33.0, &ctx(Some(&[0.0, 40.0]))), DragUpdate::Seek(33.0), "seeking never snaps");
     }
 
     #[test]

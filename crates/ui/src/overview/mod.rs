@@ -2,16 +2,18 @@
 //! the playhead and the region selection. It only reads the shared `TimelineView`; the app applies
 //! the returned events.
 //!
-//! Interactions on the strip (see `logic::hit_test` for the priority):
-//! - click: seek; double-click: clear the selection
-//! - drag the viewport rectangle: pan the main view; drag its edges: zoom it
-//! - drag elsewhere (or Shift+drag anywhere): create a region; drag its handles to resize it;
-//!   drag inside it (Alt+drag when it is under the viewport) to move it
-//! - Ctrl (Cmd on macOS) while dragging, or `snap_region(true)`: region edges snap to the nearest
+//! Interactions on the strip:
+//! - left click or left drag: move the seek point (scrub). Dragging the viewport box instead pans
+//!   the main view (body) or zooms it (edges); a plain click on the box still seeks
+//! - right drag: create a region; right-drag its handles to resize it, or inside it to move it
+//!   (Shift+right drag always starts a new one); single right click: clear the selection
+//! - Ctrl (Cmd on macOS) while dragging a region, or `snap_region(true)`: edges snap to the nearest
 //!   measure line
+//! - the ruler band on top only seeks and starts regions; the boxes never cover it
 
 mod logic;
 mod ruler;
+mod waveform;
 
 #[cfg(test)]
 mod headless;
@@ -19,7 +21,7 @@ mod headless;
 use std::ops::Range;
 
 use egui::{
-    pos2, vec2, Align2, Button, Color32, CursorIcon, FontId, Mesh, Rect, Sense, Shape, Stroke,
+    pos2, vec2, Align2, Button, Color32, CursorIcon, FontId, PointerButton, Rect, Sense, Stroke,
     StrokeKind, Ui,
 };
 
@@ -27,10 +29,12 @@ use crate::grid::LineBatch;
 use crate::view::{RegionSelection, TimelineView};
 
 pub use logic::{
-    drag_update, hit_test, pan, resize_left, resize_right, snap_to, viewport, viewport_x,
-    DragContext, DragMode, DragState, DragUpdate, Keys, OverviewMap, HANDLE_PX, MIN_VIEWPORT_PX,
+    drag_update, hit_test_primary, hit_test_secondary, pan, resize_left, resize_right, snap_to,
+    viewport, viewport_x, DragContext, DragMode, DragState, DragUpdate, OverviewMap, HANDLE_PX,
+    MIN_VIEWPORT_PX,
 };
 pub use ruler::{format_time, tick_step, ticks};
+pub use waveform::{WaveformPalette, WAVEFORM_GAMMA};
 
 const RULER_HEIGHT: f32 = 16.0;
 const DEFAULT_WAVEFORM_HEIGHT: f32 = 44.0;
@@ -53,13 +57,12 @@ pub struct OverviewOutput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct OverviewStyle {
-    pub background: Color32,
+    /// Colours of the waveform and the background behind it: the application's global LUT.
+    pub palette: WaveformPalette,
     pub ruler_background: Color32,
     pub ruler_text: Color32,
     pub tick: Color32,
     pub tick_minor: Color32,
-    pub envelope: Color32,
-    pub body: Color32,
     pub measure_line: Color32,
     pub region_fill: Color32,
     pub region_edge: Color32,
@@ -71,14 +74,12 @@ pub struct OverviewStyle {
 impl Default for OverviewStyle {
     fn default() -> Self {
         Self {
-            background: Color32::from_rgb(16, 20, 28),
+            palette: WaveformPalette::default(),
             ruler_background: Color32::from_rgb(26, 31, 42),
             ruler_text: Color32::from_rgb(170, 178, 196),
             tick: Color32::from_rgb(120, 130, 152),
             tick_minor: Color32::from_rgb(64, 72, 90),
-            envelope: Color32::from_rgb(70, 110, 160),
-            body: Color32::from_rgb(120, 175, 235),
-            measure_line: Color32::from_rgba_unmultiplied(220, 226, 240, 40),
+            measure_line: Color32::from_rgba_unmultiplied(220, 226, 240, 60),
             region_fill: Color32::from_rgba_unmultiplied(255, 190, 70, 60),
             region_edge: Color32::from_rgb(255, 200, 90),
             viewport_fill: Color32::from_rgba_unmultiplied(255, 255, 255, 22),
@@ -168,6 +169,12 @@ where
         self
     }
 
+    /// The waveform colours, normally `WaveformPalette::from_rgba(&lut.colors)` of the global LUT.
+    pub fn palette(mut self, palette: WaveformPalette) -> Self {
+        self.style.palette = palette;
+        self
+    }
+
     pub fn show(self, ui: &mut Ui, region: &mut Option<RegionSelection>) -> OverviewOutput {
         let mut events = Vec::new();
         let mut strip = Rect::NOTHING;
@@ -217,18 +224,25 @@ where
         let drag_id = id.with("drag");
         let response = ui.interact(rect, id, Sense::click_and_drag());
         let map = OverviewMap { audio_len_sec: self.audio_len_sec, width_px: rect.width() };
-        let vp = viewport(self.view, self.main_width_px, self.audio_len_sec);
-        let vp_x = viewport_x(&map, vp);
-        let (keys, ctrl) = ui.input(|i| (Keys { shift: i.modifiers.shift, alt: i.modifiers.alt }, i.modifiers.command));
+        let vp_x = viewport_x(&map, viewport(self.view, self.main_width_px, self.audio_len_sec));
+        let (shift, ctrl) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+        let wave_top = rect.top() + RULER_HEIGHT;
         let sec_at = |p: egui::Pos2| map.x_to_sec(p.x - rect.left());
 
         let mut state = ctx.data(|d| d.get_temp::<DragState>(drag_id));
         if response.drag_started() {
             let origin = ui.input(|i| i.pointer.press_origin()).or_else(|| response.interact_pointer_pos());
-            if let Some(origin) = origin {
-                let mode = hit_test(origin.x - rect.left(), &map, *region, vp_x, keys);
-                state = Some(DragState { mode, origin_sec: sec_at(origin), region: *region, view: *self.view });
-            }
+            state = origin.and_then(|origin| {
+                let (x, in_wave) = (origin.x - rect.left(), origin.y >= wave_top);
+                let mode = if response.drag_started_by(PointerButton::Primary) {
+                    hit_test_primary(x, vp_x, in_wave)
+                } else if response.drag_started_by(PointerButton::Secondary) {
+                    hit_test_secondary(x, &map, *region, in_wave, shift)
+                } else {
+                    return None;
+                };
+                Some(DragState { mode, origin_sec: sec_at(origin), region: *region, view: *self.view })
+            });
         }
         if let (Some(drag), true) = (state, response.dragged()) {
             if let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) {
@@ -238,6 +252,9 @@ where
                     snap: self.snap_targets(self.snap_region, ctrl),
                 };
                 match drag_update(&drag, sec_at(pointer), &context) {
+                    DragUpdate::Seek(sec) if (sec - self.playhead_sec).abs() > 1e-9 => {
+                        events.push(OverviewEvent::SeekRequested(sec));
+                    }
                     DragUpdate::Region(new) if *region != Some(new) => {
                         *region = Some(new);
                         events.push(OverviewEvent::RegionChanged(Some(new)));
@@ -258,29 +275,33 @@ where
             None => {}
         }
 
-        if response.double_clicked() {
-            if region.take().is_some() {
-                events.push(OverviewEvent::RegionChanged(None));
-            }
-        } else if response.clicked() {
+        if response.clicked_by(PointerButton::Primary) {
             if let Some(pos) = response.interact_pointer_pos() {
                 events.push(OverviewEvent::SeekRequested(sec_at(pos)));
             }
         }
+        if response.clicked_by(PointerButton::Secondary) && region.take().is_some() {
+            events.push(OverviewEvent::RegionChanged(None));
+        }
 
         let hover_mode = state.map(|d| d.mode).or_else(|| {
-            response
-                .hover_pos()
-                .map(|p| hit_test(p.x - rect.left(), &map, *region, vp_x, keys))
+            let pos = response.hover_pos()?;
+            let (x, in_wave) = (pos.x - rect.left(), pos.y >= wave_top);
+            Some(match hit_test_secondary(x, &map, *region, in_wave, false) {
+                handle @ (DragMode::RegionStart | DragMode::RegionEnd) => handle,
+                _ => hit_test_primary(x, vp_x, in_wave),
+            })
         });
-        if let Some(mode) = hover_mode {
-            ctx.set_cursor_icon(match mode {
-                DragMode::CreateRegion => CursorIcon::Crosshair,
-                DragMode::RegionStart | DragMode::RegionEnd | DragMode::ViewportLeft | DragMode::ViewportRight => {
-                    CursorIcon::ResizeHorizontal
-                }
-                DragMode::MoveRegion | DragMode::PanViewport => CursorIcon::Grab,
-            });
+        let icon = match hover_mode {
+            Some(DragMode::CreateRegion) => CursorIcon::Crosshair,
+            Some(
+                DragMode::RegionStart | DragMode::RegionEnd | DragMode::ViewportLeft | DragMode::ViewportRight,
+            ) => CursorIcon::ResizeHorizontal,
+            Some(DragMode::MoveRegion | DragMode::PanViewport) => CursorIcon::Grab,
+            Some(DragMode::Seek) | None => CursorIcon::Default,
+        };
+        if icon != CursorIcon::Default {
+            ctx.set_cursor_icon(icon);
         }
     }
 
@@ -293,10 +314,10 @@ where
         let ruler = Rect::from_min_size(rect.min, vec2(rect.width(), RULER_HEIGHT));
         let wave = Rect::from_min_max(pos2(rect.left(), ruler.bottom()), rect.max);
 
-        painter.rect_filled(rect, 0.0, style.background);
         painter.rect_filled(ruler, 0.0, style.ruler_background);
-        painter.add(self.waveform(wave, ppp));
+        painter.rect_filled(wave, 0.0, style.palette.background());
 
+        // background: the measure lines, behind the waveform
         let mut lines = LineBatch::new(ppp);
         let mut last_x = f32::NEG_INFINITY;
         for &start in self.measure_starts {
@@ -308,66 +329,44 @@ where
         }
         painter.add(lines.into_shape());
 
+        let columns = (wave.width() * ppp).round().max(1.0) as usize;
+        let peaks = (self.peaks)(0.0..self.audio_len_sec, columns);
+        let peaks = &peaks[..peaks.len().min(columns)];
+        painter.add(waveform::build_mesh(wave, ppp, peaks, &style.palette));
+
         self.ruler(&painter, ruler, &map, ppp);
 
+        // the boxes stay below the ruler so the time labels remain readable
         if let Some(region) = region {
             let (left, right) = (x_of(region.start_sec), x_of(region.end_sec));
             painter.rect_filled(
-                Rect::from_min_max(pos2(left, rect.top()), pos2(right.max(left + 1.0), rect.bottom())),
+                Rect::from_min_max(pos2(left, wave.top()), pos2(right.max(left + 1.0), wave.bottom())),
                 0.0,
                 style.region_fill,
             );
             let mut edges = LineBatch::new(ppp);
             for x in [left, right] {
-                edges.solid(x, rect.top(), rect.bottom(), 2.0, style.region_edge);
+                edges.solid(x, wave.top(), wave.bottom(), 2.0, style.region_edge);
             }
             painter.add(edges.into_shape());
             for x in [left, right] {
-                let grip = Rect::from_center_size(pos2(x, ruler.center().y), vec2(6.0, RULER_HEIGHT - 4.0));
-                painter.rect_filled(grip, 2.0, style.region_edge);
+                painter.rect_filled(Rect::from_center_size(pos2(x, wave.center().y), vec2(6.0, 14.0)), 2.0, style.region_edge);
             }
         }
 
-        let vp = viewport(self.view, self.main_width_px, self.audio_len_sec);
-        let (vl, vr) = viewport_x(&map, vp);
-        let vp_rect = Rect::from_min_max(pos2(rect.left() + vl, rect.top()), pos2(rect.left() + vr, rect.bottom()));
+        let (vl, vr) = viewport_x(&map, viewport(self.view, self.main_width_px, self.audio_len_sec));
+        let vp_rect = Rect::from_min_max(pos2(rect.left() + vl, wave.top()), pos2(rect.left() + vr, wave.bottom()));
         painter.rect_filled(vp_rect, 0.0, style.viewport_fill);
         painter.rect_stroke(vp_rect, 0.0, Stroke::new(1.0_f32, style.viewport_edge), StrokeKind::Inside);
         let mut handles = LineBatch::new(ppp);
         for x in [vp_rect.left() + 1.0, vp_rect.right() - 1.0] {
-            handles.solid(x, rect.top(), rect.bottom(), 3.0, style.viewport_edge);
+            handles.solid(x, wave.top(), wave.bottom(), 3.0, style.viewport_edge);
         }
         painter.add(handles.into_shape());
 
         let mut playhead = LineBatch::new(ppp);
         playhead.solid(x_of(self.playhead_sec.clamp(0.0, self.audio_len_sec)), rect.top(), rect.bottom(), 2.0, style.playhead);
         painter.add(playhead.into_shape());
-    }
-
-    fn waveform(&self, wave: Rect, ppp: f32) -> Shape {
-        let mut mesh = Mesh::default();
-        let columns = (wave.width() * ppp).round().max(1.0) as usize;
-        let peaks = (self.peaks)(0.0..self.audio_len_sec, columns);
-        let (mid, half) = (wave.center().y, wave.height() / 2.0 - 1.0);
-        let one_px = 1.0 / ppp;
-        let clamp = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
-        for (i, &(min, max, rms)) in peaks.iter().take(columns).enumerate() {
-            let x = wave.left() + i as f32 * one_px;
-            let (min, max, rms) = (clamp(min), clamp(max), clamp(rms).abs());
-            let top = mid - max.max(0.0) * half;
-            let bottom = mid - min.min(0.0) * half;
-            mesh.add_colored_rect(
-                Rect::from_min_max(pos2(x, top.min(mid - one_px / 2.0)), pos2(x + one_px, bottom.max(mid + one_px / 2.0))),
-                self.style.envelope,
-            );
-            if rms > 0.0 {
-                mesh.add_colored_rect(
-                    Rect::from_min_max(pos2(x, mid - rms * half), pos2(x + one_px, mid + rms * half)),
-                    self.style.body,
-                );
-            }
-        }
-        Shape::mesh(mesh)
     }
 
     fn ruler(&self, painter: &egui::Painter, ruler: Rect, map: &OverviewMap, ppp: f32) {

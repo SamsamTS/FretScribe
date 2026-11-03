@@ -1,17 +1,20 @@
-//! Demo of the overview timeline over a synthetic waveform, with a plain rectangle standing in for
-//! the main view. The wheel handling below is demo-only: in the application the navigation layer
+//! Demo of the overview timeline over a synthetic waveform, coloured with the global LUTs of the
+//! `LUT/` folder like the analysis crate does, with a plain rectangle standing in for the main view. The wheel handling below is demo-only: in the application the navigation layer
 //! owns it.
 
 use std::ops::Range;
 
 use eframe::egui::{self, Sense};
 use fretscribe_ui::grid::format_time;
+use fretscribe_ui::overview::WaveformPalette;
 use fretscribe_ui::{OverviewEvent, OverviewTimeline, RegionSelection, TimelineView};
 
 const AUDIO_LEN_SEC: f64 = 380.0;
 const BEAT_SEC: f64 = 60.0 / 96.0;
 
 struct OverviewDemo {
+    palettes: Vec<(String, WaveformPalette)>,
+    palette: usize,
     view: TimelineView,
     region: Option<RegionSelection>,
     playhead_sec: f64,
@@ -25,6 +28,8 @@ impl OverviewDemo {
     fn new() -> Self {
         let measure_sec = BEAT_SEC * 4.0;
         Self {
+            palettes: load_palettes(),
+            palette: 0,
             view: TimelineView::new(20.0, 120.0),
             region: None,
             playhead_sec: 0.0,
@@ -34,7 +39,7 @@ impl OverviewDemo {
                 .map(|k| f64::from(k) * measure_sec)
                 .take_while(|&t| t < AUDIO_LEN_SEC)
                 .collect(),
-            status: "Click = seek, drag = select, drag the box = pan, drag its edges = zoom, double-click = clear. Ctrl snaps."
+            status: "Left click/drag = seek, drag the box = pan, its edges = zoom. Right drag = select, right click = clear, Ctrl snaps."
                 .to_owned(),
         }
     }
@@ -68,6 +73,33 @@ impl OverviewDemo {
     }
 }
 
+/// The 256x1 palettes of the repository's `LUT/` folder (what `analysis::lut::Lut::from_png` reads),
+/// falling back to the built-in gradient. The application converts its global LUT with
+/// `WaveformPalette::from_rgba(&lut.colors)`.
+fn load_palettes() -> Vec<(String, WaveformPalette)> {
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../LUT");
+    let mut palettes: Vec<(String, WaveformPalette)> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|e| e == "png"))
+        .filter_map(|entry| {
+            let image = image::open(entry.path()).ok()?.to_rgba8();
+            let (width, height) = image.dimensions();
+            let colors: Vec<[u8; 4]> = (0..256u32)
+                .map(|i| image.get_pixel(i * (width - 1) / 255, height / 2).0)
+                .collect();
+            let name = entry.path().file_stem()?.to_string_lossy().into_owned();
+            Some((name, WaveformPalette::from_rgba(&colors)))
+        })
+        .collect();
+    palettes.sort_by(|a, b| a.0.cmp(&b.0));
+    if palettes.is_empty() {
+        palettes.push(("Built-in".to_owned(), WaveformPalette::default()));
+    }
+    palettes
+}
+
 /// Synthetic song: quiet intro, louder verses and choruses, with a pulse on every beat.
 fn peaks(range: Range<f64>, columns: usize) -> Vec<(f32, f32, f32)> {
     (0..columns)
@@ -93,6 +125,7 @@ impl eframe::App for OverviewDemo {
             let main_width = ui.ctx().screen_rect().width();
             let output = OverviewTimeline::new(AUDIO_LEN_SEC, &self.view, main_width, peaks)
                 .measure_starts(&self.measures)
+                .palette(self.palettes[self.palette].1.clone())
                 .playhead(self.playhead_sec)
                 .looping(self.looping)
                 .snap_region(self.snap_always)
@@ -100,7 +133,16 @@ impl eframe::App for OverviewDemo {
             events = output.events;
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.checkbox(&mut self.snap_always, "Always snap the selection to measures");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.snap_always, "Always snap the selection to measures");
+                egui::ComboBox::from_label("Palette")
+                    .selected_text(&self.palettes[self.palette].0)
+                    .show_ui(ui, |ui| {
+                        for (i, (name, _)) in self.palettes.iter().enumerate() {
+                            ui.selectable_value(&mut self.palette, i, name);
+                        }
+                    });
+            });
             ui.label(&self.status);
             let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
             ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(24, 38, 58));

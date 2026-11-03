@@ -10,3 +10,4 @@ egui.workspace = true
 
 [dev-dependencies]
 eframe.workspace = true
+image.workspace = true

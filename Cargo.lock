@@ -1468,6 +1468,7 @@ dependencies = [
  "eframe",
  "egui",
  "fretscribe-core",
+ "image",
 ]
 
 [[package]]
