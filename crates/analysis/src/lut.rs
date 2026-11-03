@@ -37,6 +37,12 @@ impl Lut {
         Self::from_stops("Classic", &CLASSIC_STOPS)
     }
 
+    /// `t` is clamped to 0..=1; NaN maps to the weakest colour.
+    pub fn color(&self, t: f32) -> [u8; 4] {
+        let t = if t.is_nan() { 0.0 } else { t.clamp(0.0, 1.0) };
+        self.colors[(t * (LUT_SIZE - 1) as f32).round() as usize]
+    }
+
     pub fn from_png(path: &Path) -> Result<Self, AnalysisError> {
         let image = image::open(path)?.to_rgba8();
         let (width, height) = image.dimensions();
@@ -183,6 +189,17 @@ mod tests {
         for lut in &luts {
             assert_eq!(lut.colors[0], [0, 0, 0, 255], "{}", lut.name);
         }
+    }
+
+    #[test]
+    fn color_clamps_and_hits_both_ends() {
+        let lut = Lut::builtin();
+        assert_eq!(lut.color(0.0), lut.colors[0]);
+        assert_eq!(lut.color(1.0), lut.colors[255]);
+        assert_eq!(lut.color(-3.0), lut.colors[0]);
+        assert_eq!(lut.color(7.0), lut.colors[255]);
+        assert_eq!(lut.color(f32::NAN), lut.colors[0]);
+        assert_eq!(lut.color(0.5), lut.colors[128]);
     }
 
     #[test]
