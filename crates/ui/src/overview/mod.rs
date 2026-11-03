@@ -8,8 +8,9 @@
 //! - right drag: create a region; right-drag its handles to resize it, or inside it to move it
 //!   (Shift+right drag always starts a new one); single right click: clear the selection
 //! - Ctrl (Cmd on macOS) while dragging a region, or `snap_region(true)`: edges snap to the nearest
-//!   measure line
+//!   measure start
 //! - the ruler band on top only seeks and starts regions; the boxes never cover it
+//! - odd measures have a slightly lighter background than even ones
 
 mod logic;
 mod ruler;
@@ -29,16 +30,17 @@ use crate::grid::LineBatch;
 use crate::view::{RegionSelection, TimelineView};
 
 pub use logic::{
-    drag_update, hit_test_primary, hit_test_secondary, pan, resize_left, resize_right, snap_to,
+    drag_update, hit_test_primary, hit_test_secondary, measure_bands, pan, resize_left, resize_right, snap_to,
     viewport, viewport_x, DragContext, DragMode, DragState, DragUpdate, OverviewMap, HANDLE_PX,
     MIN_VIEWPORT_PX,
 };
 pub use ruler::{format_time, tick_step, ticks};
-pub use waveform::{WaveformPalette, WAVEFORM_GAMMA};
+pub use waveform::{lighten, WaveformPalette, WAVEFORM_GAMMA};
 
 const RULER_HEIGHT: f32 = 16.0;
 const DEFAULT_WAVEFORM_HEIGHT: f32 = 44.0;
-const MIN_MEASURE_LINE_SPACING_PX: f32 = 4.0;
+/// How much lighter the odd measures' background is than the even ones'.
+pub const MEASURE_BAND_LIGHTEN: f32 = 0.05;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OverviewEvent {
@@ -63,7 +65,8 @@ pub struct OverviewStyle {
     pub ruler_text: Color32,
     pub tick: Color32,
     pub tick_minor: Color32,
-    pub measure_line: Color32,
+    /// Odd measures are drawn with the palette's background lightened by this much (0..=1).
+    pub measure_band_lighten: f32,
     pub region_fill: Color32,
     pub region_edge: Color32,
     pub viewport_fill: Color32,
@@ -79,7 +82,7 @@ impl Default for OverviewStyle {
             ruler_text: Color32::from_rgb(170, 178, 196),
             tick: Color32::from_rgb(120, 130, 152),
             tick_minor: Color32::from_rgb(64, 72, 90),
-            measure_line: Color32::from_rgba_unmultiplied(220, 226, 240, 60),
+            measure_band_lighten: MEASURE_BAND_LIGHTEN,
             region_fill: Color32::from_rgba_unmultiplied(255, 190, 70, 60),
             region_edge: Color32::from_rgb(255, 200, 90),
             viewport_fill: Color32::from_rgba_unmultiplied(255, 255, 255, 22),
@@ -135,7 +138,8 @@ where
         self
     }
 
-    /// Drawn as faint lines, and the snap targets unless `snap_points` is given.
+    /// Start of every measure: they give the alternating background bands, and the snap targets
+    /// unless `snap_points` is given.
     pub fn measure_starts(mut self, starts: &'a [f64]) -> Self {
         self.measure_starts = starts;
         self
@@ -317,17 +321,14 @@ where
         painter.rect_filled(ruler, 0.0, style.ruler_background);
         painter.rect_filled(wave, 0.0, style.palette.background());
 
-        // background: the measure lines, behind the waveform
-        let mut lines = LineBatch::new(ppp);
-        let mut last_x = f32::NEG_INFINITY;
-        for &start in self.measure_starts {
-            let x = x_of(start);
-            if x - last_x >= MIN_MEASURE_LINE_SPACING_PX && x >= rect.left() && x <= rect.right() {
-                lines.solid(x, wave.top(), wave.bottom(), 1.0, style.measure_line);
-                last_x = x;
-            }
+        // background: every other measure slightly lighter, behind the waveform
+        let band_color = lighten(style.palette.background(), style.measure_band_lighten);
+        let pixel = |x: f32| (x * ppp).round() / ppp;
+        let pps = f64::from(rect.width()) / self.audio_len_sec;
+        for (start, end) in measure_bands(self.measure_starts, self.audio_len_sec, pps) {
+            let band = Rect::from_min_max(pos2(pixel(x_of(start)), wave.top()), pos2(pixel(x_of(end)), wave.bottom()));
+            painter.rect_filled(band, 0.0, band_color);
         }
-        painter.add(lines.into_shape());
 
         let columns = (wave.width() * ppp).round().max(1.0) as usize;
         let peaks = (self.peaks)(0.0..self.audio_len_sec, columns);

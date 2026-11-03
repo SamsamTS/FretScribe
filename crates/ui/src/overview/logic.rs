@@ -97,6 +97,25 @@ pub fn resize_right(view: &TimelineView, main_width_px: f32, new_end_sec: f64, a
     zoom_to(end, end - view.scroll_sec, main_width_px, false, view)
 }
 
+pub const MIN_BAND_PX: f64 = 2.0;
+
+/// Time spans of the odd-numbered measures (second, fourth, ...), which get the lighter background.
+/// Spans narrower than `MIN_BAND_PX` are left out: at that size the alternation is only noise.
+pub fn measure_bands(starts: &[f64], audio_len_sec: f64, pixels_per_sec: f64) -> Vec<(f64, f64)> {
+    (1..starts.len())
+        .step_by(2)
+        .filter_map(|i| {
+            let next = starts.get(i + 1).copied();
+            if !starts[i].is_finite() || next.is_some_and(|n| !n.is_finite()) {
+                return None;
+            }
+            let start = starts[i].max(0.0);
+            let end = next.unwrap_or(audio_len_sec).min(audio_len_sec);
+            (end > start && (end - start) * pixels_per_sec >= MIN_BAND_PX).then_some((start, end))
+        })
+        .collect()
+}
+
 /// Nearest of `points` (any order); `sec` itself when there are none.
 pub fn snap_to(sec: f64, points: &[f64]) -> f64 {
     points
@@ -305,6 +324,25 @@ mod tests {
         assert!((r.pixels_per_sec - 10.0).abs() < 1e-9, "limited to the end of the audio");
         let tiny = resize_right(&v, MAIN_W, 0.0, LEN);
         assert!((tiny.pixels_per_sec - MAX_PIXELS_PER_SEC).abs() < 1e-6, "never zoomed past the limit");
+    }
+
+    #[test]
+    fn odd_measures_get_the_band() {
+        let starts = [0.0, 2.0, 4.0, 6.0, 8.0];
+        assert_eq!(measure_bands(&starts, 10.0, 10.0), [(2.0, 4.0), (6.0, 8.0)]);
+        let starts = [0.0, 2.0, 4.0];
+        assert_eq!(measure_bands(&starts, 5.0, 10.0), [(2.0, 4.0)]);
+        assert_eq!(measure_bands(&[0.0, 2.0], 5.0, 10.0), [(2.0, 5.0)], "the last measure runs to the end of the audio");
+        assert_eq!(measure_bands(&[0.0, 2.0], 2.5, 10.0), [(2.0, 2.5)]);
+    }
+
+    #[test]
+    fn bands_that_are_too_narrow_or_outside_the_audio_are_left_out() {
+        let starts = [0.0, 2.0, 4.0, 6.0, 8.0];
+        assert!(measure_bands(&starts, 10.0, 0.5).is_empty(), "1 px wide");
+        assert_eq!(measure_bands(&starts, 5.0, 10.0), [(2.0, 4.0)], "the band at 6 s is past the end");
+        assert!(measure_bands(&[], 10.0, 10.0).is_empty() && measure_bands(&[0.0], 10.0, 10.0).is_empty());
+        assert!(measure_bands(&[0.0, f64::NAN, 4.0], 10.0, 10.0).is_empty());
     }
 
     #[test]

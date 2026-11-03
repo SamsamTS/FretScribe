@@ -76,6 +76,13 @@ impl WaveformPalette {
     }
 }
 
+/// Moves each channel `amount` (0..=1) of the way towards white: 0.05 on black gives rgb(13, 13, 13).
+pub fn lighten(color: Color32, amount: f32) -> Color32 {
+    let amount = if amount.is_nan() { 0.0 } else { amount.clamp(0.0, 1.0) };
+    let up = |c: u8| (f32::from(c) + (255.0 - f32::from(c)) * amount).round() as u8;
+    Color32::from_rgb(up(color.r()), up(color.g()), up(color.b()))
+}
+
 fn sanitise(v: f32) -> f32 {
     if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 }
 }
@@ -206,6 +213,15 @@ mod tests {
         assert_eq!(p.color(0.5), Color32::from_rgb(128, 128, 128));
         assert_eq!(WaveformPalette::from_rgba(&[]), WaveformPalette::default());
         assert_eq!(WaveformPalette::from_rgba(&[[1, 2, 3, 255]]).color(0.7), Color32::from_rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn lighten_moves_towards_white() {
+        assert_eq!(lighten(Color32::BLACK, 0.05), Color32::from_rgb(13, 13, 13));
+        assert_eq!(lighten(Color32::from_rgb(10, 200, 30), 0.05), Color32::from_rgb(22, 203, 41));
+        assert_eq!(lighten(Color32::from_rgb(9, 8, 7), 0.0), Color32::from_rgb(9, 8, 7));
+        assert_eq!(lighten(Color32::from_rgb(9, 8, 7), 5.0), Color32::WHITE);
+        assert_eq!(lighten(Color32::BLACK, f32::NAN), Color32::BLACK);
     }
 
     #[test]

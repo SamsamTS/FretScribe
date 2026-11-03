@@ -369,26 +369,59 @@ fn the_boxes_never_cover_the_ruler() {
 }
 
 #[test]
-fn the_waveform_uses_the_palette_and_sits_in_front_of_the_measure_lines() {
+fn the_waveform_uses_the_palette() {
     let mut h = Harness::new();
     let wave_color = Color32::from_rgb(10, 200, 30);
     h.palette = Some(WaveformPalette::from_rgba(&[[10, 200, 30, 255]]));
-    let style = OverviewStyle::default();
     let (_, shapes) = h.frame_shapes(Vec::new(), Modifiers::NONE);
-
     assert!(
         shapes.iter().any(|s| matches!(&s.shape, Shape::Rect(r) if r.fill == wave_color)),
         "the area behind the waveform is the palette's lowest colour"
     );
-    let waveform = shapes
+    assert!(shapes.iter().any(|s| matches!(&s.shape, Shape::Mesh(m) if m.vertices.len() > 8 && m.vertices.iter().all(|v| v.color == wave_color))));
+}
+
+fn fills(shapes: &[ClippedShape], color: Color32) -> Vec<Rect> {
+    shapes
         .iter()
-        .position(|s| matches!(&s.shape, Shape::Mesh(m) if m.vertices.iter().all(|v| v.color == wave_color) && m.vertices.len() > 8))
-        .expect("waveform mesh in the palette colour");
-    let lines = shapes
-        .iter()
-        .position(|s| mesh_color(&s.shape).is_some_and(|(c, _)| c == style.measure_line))
-        .expect("measure line mesh");
-    assert!(lines < waveform, "measure lines ({lines}) are painted before the waveform ({waveform})");
+        .filter_map(|s| match &s.shape {
+            Shape::Rect(r) if r.fill == color => Some(r.rect),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn odd_measures_have_a_slightly_lighter_background_behind_the_waveform() {
+    let mut h = Harness::new();
+    h.palette = Some(WaveformPalette::from_rgba(&[[0, 0, 0, 255]]));
+    let light = lighten(Color32::BLACK, MEASURE_BAND_LIGHTEN);
+    assert_eq!(light, Color32::from_rgb(13, 13, 13));
+    let (_, shapes) = h.frame_shapes(Vec::new(), Modifiers::NONE);
+
+    let bands = fills(&shapes, light);
+    assert_eq!(bands.len(), 30, "measures 1, 3, 5, ... of 60");
+    let wave_top = h.ruler_bottom();
+    assert!(bands.iter().all(|b| b.top() >= wave_top - 1e-3 && b.bottom() <= h.strip.bottom() + 1e-3));
+    let width = f64::from(h.strip.width());
+    let expected = 2.0 / LEN * width;
+    assert!(bands.iter().all(|b| (f64::from(b.width()) - expected).abs() < 1.0), "{:?}", bands[0]);
+    let pitch = bands[1].left() - bands[0].left();
+    assert!((f64::from(pitch) - 2.0 * expected).abs() < 1.0, "alternate measures: {pitch}");
+    assert_eq!(fills(&shapes, Color32::BLACK).len(), 1, "one even-measure background behind everything");
+
+    let band_index = shapes.iter().position(|s| matches!(&s.shape, Shape::Rect(r) if r.fill == light)).unwrap();
+    let waveform = shapes.iter().position(|s| matches!(&s.shape, Shape::Mesh(m) if m.vertices.len() > 8)).unwrap();
+    assert!(band_index < waveform, "bands ({band_index}) come before the waveform ({waveform})");
+}
+
+#[test]
+fn no_bands_when_the_measures_are_too_narrow() {
+    let mut h = Harness::new();
+    h.palette = Some(WaveformPalette::from_rgba(&[[0, 0, 0, 255]]));
+    h.measures = (0..4000).map(|k| f64::from(k) * 0.03).collect();
+    let (_, shapes) = h.frame_shapes(Vec::new(), Modifiers::NONE);
+    assert!(fills(&shapes, lighten(Color32::BLACK, MEASURE_BAND_LIGHTEN)).is_empty());
 }
 
 #[test]
