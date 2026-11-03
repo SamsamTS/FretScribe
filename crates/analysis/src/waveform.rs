@@ -13,14 +13,14 @@ use crate::lut::Lut;
 pub const BASE_BLOCK: usize = 64;
 
 /// Tuned by hand; not a setting and unrelated to the spectrogram's gamma.
-pub const WAVEFORM_GAMMA: f32 = 1.0;
+pub const WAVEFORM_GAMMA: f32 = 1.25;
 
 /// Colours are LUT positions. The envelope is the column's loudness level times `ENVELOPE_SHARE`;
 /// the RMS body is that level raised by `BODY_LIFT`, so the two stay distinct even at full scale.
 const ENVELOPE_SHARE: f32 = 0.8;
 const BODY_LIFT: f32 = 0.3;
 /// Vertical gradient of both: most intense on the centre line, `EDGE_SCALE` times that at the tips.
-const EDGE_SCALE: f32 = 0.4;
+const EDGE_SCALE: f32 = 0.7;
 const CENTRE_LINE_LEVEL: f32 = 0.2;
 
 type Peak = (f32, f32, f32);
@@ -172,7 +172,7 @@ fn rows_for(low: f32, high: f32, height: u32) -> (u32, u32) {
 /// Width in pixels of the moving average applied to the column colours along the time axis
 /// (window of `2 * (n / 2) + 1` pixels, 0 or 1 disables it). Only colours are smoothed: the
 /// envelope outline always follows the peaks exactly.
-pub const WAVEFORM_COLOR_SMOOTHING_PX: usize = 15;
+pub const WAVEFORM_COLOR_SMOOTHING_PX: usize = 20;
 
 struct Column {
     envelope: (u32, u32),
