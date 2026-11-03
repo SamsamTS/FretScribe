@@ -15,8 +15,12 @@ pub const BASE_BLOCK: usize = 64;
 /// Tuned by hand; not a setting and unrelated to the spectrogram's gamma.
 pub const WAVEFORM_GAMMA: f32 = 1.0;
 
-/// How much brighter (in LUT position) the RMS body is than the min..max envelope.
+/// Colours are LUT positions. The envelope is the column's loudness level times `ENVELOPE_SHARE`;
+/// the RMS body is that level raised by `BODY_LIFT`, so the two stay distinct even at full scale.
+const ENVELOPE_SHARE: f32 = 0.8;
 const BODY_LIFT: f32 = 0.3;
+/// Vertical gradient of both: most intense on the centre line, `EDGE_SCALE` times that at the tips.
+const EDGE_SCALE: f32 = 0.4;
 const CENTRE_LINE_LEVEL: f32 = 0.2;
 
 type Peak = (f32, f32, f32);
@@ -167,12 +171,14 @@ fn rows_for(low: f32, high: f32, height: u32) -> (u32, u32) {
 
 /// Width in pixels of the moving average applied to the column colours along the time axis
 /// (window of `2 * (n / 2) + 1` pixels, 0 or 1 disables it). Only colours are smoothed: the
-/// envelope and body outlines always follow the peaks exactly.
+/// envelope outline always follows the peaks exactly.
 pub const WAVEFORM_COLOR_SMOOTHING_PX: usize = 15;
 
 struct Column {
     envelope: (u32, u32),
     body: Option<(u32, u32)>,
+    low: f32,
+    high: f32,
     level: f32,
 }
 
@@ -189,20 +195,22 @@ fn column_for(peak: Peak, height: u32) -> Option<Column> {
     Some(Column {
         envelope,
         body: (body.0 <= body.1).then_some(body),
+        low,
+        high,
         level: apply_gamma(loudness, WAVEFORM_GAMMA),
     })
 }
 
 /// Moving average over the drawn columns only, so notes do not fade into the silence around them.
-fn smoothed_levels(columns: &[Option<Column>], pixels: usize) -> Vec<f32> {
+fn smoothed(columns: &[Option<Column>], pixels: usize, value: fn(&Column) -> f32) -> Vec<f32> {
     let radius = pixels / 2;
     let mut sums = vec![0.0f64];
     let mut counts = vec![0usize];
     for column in columns {
-        let (level, drawn) = column
+        let (v, drawn) = column
             .as_ref()
-            .map_or((0.0, 0), |c| (f64::from(c.level), 1));
-        sums.push(sums[sums.len() - 1] + level);
+            .map_or((0.0, 0), |c| (f64::from(value(c)), 1));
+        sums.push(sums[sums.len() - 1] + v);
         counts.push(counts[counts.len() - 1] + drawn);
     }
     (0..columns.len())
@@ -219,9 +227,30 @@ fn smoothed_levels(columns: &[Option<Column>], pixels: usize) -> Vec<f32> {
         .collect()
 }
 
+/// Distance of a pixel row from the centre line, 0 at the centre and 1 at the envelope tip on
+/// its side.
+fn distance_from_centre(row: u32, height: u32, column: &Column) -> f32 {
+    let amplitude = 1.0 - (row as f32 + 0.5) * 2.0 / height as f32;
+    let reach = if amplitude >= 0.0 {
+        column.high
+    } else {
+        -column.low
+    };
+    if reach <= f32::EPSILON {
+        1.0
+    } else {
+        (amplitude.abs() / reach).min(1.0)
+    }
+}
+
+fn fade(distance: f32) -> f32 {
+    1.0 - (1.0 - EDGE_SCALE) * distance
+}
+
 /// One RGBA column per peak, `height` rows, row 0 on top. The background is the LUT's lowest
 /// colour; columns are coloured by their loudness (smoothed over `WAVEFORM_COLOR_SMOOTHING_PX`
-/// pixels), with the RMS body brighter than the envelope.
+/// pixels), with the RMS body brighter than the envelope and both fading from the centre line to
+/// the tips.
 pub fn render_rgba(peaks: &[Peak], height: u32, lut: &Lut) -> Vec<u8> {
     render_with_smoothing(peaks, height, lut, WAVEFORM_COLOR_SMOOTHING_PX)
 }
@@ -241,18 +270,17 @@ fn render_with_smoothing(peaks: &[Peak], height: u32, lut: &Lut, smoothing_px: u
     }
 
     let columns: Vec<Option<Column>> = peaks.iter().map(|&p| column_for(p, height)).collect();
-    let levels = smoothed_levels(&columns, smoothing_px);
-    let mut paint = |x: usize, rows: (u32, u32), colour: [u8; 4]| {
-        for y in rows.0..=rows.1 {
-            let at = y as usize * stride + x * 4;
-            buffer[at..at + 4].copy_from_slice(&colour);
-        }
-    };
+    let levels = smoothed(&columns, smoothing_px, |c| c.level);
     for (x, column) in columns.iter().enumerate() {
         let Some(column) = column else { continue };
-        paint(x, column.envelope, lut.color(levels[x]));
-        if let Some(body) = column.body {
-            paint(x, body, lut.color(levels[x] + BODY_LIFT));
+        let envelope_level = levels[x] * ENVELOPE_SHARE;
+        let body_level = (levels[x] + BODY_LIFT).min(1.0);
+        for y in column.envelope.0..=column.envelope.1 {
+            let in_body = column.body.is_some_and(|b| (b.0..=b.1).contains(&y));
+            let level = if in_body { body_level } else { envelope_level };
+            let colour = lut.color(level * fade(distance_from_centre(y, height, column)));
+            let at = y as usize * stride + x * 4;
+            buffer[at..at + 4].copy_from_slice(&colour);
         }
     }
     buffer
@@ -472,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn envelope_is_limited_to_min_max_and_body_is_brighter() {
+    fn envelope_is_limited_to_min_max_and_the_centre_is_brighter() {
         let lut = grey_lut();
         let height = 100;
         let buffer = render_rgba(&[(-0.5, 0.5, 0.2)], height, &lut);
@@ -482,7 +510,7 @@ mod tests {
         assert!(at(26) > 0 && at(73) > 0);
         assert_eq!(at(76), 0);
         assert_eq!(at(99), 0);
-        assert!(at(50) > at(30), "body {} envelope {}", at(50), at(30));
+        assert!(at(50) > at(30), "centre {} tip {}", at(50), at(30));
     }
 
     #[test]
@@ -512,10 +540,8 @@ mod tests {
         for lut in crate::lut::discover_luts(&dir) {
             let buffer = render_rgba(&[(-0.9, 0.9, 0.4)], 64, &lut);
             assert_eq!(pixel(&buffer, 1, 0, 0), lut.colors[0]);
-            assert_eq!(
-                pixel(&buffer, 1, 0, 3),
-                lut.color(apply_gamma(0.9, WAVEFORM_GAMMA))
-            );
+            assert_ne!(pixel(&buffer, 1, 0, 3), lut.colors[0]);
+            assert_ne!(pixel(&buffer, 1, 0, 3), pixel(&buffer, 1, 0, 32));
             assert_eq!(buffer[3], 255);
         }
     }
@@ -563,7 +589,7 @@ mod tests {
         let (a, b) = spread(0);
         assert!(a > 0 && b > 0 && (a - b).abs() > 40, "{a} {b}");
         let (a, b) = spread(15);
-        assert!((a - b).abs() <= 12, "{a} {b}");
+        assert!((a - b).abs() <= 20, "{a} {b}");
     }
 
     #[test]
@@ -593,5 +619,38 @@ mod tests {
             render_rgba(&peaks, 80, &lut),
             render_with_smoothing(&peaks, 80, &lut, WAVEFORM_COLOR_SMOOTHING_PX)
         );
+    }
+    #[test]
+    fn envelope_and_body_each_fade_from_the_centre_to_their_tips() {
+        let lut = grey_lut();
+        let buffer = render_with_smoothing(&[(-0.8, 0.8, 0.4)], 100, &lut, 0);
+        let at = |y: usize| i32::from(pixel(&buffer, 1, 0, y)[0]);
+        // Body rows 30..=69, envelope-only rows 10..=29 and 70..=89.
+        assert!((30..49).all(|y| at(y) <= at(y + 1)), "upper body");
+        assert!((50..69).all(|y| at(y) >= at(y + 1)), "lower body");
+        assert!((10..29).all(|y| at(y) <= at(y + 1)), "upper envelope");
+        assert!((70..89).all(|y| at(y) >= at(y + 1)), "lower envelope");
+        assert!(at(49) > at(30) + 40 && at(50) > at(69) + 40);
+        assert!(at(29) > at(10) + 20 && at(70) > at(89) + 20);
+        assert!((10..=89).all(|y| at(y) == at(99 - y)));
+    }
+
+    #[test]
+    fn body_and_envelope_stay_distinct_where_they_meet() {
+        let lut = grey_lut();
+        for (peak, rms) in [(0.8, 0.4), (1.0, 0.5), (0.3, 0.1)] {
+            let buffer = render_with_smoothing(&[(-peak, peak, rms)], 200, &lut, 0);
+            let at = |y: usize| i32::from(pixel(&buffer, 1, 0, y)[0]);
+            // Inside a part, neighbouring rows differ by a few levels; the body edge is a step.
+            let step = (1..100).map(|y| at(y) - at(y - 1)).max().unwrap_or(0);
+            assert!(step > 15, "peak {peak} rms {rms}: largest step {step}");
+        }
+    }
+
+    #[test]
+    fn one_sided_columns_do_not_misbehave() {
+        let lut = grey_lut();
+        let buffer = render_rgba(&[(0.2, 0.7, 0.4), (-0.7, -0.2, 0.4)], 64, &lut);
+        assert_eq!(buffer.len(), 2 * 64 * 4);
     }
 }
