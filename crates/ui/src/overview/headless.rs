@@ -17,6 +17,7 @@ struct Harness {
     playhead: f64,
     measures: Vec<f64>,
     palette: Option<WaveformPalette>,
+    snapping: bool,
     time: f64,
     strip: Rect,
 }
@@ -30,6 +31,7 @@ impl Harness {
             playhead: 10.0,
             measures: (0..60).map(|k| f64::from(k) * 2.0).collect(),
             palette: None,
+            snapping: true,
             time: 0.0,
             strip: Rect::NOTHING,
         };
@@ -55,7 +57,7 @@ impl Harness {
         let mut region = self.region;
         let mut out = Vec::new();
         let mut strip = self.strip;
-        let palette = self.palette.clone();
+        let (palette, snapping) = (self.palette.clone(), self.snapping);
         let full = self.ctx.run(raw, |ctx| {
             CentralPanel::default().show(ctx, |ui| {
                 let peaks = |range: Range<f64>, n: usize| {
@@ -69,6 +71,7 @@ impl Harness {
                 };
                 let mut widget = OverviewTimeline::new(LEN, &view, MAIN_W, peaks)
                     .measure_starts(&measures)
+                    .snapping(snapping)
                     .playhead(playhead);
                 if let Some(palette) = palette.clone() {
                     widget = widget.palette(palette);
@@ -330,6 +333,20 @@ fn region_edges_snap_to_measure_lines() {
     assert_eq!((r.start_sec, r.end_sec), (90.0, 96.0), "{r:?}");
     h.drag(96.0, 103.4, LEFT, Modifiers::NONE);
     assert_eq!(h.region.unwrap().end_sec, 104.0);
+}
+
+#[test]
+fn alt_inverts_snapping_and_the_magnet_switches_it_off() {
+    let mut h = Harness::new();
+    h.drag(91.0, 96.7, RIGHT, Modifiers::ALT);
+    let r = h.region.unwrap();
+    assert!(r.start_sec % 2.0 != 0.0 && r.end_sec % 2.0 != 0.0, "{r:?}");
+    h.snapping = false;
+    h.drag(91.0, 96.7, RIGHT, Modifiers::NONE);
+    let r = h.region.unwrap();
+    assert!(r.start_sec % 2.0 != 0.0, "{r:?}");
+    h.drag(91.0, 96.7, RIGHT, Modifiers::ALT);
+    assert_eq!(h.region.unwrap().start_sec, 90.0);
 }
 
 #[test]

@@ -8,8 +8,9 @@
 //!   click on any of them still seeks
 //! - right drag: create a region; right-drag its edges to resize it, or inside it to move it
 //!   (Shift+right drag always starts a new one); single right click: clear the selection
-//! - the seek point and the region edges always snap to the nearest snap point (measure starts by
-//!   default); the viewport box does not
+//! - the seek point and the region edges snap to the nearest snap point (measure starts by
+//!   default); the viewport box does not. The magnet button toggles snapping (`snapping`), and
+//!   holding Alt inverts it while dragging
 //! - the ruler band on top only seeks and starts regions; the boxes never cover it
 //! - odd measures have a slightly lighter background than even ones
 
@@ -50,6 +51,7 @@ pub enum OverviewEvent {
     ViewportChanged { scroll_sec: f64, pixels_per_sec: f64 },
     PlayRegionRequested,
     LoopToggled(bool),
+    SnapToggled(bool),
 }
 
 pub struct OverviewOutput {
@@ -106,6 +108,7 @@ where
     playhead_sec: f64,
     measure_starts: &'a [f64],
     snap_points: Option<&'a [f64]>,
+    snapping: bool,
     looping: bool,
     waveform_height: f32,
     style: OverviewStyle,
@@ -126,6 +129,7 @@ where
             playhead_sec: 0.0,
             measure_starts: &[],
             snap_points: None,
+            snapping: true,
             looping: false,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             style: OverviewStyle::default(),
@@ -147,6 +151,12 @@ where
     /// Snap points other than the measure starts (for instance measures and beats).
     pub fn snap_points(mut self, points: &'a [f64]) -> Self {
         self.snap_points = Some(points);
+        self
+    }
+
+    /// Current state of the magnet button (default: on).
+    pub fn snapping(mut self, on: bool) -> Self {
+        self.snapping = on;
         self
     }
 
@@ -202,6 +212,11 @@ where
         if play.clicked() {
             events.push(OverviewEvent::PlayRegionRequested);
         }
+        let magnet = magnet_button(ui, self.snapping)
+            .on_hover_text("Snap the seek point and the selection (hold Alt to invert)");
+        if magnet.clicked() {
+            events.push(OverviewEvent::SnapToggled(!self.snapping));
+        }
     }
 
     fn interact(
@@ -217,8 +232,8 @@ where
         let response = ui.interact(rect, id, Sense::click_and_drag());
         let map = OverviewMap { audio_len_sec: self.audio_len_sec, width_px: rect.width() };
         let vp_x = viewport_x(&map, viewport(self.view, self.main_width_px, self.audio_len_sec));
-        let shift = ui.input(|i| i.modifiers.shift);
-        let snap = self.snap_points.unwrap_or(self.measure_starts);
+        let (shift, alt) = ui.input(|i| (i.modifiers.shift, i.modifiers.alt));
+        let snap = if self.snapping != alt { self.snap_points.unwrap_or(self.measure_starts) } else { &[] };
         let wave_top = rect.top() + RULER_HEIGHT;
         let sec_at = |p: egui::Pos2| map.x_to_sec(p.x - rect.left());
 
@@ -381,4 +396,25 @@ where
         painter.add(minor_ticks.into_shape());
         painter.add(major_ticks.into_shape());
     }
+}
+
+fn magnet_button(ui: &mut Ui, on: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(24.0, 20.0), Sense::click());
+    let visuals = ui.style().interact_selectable(&response, on);
+    let painter = ui.painter();
+    painter.rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
+    let (c, r) = (rect.center() + vec2(0.0, -1.0), 5.0_f32);
+    let arc = (0..=12).map(|i| {
+        let a = std::f32::consts::PI * i as f32 / 12.0;
+        pos2(c.x - r * a.cos(), c.y - r * a.sin())
+    });
+    let points: Vec<_> = std::iter::once(pos2(c.x - r, c.y + 5.0))
+        .chain(arc)
+        .chain(std::iter::once(pos2(c.x + r, c.y + 5.0)))
+        .collect();
+    painter.add(egui::Shape::line(points, Stroke::new(3.0_f32, visuals.fg_stroke.color)));
+    for x in [c.x - r, c.x + r] {
+        painter.line_segment([pos2(x, c.y + 3.0), pos2(x, c.y + 5.0)], Stroke::new(3.0_f32, Color32::from_rgb(230, 80, 80)));
+    }
+    response
 }

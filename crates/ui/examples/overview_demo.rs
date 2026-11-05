@@ -19,6 +19,7 @@ struct OverviewDemo {
     region: Option<RegionSelection>,
     playhead_sec: f64,
     looping: bool,
+    snapping: bool,
     measures: Vec<f64>,
     status: String,
 }
@@ -33,11 +34,12 @@ impl OverviewDemo {
             region: None,
             playhead_sec: 0.0,
             looping: false,
+            snapping: true,
             measures: (0..)
                 .map(|k| f64::from(k) * measure_sec)
                 .take_while(|&t| t < AUDIO_LEN_SEC)
                 .collect(),
-            status: "Left click/drag = seek, drag the box = pan, its edges = zoom. Right drag = select, right click = clear. Seek and selection snap to measures."
+            status: "Left click/drag = seek, drag the box = pan, its edges = zoom. Right drag = select, right click = clear. Seek and selection snap to measures (magnet button, Alt inverts)."
                 .to_owned(),
         }
     }
@@ -63,6 +65,7 @@ impl OverviewDemo {
                     self.status = format!("Play selection from {}", format_time(r.start_sec));
                 }
             }
+            OverviewEvent::SnapToggled(on) => self.snapping = on,
             OverviewEvent::LoopToggled(on) => {
                 self.looping = on;
                 self.status = format!("Loop {}", if on { "on" } else { "off" });
@@ -126,6 +129,7 @@ impl eframe::App for OverviewDemo {
                 .palette(self.palettes[self.palette].1.clone())
                 .playhead(self.playhead_sec)
                 .looping(self.looping)
+                .snapping(self.snapping)
                 .show(ui, &mut self.region);
             events = output.events;
         });

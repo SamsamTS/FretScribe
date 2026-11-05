@@ -78,3 +78,7 @@ Backward compatible; no existing signature or behaviour changed.
 
 - `OverviewTimeline::snap_region` is removed and Ctrl no longer toggles snapping: the seek point (click and drag) and the region edges (create, resize, move) always snap to `snap_points` (default: `measure_starts`); the viewport box does not. No points, no snapping.
 - `DragContext::snap` is now `&[f64]` instead of `Option<&[f64]>`; `DragUpdate::Seek` is snapped.
+
+## 2026-11-05 - ui crate: overview snapping toggle
+
+Supersedes the entry above: snapping is on by default and Alt disables it while dragging. The widget has a magnet button; `OverviewTimeline::snapping(bool)` gives its state and `OverviewEvent::SnapToggled(bool)` reports clicks (the app stores the state). With the button off, Alt enables snapping instead.
