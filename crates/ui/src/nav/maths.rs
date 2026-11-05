@@ -82,17 +82,6 @@ pub fn clamp_scroll(scroll_sec: f64, pps: f64, geo: Geometry, t: &ViewTuning) ->
     scroll_sec.clamp(lo, hi.max(lo))
 }
 
-/// Minimal shift that brings a measure of half width `half` centred on `x` inside the margins.
-pub fn keep_in_view_shift(x: f64, half: f64, width: f64, margin: f64) -> f64 {
-    if x - half < margin {
-        margin - (x - half)
-    } else if x + half > width - margin {
-        (width - margin) - (x + half)
-    } else {
-        0.0
-    }
-}
-
 /// `scroll_sec` and `pps` describe the target view. A previous anchor with the same key is reused
 /// so successive notches keep pivoting around the same point.
 pub fn zoom_target(
@@ -116,8 +105,18 @@ pub fn zoom_target(
         Some(a) => a,
         None => Anchor { key, sec, x: (sec - scroll_sec) * pps },
     };
-    let shift = if half > 0.0 { keep_in_view_shift(anchor.x, half, geo.width, t.edge_margin_px) } else { 0.0 };
-    let scroll = clamp_scroll(anchor.sec - (anchor.x + shift) / new_pps, new_pps, geo, t);
+    // A fitting measure drifts towards the cursor by at most its width change per step, and is then
+    // pushed back inside the margins, flush against the side it would have overflowed.
+    let x = match fitting {
+        Some(m) => {
+            let centre = (anchor.sec - scroll_sec) * pps;
+            let max_pull = (m.end - m.start) * (new_pps - pps).abs();
+            let x = centre + (hover.x - centre).clamp(-max_pull, max_pull);
+            x.clamp(t.edge_margin_px + half, geo.width - t.edge_margin_px - half)
+        }
+        None => anchor.x,
+    };
+    let scroll = clamp_scroll(anchor.sec - x / new_pps, new_pps, geo, t);
     ZoomTarget {
         pps: new_pps,
         scroll_sec: scroll,
@@ -239,6 +238,30 @@ mod tests {
         let h = hover(950.0, 20.0, 100.0, Some((28.5, 30.5)));
         let z = zoom_target(20.0, 100.0, &h, None, -1.0, GEO, &T);
         close(screen(&z, 30.5), GEO.width - T.edge_margin_px);
+    }
+
+    #[test]
+    fn measure_drifts_towards_the_cursor_by_at_most_its_width_change() {
+        let m = Some((24.0, 26.0));
+        let centre = |cursor: f64, notches: f64| {
+            let z = zoom_target(20.0, 100.0, &hover(cursor, 20.0, 100.0, m), None, notches, GEO, &T);
+            screen(&z, 25.0)
+        };
+        close(centre(700.0, 1.0), 550.0);
+        close(centre(700.0, -1.0), 540.0);
+        close(centre(300.0, 1.0), 450.0);
+        close(centre(520.0, 1.0), 520.0);
+        close(centre(500.0, 1.0), 500.0);
+    }
+
+    #[test]
+    fn drifting_measure_stops_flush_against_the_nearest_side() {
+        let h = hover(990.0, 0.0, 100.0, Some((8.5, 10.5)));
+        let z = zoom_target(0.0, 100.0, &h, None, 1.0, GEO, &T);
+        close(screen(&z, 10.5), GEO.width - T.edge_margin_px);
+        let h = hover(5.0, 0.0, 100.0, Some((0.5, 2.5)));
+        let z = zoom_target(0.0, 100.0, &h, None, 1.0, GEO, &T);
+        close(screen(&z, 0.5), T.edge_margin_px);
     }
 
     #[test]
