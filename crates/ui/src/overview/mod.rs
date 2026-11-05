@@ -8,8 +8,8 @@
 //!   click on any of them still seeks
 //! - right drag: create a region; right-drag its edges to resize it, or inside it to move it
 //!   (Shift+right drag always starts a new one); single right click: clear the selection
-//! - Ctrl (Cmd on macOS) while dragging a region, or `snap_region(true)`: edges snap to the nearest
-//!   measure start
+//! - the seek point and the region edges always snap to the nearest snap point (measure starts by
+//!   default); the viewport box does not
 //! - the ruler band on top only seeks and starts regions; the boxes never cover it
 //! - odd measures have a slightly lighter background than even ones
 
@@ -106,7 +106,6 @@ where
     playhead_sec: f64,
     measure_starts: &'a [f64],
     snap_points: Option<&'a [f64]>,
-    snap_region: bool,
     looping: bool,
     waveform_height: f32,
     style: OverviewStyle,
@@ -127,7 +126,6 @@ where
             playhead_sec: 0.0,
             measure_starts: &[],
             snap_points: None,
-            snap_region: false,
             looping: false,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             style: OverviewStyle::default(),
@@ -139,22 +137,16 @@ where
         self
     }
 
-    /// Start of every measure: they give the alternating background bands, and the snap targets
+    /// Start of every measure: they give the alternating background bands, and the snap points
     /// unless `snap_points` is given.
     pub fn measure_starts(mut self, starts: &'a [f64]) -> Self {
         self.measure_starts = starts;
         self
     }
 
-    /// Snap targets other than the measure starts (for instance measures and beats).
+    /// Snap points other than the measure starts (for instance measures and beats).
     pub fn snap_points(mut self, points: &'a [f64]) -> Self {
         self.snap_points = Some(points);
-        self
-    }
-
-    /// Always snap region edges, instead of only while Ctrl is held.
-    pub fn snap_region(mut self, always: bool) -> Self {
-        self.snap_region = always;
         self
     }
 
@@ -212,11 +204,6 @@ where
         }
     }
 
-    fn snap_targets(&self, always: bool, ctrl: bool) -> Option<&'a [f64]> {
-        let points = self.snap_points.unwrap_or(self.measure_starts);
-        ((always || ctrl) && !points.is_empty()).then_some(points)
-    }
-
     fn interact(
         &self,
         ui: &mut Ui,
@@ -230,7 +217,8 @@ where
         let response = ui.interact(rect, id, Sense::click_and_drag());
         let map = OverviewMap { audio_len_sec: self.audio_len_sec, width_px: rect.width() };
         let vp_x = viewport_x(&map, viewport(self.view, self.main_width_px, self.audio_len_sec));
-        let (shift, ctrl) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+        let shift = ui.input(|i| i.modifiers.shift);
+        let snap = self.snap_points.unwrap_or(self.measure_starts);
         let wave_top = rect.top() + RULER_HEIGHT;
         let sec_at = |p: egui::Pos2| map.x_to_sec(p.x - rect.left());
 
@@ -254,7 +242,7 @@ where
                 let context = DragContext {
                     audio_len_sec: self.audio_len_sec,
                     main_width_px: self.main_width_px,
-                    snap: self.snap_targets(self.snap_region, ctrl),
+                    snap,
                 };
                 match drag_update(&drag, sec_at(pointer), &context) {
                     DragUpdate::Seek(sec) if (sec - self.playhead_sec).abs() > 1e-9 => {
@@ -282,7 +270,7 @@ where
 
         if response.clicked_by(PointerButton::Primary) {
             if let Some(pos) = response.interact_pointer_pos() {
-                events.push(OverviewEvent::SeekRequested(sec_at(pos)));
+                events.push(OverviewEvent::SeekRequested(snap_to(sec_at(pos), snap)));
             }
         }
         if response.clicked_by(PointerButton::Secondary) && region.take().is_some() {

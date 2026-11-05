@@ -19,7 +19,6 @@ struct OverviewDemo {
     region: Option<RegionSelection>,
     playhead_sec: f64,
     looping: bool,
-    snap_always: bool,
     measures: Vec<f64>,
     status: String,
 }
@@ -34,12 +33,11 @@ impl OverviewDemo {
             region: None,
             playhead_sec: 0.0,
             looping: false,
-            snap_always: false,
             measures: (0..)
                 .map(|k| f64::from(k) * measure_sec)
                 .take_while(|&t| t < AUDIO_LEN_SEC)
                 .collect(),
-            status: "Left click/drag = seek, drag the box = pan, its edges = zoom. Right drag = select, right click = clear, Ctrl snaps."
+            status: "Left click/drag = seek, drag the box = pan, its edges = zoom. Right drag = select, right click = clear. Seek and selection snap to measures."
                 .to_owned(),
         }
     }
@@ -128,13 +126,11 @@ impl eframe::App for OverviewDemo {
                 .palette(self.palettes[self.palette].1.clone())
                 .playhead(self.playhead_sec)
                 .looping(self.looping)
-                .snap_region(self.snap_always)
                 .show(ui, &mut self.region);
             events = output.events;
         });
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.snap_always, "Always snap the selection to measures");
                 egui::ComboBox::from_label("Palette")
                     .selected_text(&self.palettes[self.palette].0)
                     .show_ui(ui, |ui| {

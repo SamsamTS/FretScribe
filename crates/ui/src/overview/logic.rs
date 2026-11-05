@@ -208,8 +208,8 @@ pub struct DragState {
 pub struct DragContext<'a> {
     pub audio_len_sec: f64,
     pub main_width_px: f32,
-    /// Region edges are pulled to the nearest of these when present.
-    pub snap: Option<&'a [f64]>,
+    /// Seek points and region edges are pulled to the nearest of these (none: no snapping).
+    pub snap: &'a [f64],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -222,20 +222,16 @@ pub enum DragUpdate {
 
 pub fn drag_update(state: &DragState, pointer_sec: f64, ctx: &DragContext) -> DragUpdate {
     let len = ctx.audio_len_sec;
-    let snap = |t: f64| ctx.snap.map_or(t, |points| snap_to(t, points));
+    let snap = |t: f64| snap_to(t, ctx.snap);
     let region = |r: Option<RegionSelection>| r.map_or(DragUpdate::Nothing, DragUpdate::Region);
     match state.mode {
-        DragMode::Seek => DragUpdate::Seek(pointer_sec),
+        DragMode::Seek => DragUpdate::Seek(snap(pointer_sec)),
         DragMode::CreateRegion => region(RegionSelection::normalised(snap(state.origin_sec), snap(pointer_sec), len)),
         DragMode::RegionStart => region(state.region.map(|r| r.with_start(snap(pointer_sec)))),
         DragMode::RegionEnd => region(state.region.map(|r| r.with_end(snap(pointer_sec), len))),
         DragMode::MoveRegion => region(state.region.map(|r| {
             let moved = r.moved_by(pointer_sec - state.origin_sec, len);
-            if ctx.snap.is_some() {
-                r.moved_by(snap(moved.start_sec) - r.start_sec, len)
-            } else {
-                moved
-            }
+            r.moved_by(snap(moved.start_sec) - r.start_sec, len)
         })),
         DragMode::PanViewport => DragUpdate::Viewport(pan(&state.view, ctx.main_width_px, pointer_sec - state.origin_sec, len)),
         DragMode::ViewportLeft => DragUpdate::Viewport(resize_left(&state.view, ctx.main_width_px, pointer_sec)),
@@ -258,7 +254,7 @@ mod tests {
         RegionSelection { start_sec: a, end_sec: b }
     }
 
-    fn ctx(snap: Option<&[f64]>) -> DragContext<'_> {
+    fn ctx(snap: &[f64]) -> DragContext<'_> {
         DragContext { audio_len_sec: LEN, main_width_px: MAIN_W, snap }
     }
 
@@ -429,21 +425,21 @@ mod tests {
     }
 
     #[test]
-    fn seeking_follows_the_pointer() {
+    fn seeking_follows_the_pointer_and_snaps() {
         let s = state(DragMode::Seek, 10.0, None, TimelineView::default());
-        assert_eq!(drag_update(&s, 33.0, &ctx(None)), DragUpdate::Seek(33.0));
-        assert_eq!(drag_update(&s, 33.0, &ctx(Some(&[0.0, 40.0]))), DragUpdate::Seek(33.0), "seeking never snaps");
+        assert_eq!(drag_update(&s, 33.0, &ctx(&[])), DragUpdate::Seek(33.0));
+        assert_eq!(drag_update(&s, 33.0, &ctx(&[0.0, 40.0])), DragUpdate::Seek(40.0));
     }
 
     #[test]
     fn creating_orders_clamps_and_snaps() {
         let s = state(DragMode::CreateRegion, 40.0, None, TimelineView::default());
-        assert_eq!(drag_update(&s, 25.0, &ctx(None)), DragUpdate::Region(region(25.0, 40.0)));
-        assert_eq!(drag_update(&s, 500.0, &ctx(None)), DragUpdate::Region(region(40.0, 100.0)));
-        let DragUpdate::Region(r) = drag_update(&s, 40.0, &ctx(None)) else { panic!() };
+        assert_eq!(drag_update(&s, 25.0, &ctx(&[])), DragUpdate::Region(region(25.0, 40.0)));
+        assert_eq!(drag_update(&s, 500.0, &ctx(&[])), DragUpdate::Region(region(40.0, 100.0)));
+        let DragUpdate::Region(r) = drag_update(&s, 40.0, &ctx(&[])) else { panic!() };
         assert!((r.len_sec() - 0.05).abs() < 1e-12, "a zero-length drag still makes the minimum region");
         let pts = [0.0, 30.0, 60.0];
-        assert_eq!(drag_update(&s, 58.0, &ctx(Some(&pts))), DragUpdate::Region(region(30.0, 60.0)));
+        assert_eq!(drag_update(&s, 58.0, &ctx(&pts)), DragUpdate::Region(region(30.0, 60.0)));
     }
 
     #[test]
@@ -451,39 +447,39 @@ mod tests {
         let r = Some(region(20.0, 40.0));
         let v = TimelineView::default();
         let s = state(DragMode::RegionStart, 20.0, r, v);
-        assert_eq!(drag_update(&s, 10.0, &ctx(None)), DragUpdate::Region(region(10.0, 40.0)));
-        let DragUpdate::Region(r2) = drag_update(&s, 90.0, &ctx(None)) else { panic!() };
+        assert_eq!(drag_update(&s, 10.0, &ctx(&[])), DragUpdate::Region(region(10.0, 40.0)));
+        let DragUpdate::Region(r2) = drag_update(&s, 90.0, &ctx(&[])) else { panic!() };
         assert_eq!((r2.end_sec, r2.start_sec < r2.end_sec), (40.0, true));
         let s = state(DragMode::RegionEnd, 40.0, r, v);
-        assert_eq!(drag_update(&s, 55.0, &ctx(None)), DragUpdate::Region(region(20.0, 55.0)));
-        assert_eq!(drag_update(&s, 56.0, &ctx(Some(&[50.0, 60.0]))), DragUpdate::Region(region(20.0, 60.0)));
+        assert_eq!(drag_update(&s, 55.0, &ctx(&[])), DragUpdate::Region(region(20.0, 55.0)));
+        assert_eq!(drag_update(&s, 56.0, &ctx(&[50.0, 60.0])), DragUpdate::Region(region(20.0, 60.0)));
     }
 
     #[test]
     fn moving_keeps_length_and_can_snap_the_start() {
         let r = Some(region(20.0, 30.0));
         let s = state(DragMode::MoveRegion, 25.0, r, TimelineView::default());
-        assert_eq!(drag_update(&s, 30.0, &ctx(None)), DragUpdate::Region(region(25.0, 35.0)));
-        assert_eq!(drag_update(&s, 500.0, &ctx(None)), DragUpdate::Region(region(90.0, 100.0)));
-        assert_eq!(drag_update(&s, 31.0, &ctx(Some(&[0.0, 24.0, 40.0]))), DragUpdate::Region(region(24.0, 34.0)));
+        assert_eq!(drag_update(&s, 30.0, &ctx(&[])), DragUpdate::Region(region(25.0, 35.0)));
+        assert_eq!(drag_update(&s, 500.0, &ctx(&[])), DragUpdate::Region(region(90.0, 100.0)));
+        assert_eq!(drag_update(&s, 31.0, &ctx(&[0.0, 24.0, 40.0])), DragUpdate::Region(region(24.0, 34.0)));
     }
 
     #[test]
     fn viewport_modes_produce_views() {
         let v = TimelineView::new(20.0, 100.0);
         let pan_state = state(DragMode::PanViewport, 24.0, None, v);
-        let DragUpdate::Viewport(p) = drag_update(&pan_state, 34.0, &ctx(None)) else { panic!() };
+        let DragUpdate::Viewport(p) = drag_update(&pan_state, 34.0, &ctx(&[])) else { panic!() };
         assert_eq!(p.scroll_sec, 30.0);
         let right = state(DragMode::ViewportRight, 28.0, None, v);
-        let DragUpdate::Viewport(z) = drag_update(&right, 48.0, &ctx(None)) else { panic!() };
+        let DragUpdate::Viewport(z) = drag_update(&right, 48.0, &ctx(&[])) else { panic!() };
         assert!((z.pixels_per_sec - 800.0 / 28.0).abs() < 1e-9);
         let left = state(DragMode::ViewportLeft, 20.0, None, v);
-        assert!(matches!(drag_update(&left, 10.0, &ctx(None)), DragUpdate::Viewport(_)));
+        assert!(matches!(drag_update(&left, 10.0, &ctx(&[])), DragUpdate::Viewport(_)));
     }
 
     #[test]
     fn handle_modes_without_a_region_do_nothing() {
         let s = state(DragMode::RegionStart, 1.0, None, TimelineView::default());
-        assert_eq!(drag_update(&s, 5.0, &ctx(None)), DragUpdate::Nothing);
+        assert_eq!(drag_update(&s, 5.0, &ctx(&[])), DragUpdate::Nothing);
     }
 }

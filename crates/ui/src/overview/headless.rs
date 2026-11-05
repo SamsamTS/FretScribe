@@ -179,12 +179,12 @@ fn left_drag_scrubs_the_seek_point() {
 }
 
 #[test]
-fn left_drag_past_the_strip_end_clamps_to_the_audio() {
+fn left_drag_past_the_strip_end_snaps_to_the_last_measure() {
     let mut h = Harness::new();
     let from = h.pos(100.0);
     let to = Pos2::new(h.strip.right() + 200.0, from.y);
     let events = h.drag_between(from, to, LEFT, Modifiers::NONE);
-    assert_eq!(*seeks(&events).last().unwrap(), LEN);
+    assert_eq!(*seeks(&events).last().unwrap(), 118.0);
 }
 
 #[test]
@@ -283,9 +283,9 @@ fn right_handles_resize_and_the_body_moves() {
     h.drag(80.0, 90.0, RIGHT, Modifiers::NONE);
     let r = h.region.unwrap();
     assert!((r.start_sec - 60.0).abs() < 1e-9 && (r.end_sec - 90.0).abs() < 0.6, "{r:?}");
-    h.drag(70.0, 75.0, RIGHT, Modifiers::NONE);
+    h.drag(70.0, 76.0, RIGHT, Modifiers::NONE);
     let moved = h.region.unwrap();
-    assert!((moved.len_sec() - r.len_sec()).abs() < 1e-9 && (moved.start_sec - 65.0).abs() < 0.8, "{moved:?}");
+    assert!((moved.len_sec() - r.len_sec()).abs() < 1e-9 && (moved.start_sec - 66.0).abs() < 0.8, "{moved:?}");
 }
 
 #[test]
@@ -317,25 +317,29 @@ fn left_drag_inside_the_region_still_scrubs_and_leaves_it_alone() {
 fn shift_right_drag_starts_a_new_region_over_the_old_one() {
     let mut h = Harness::new();
     h.region = Some(RegionSelection { start_sec: 60.0, end_sec: 100.0 });
-    h.drag(70.0, 75.0, RIGHT, Modifiers::SHIFT);
+    h.drag(70.0, 76.0, RIGHT, Modifiers::SHIFT);
     let r = h.region.unwrap();
-    assert!((r.start_sec - 70.0).abs() < 0.6 && (r.end_sec - 75.0).abs() < 0.6, "{r:?}");
+    assert!((r.start_sec - 70.0).abs() < 0.6 && (r.end_sec - 76.0).abs() < 0.6, "{r:?}");
 }
 
 #[test]
-fn ctrl_snaps_region_edges_to_measure_lines() {
-    let mut h = Harness::new();
-    h.drag(91.0, 96.7, RIGHT, Modifiers::COMMAND);
-    let r = h.region.unwrap();
-    assert_eq!((r.start_sec, r.end_sec), (90.0, 96.0), "{r:?}");
-}
-
-#[test]
-fn without_ctrl_nothing_snaps() {
+fn region_edges_snap_to_measure_lines() {
     let mut h = Harness::new();
     h.drag(91.0, 96.7, RIGHT, Modifiers::NONE);
     let r = h.region.unwrap();
-    assert!(r.start_sec % 2.0 != 0.0 || r.end_sec % 2.0 != 0.0, "{r:?}");
+    assert_eq!((r.start_sec, r.end_sec), (90.0, 96.0), "{r:?}");
+    h.drag(96.0, 103.4, LEFT, Modifiers::NONE);
+    assert_eq!(h.region.unwrap().end_sec, 104.0);
+}
+
+#[test]
+fn the_seek_point_snaps_to_measure_lines() {
+    let mut h = Harness::new();
+    let at = h.pos(60.7);
+    assert_eq!(seeks(&h.click(at, LEFT)), [60.0]);
+    let moves = seeks(&h.drag(70.3, 99.2, LEFT, Modifiers::NONE));
+    assert!(moves.iter().all(|t| t % 2.0 == 0.0), "{moves:?}");
+    assert_eq!(*moves.last().unwrap(), 100.0);
 }
 
 #[test]
