@@ -103,8 +103,27 @@ pub fn zoom_target(
     };
     // (key, anchor time, anchor x when new, x the anchor ends at for a free-floating centre anchor)
     let (key, sec, base_x, drift) = match hover.measure {
-        // Too wide: the edge nearest the cursor is flush, the overflow goes off the other side.
-        Some(m) if (m.end - m.start) * new_pps > usable => edge(&m, hover.x >= geo.width / 2.0),
+        // Far too wide to be useful as a unit: plain zoom at the cursor.
+        Some(m) if (m.end - m.start) * new_pps > t.cursor_zoom_ratio * usable => {
+            (AnchorKey::Cursor(hover.x.round() as i32), hover.sec, (hover.sec - scroll_sec) * pps, None)
+        }
+        // Too wide: slides towards being flush with the edge nearest the cursor (the overflow goes
+        // off the other side), by a limited amount per notch so it never races across the view.
+        Some(m) if (m.end - m.start) * new_pps > usable => {
+            let w = (m.end - m.start) * new_pps;
+            let start = (m.start - scroll_sec) * pps;
+            let (lo, hi) = (right_x - w, left_x);
+            let wanted = if hover.x >= geo.width / 2.0 { lo } else { hi };
+            let step = t.max_slide_fraction * geo.width + (m.end - m.start) * (new_pps - pps).abs();
+            let s = (start + (wanted - start).clamp(-step, step)).clamp(lo, hi);
+            if s >= hi {
+                edge(&m, false)
+            } else if s <= lo {
+                edge(&m, true)
+            } else {
+                (AnchorKey::Measure(m.index), (m.start + m.end) / 2.0, start + w / 2.0, Some(s + w / 2.0))
+            }
+        }
         Some(m) => {
             // A fitting measure drifts towards the cursor by at most its width change per step.
             let (centre_sec, w) = ((m.start + m.end) / 2.0, m.end - m.start);
@@ -276,17 +295,32 @@ mod tests {
     }
 
     #[test]
-    fn measure_wider_than_the_view_is_flush_with_the_cursor_side_edge() {
-        let m = Some((20.0, 80.0));
-        let h = hover(300.0, 20.0, 100.0, m);
+    fn too_wide_measure_slides_to_the_cursor_side_edge_in_limited_steps() {
+        let h = hover(300.0, 20.0, 100.0, Some((20.0, 30.0)));
         let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
         assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, false));
         close(screen(&z, 20.0), T.edge_margin_px);
-        assert!(screen(&z, 80.0) > GEO.width);
-        let h = hover(700.0, 20.0, 100.0, m);
+        assert!(screen(&z, 30.0) > GEO.width);
+        // Cursor on the right: it moves towards the right edge by a limited amount per notch.
+        let h = hover(700.0, 20.0, 100.0, Some((20.0, 40.0)));
         let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
-        close(screen(&z, 80.0), GEO.width - T.edge_margin_px);
-        assert!(screen(&z, 20.0) < 0.0);
+        close(screen(&z, 20.0), -(250.0 + 500.0));
+        let z2 = zoom_target(z.scroll_sec, z.pps, &h, Some(z.anchor), 0.0, GEO, &T);
+        close(screen(&z2, 20.0), -(250.0 + 500.0) - 250.0);
+        let mut z = z2;
+        for _ in 0..10 {
+            z = zoom_target(z.scroll_sec, z.pps, &h, Some(z.anchor), 0.0, GEO, &T);
+        }
+        assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, true));
+        close(screen(&z, 40.0), GEO.width - T.edge_margin_px);
+    }
+
+    #[test]
+    fn extremely_wide_measure_zooms_at_the_cursor() {
+        let h = hover(300.0, 20.0, 100.0, Some((20.0, 80.0)));
+        let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
+        assert!(matches!(z.anchor.key, AnchorKey::Cursor(300)));
+        close(screen(&z, h.sec), 300.0);
         let h = hover(400.0, 20.0, 100.0, None);
         assert!(matches!(zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T).anchor.key, AnchorKey::Cursor(_)));
     }

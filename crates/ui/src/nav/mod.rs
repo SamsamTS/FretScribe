@@ -296,18 +296,17 @@ mod tests {
 
     #[test]
     fn too_wide_measure_edge_stays_put_on_every_frame() {
-        for (cursor, edge_sec, edge_x) in [(300.0, 20.0, 16.0), (700.0, 80.0, 984.0)] {
-            let mut c = controller();
-            c.target.scroll_sec = 20.0;
-            c.current.scroll_sec = 20.0;
-            c.zoom(&hover(&c, cursor, Some((20.0, 80.0))), 1.0);
-            run(&mut c, 1.0 / 60.0, |_| {});
-            assert!((x_of(&c, edge_sec) - edge_x).abs() < 1e-6, "gap at rest");
-            for notches in [2.0, -1.0, 3.0] {
-                c.zoom(&hover(&c, cursor, Some((20.0, 80.0))), notches);
-                run(&mut c, 1.0 / 144.0, |c| assert!((x_of(c, edge_sec) - edge_x).abs() < 1e-6));
-                assert!((x_of(&c, edge_sec) - edge_x).abs() < 1e-6, "gap at rest");
-            }
+        let mut c = controller();
+        c.target.scroll_sec = 20.0;
+        c.current.scroll_sec = 20.0;
+        let m = Some((20.0, 30.0));
+        c.zoom(&hover(&c, 300.0, m), 1.0);
+        run(&mut c, 1.0 / 60.0, |_| {});
+        assert!((x_of(&c, 20.0) - 16.0).abs() < 1e-6, "gap at rest");
+        for notches in [1.0, -1.0, 1.0] {
+            c.zoom(&hover(&c, 300.0, m), notches);
+            run(&mut c, 1.0 / 144.0, |c| assert!((x_of(c, 20.0) - 16.0).abs() < 1e-6));
+            assert!((x_of(&c, 20.0) - 16.0).abs() < 1e-6, "gap at rest");
         }
     }
 
