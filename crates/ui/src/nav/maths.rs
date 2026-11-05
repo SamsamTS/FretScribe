@@ -24,6 +24,8 @@ pub struct MeasureSpan {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnchorKey {
     Measure(usize),
+    /// Start (`false`) or end (`true`) of a measure too wide for the view.
+    MeasureEdge(usize, bool),
     Cursor(i32),
 }
 
@@ -95,29 +97,36 @@ pub fn zoom_target(
 ) -> ZoomTarget {
     let new_pps = zoom_pps(pps, notches, t);
     let usable = geo.width - 2.0 * t.edge_margin_px;
-    let (key, sec, half) = match hover.measure {
-        Some(m) => (AnchorKey::Measure(m.index), (m.start + m.end) / 2.0, (m.end - m.start) * new_pps / 2.0),
-        None => (AnchorKey::Cursor(hover.x.round() as i32), hover.sec, 0.0),
+    let (left_x, right_x) = (t.edge_margin_px, geo.width - t.edge_margin_px);
+    let edge = |m: &MeasureSpan, right: bool| {
+        (AnchorKey::MeasureEdge(m.index, right), if right { m.end } else { m.start }, if right { right_x } else { left_x }, None)
+    };
+    // (key, anchor time, anchor x when new, x the anchor ends at for a free-floating centre anchor)
+    let (key, sec, base_x, drift) = match hover.measure {
+        // Too wide: the edge nearest the cursor is flush, the overflow goes off the other side.
+        Some(m) if (m.end - m.start) * new_pps > usable => edge(&m, hover.x >= geo.width / 2.0),
+        Some(m) => {
+            // A fitting measure drifts towards the cursor by at most its width change per step.
+            let (centre_sec, w) = ((m.start + m.end) / 2.0, m.end - m.start);
+            let centre = (centre_sec - scroll_sec) * pps;
+            let x = centre + (hover.x - centre).clamp(-w * (new_pps - pps).abs(), w * (new_pps - pps).abs());
+            let half = w * new_pps / 2.0;
+            // Pushed against a side: anchor on that edge itself so it keeps one screen x per frame.
+            if x < left_x + half {
+                edge(&m, false)
+            } else if x > right_x - half {
+                edge(&m, true)
+            } else {
+                (AnchorKey::Measure(m.index), centre_sec, centre, Some(x))
+            }
+        }
+        None => (AnchorKey::Cursor(hover.x.round() as i32), hover.sec, (hover.sec - scroll_sec) * pps, None),
     };
     let anchor = match prev.filter(|a| a.key == key) {
         Some(a) => a,
-        None => Anchor { key, sec, x: (sec - scroll_sec) * pps },
+        None => Anchor { key, sec, x: base_x },
     };
-    // A fitting measure drifts towards the cursor by at most its width change per step, and is then
-    // pushed back inside the margins, flush against the side it would have overflowed. A measure
-    // that no longer fits is flush with the edge nearest the cursor; the overflow goes off the other
-    // side.
-    let x = match hover.measure {
-        Some(m) if 2.0 * half <= usable => {
-            let centre = (anchor.sec - scroll_sec) * pps;
-            let max_pull = (m.end - m.start) * (new_pps - pps).abs();
-            let x = centre + (hover.x - centre).clamp(-max_pull, max_pull);
-            x.clamp(t.edge_margin_px + half, geo.width - t.edge_margin_px - half)
-        }
-        Some(_) if hover.x < geo.width / 2.0 => t.edge_margin_px + half,
-        Some(_) => geo.width - t.edge_margin_px - half,
-        None => anchor.x,
-    };
+    let x = drift.unwrap_or(anchor.x);
     let scroll = clamp_scroll(anchor.sec - x / new_pps, new_pps, geo, t);
     ZoomTarget {
         pps: new_pps,
@@ -222,10 +231,10 @@ mod tests {
             let before_x = ((span.0 + span.1) / 2.0 - scroll) * pps;
             let h = hover(before_x, scroll, pps, Some(span));
             let z = zoom_target(scroll, pps, &h, None, notches, GEO, &T);
-            assert_eq!(z.anchor.key, AnchorKey::Measure(0));
+            assert!(matches!(z.anchor.key, AnchorKey::Measure(0) | AnchorKey::MeasureEdge(0, _)));
             let (l, r) = (screen(&z, span.0), screen(&z, span.1));
             assert!(l >= T.edge_margin_px - 1e-9 && r <= GEO.width - T.edge_margin_px + 1e-9, "{l} {r}");
-            if z.shift == 0.0 {
+            if z.anchor.key == AnchorKey::Measure(0) && z.shift.abs() < 1e-9 {
                 close(screen(&z, (span.0 + span.1) / 2.0), before_x);
             }
         }
@@ -235,8 +244,8 @@ mod tests {
     fn measure_near_the_edge_is_shifted_minimally() {
         let h = hover(110.0, 0.0, 100.0, Some((0.1, 2.1)));
         let z = zoom_target(0.0, 100.0, &h, None, 1.0, GEO, &T);
-        close(z.shift, T.edge_margin_px - (110.0 - 125.0));
         close(screen(&z, 0.1), T.edge_margin_px);
+        assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, false));
         let h = hover(950.0, 20.0, 100.0, Some((28.5, 30.5)));
         let z = zoom_target(20.0, 100.0, &h, None, -1.0, GEO, &T);
         close(screen(&z, 30.5), GEO.width - T.edge_margin_px);
@@ -271,7 +280,7 @@ mod tests {
         let m = Some((20.0, 80.0));
         let h = hover(300.0, 20.0, 100.0, m);
         let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
-        assert_eq!(z.anchor.key, AnchorKey::Measure(0));
+        assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, false));
         close(screen(&z, 20.0), T.edge_margin_px);
         assert!(screen(&z, 80.0) > GEO.width);
         let h = hover(700.0, 20.0, 100.0, m);

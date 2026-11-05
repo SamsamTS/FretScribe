@@ -283,14 +283,48 @@ mod tests {
             c.zoom(&h, 4.0);
             c.zoom(&h, 2.0);
             run(&mut c, 1.0 / 60.0, |c| {
-                let shift = c.pivot.map_or(0.0, |p| p.shift);
-                assert!((x_of(c, sec) - (x0 + shift)).abs() < 1e-6);
+                let p = c.pivot.expect("pivot while animating");
+                assert!((x_of(c, p.anchor.sec) - (p.anchor.x + p.shift)).abs() < 1e-6);
                 if measure.is_none() {
                     assert!((x_of(c, sec) - x0).abs() < 1e-6);
                 }
             });
             assert_eq!(c.current, c.target);
             assert!((c.current.pixels_per_sec - 100.0 * 1.25_f64.powi(6)).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn too_wide_measure_edge_stays_put_on_every_frame() {
+        for (cursor, edge_sec, edge_x) in [(300.0, 20.0, 16.0), (700.0, 80.0, 984.0)] {
+            let mut c = controller();
+            c.target.scroll_sec = 20.0;
+            c.current.scroll_sec = 20.0;
+            c.zoom(&hover(&c, cursor, Some((20.0, 80.0))), 1.0);
+            run(&mut c, 1.0 / 60.0, |_| {});
+            assert!((x_of(&c, edge_sec) - edge_x).abs() < 1e-6, "gap at rest");
+            for notches in [2.0, -1.0, 3.0] {
+                c.zoom(&hover(&c, cursor, Some((20.0, 80.0))), notches);
+                run(&mut c, 1.0 / 144.0, |c| assert!((x_of(c, edge_sec) - edge_x).abs() < 1e-6));
+                assert!((x_of(&c, edge_sec) - edge_x).abs() < 1e-6, "gap at rest");
+            }
+        }
+    }
+
+    #[test]
+    fn fitting_measure_pushed_against_a_side_stays_flush_on_every_frame() {
+        let mut c = controller();
+        c.target.scroll_sec = 20.0;
+        c.current.scroll_sec = 20.0;
+        let m = Some((28.5, 30.5));
+        for _ in 0..3 {
+            c.zoom(&hover(&c, 990.0, m), 1.0);
+            run(&mut c, 1.0 / 60.0, |_| {});
+        }
+        for notches in [1.0, 2.0, -1.0] {
+            c.zoom(&hover(&c, 990.0, m), notches);
+            run(&mut c, 1.0 / 144.0, |c| assert!((x_of(c, 30.5) - 984.0).abs() < 1e-6));
+            assert!((x_of(&c, 30.5) - 984.0).abs() < 1e-6);
         }
     }
 
