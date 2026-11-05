@@ -1,5 +1,7 @@
-//! Audio analysis for FretScribe: the log-frequency spectrogram, its display pipeline, waveform peaks.
+//! Audio analysis for FretScribe: the log-frequency spectrogram, its display pipeline, waveform peaks,
+//! onset detection and beat-grid fitting.
 
+pub mod beatfit;
 mod cqt;
 mod display;
 mod error;

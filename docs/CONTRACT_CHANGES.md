@@ -80,3 +80,12 @@ No change in `core` or other crates. New `fretscribe_ui::nav` (re-exported: `Vie
 - `run` consumes only the wheel events it uses, by clearing egui's pre-mapped scroll deltas; egui's keyboard UI zoom is switched off by the app with `ctx.options_mut(|o| o.zoom_with_keyboard = false)`.
 - Zoom rule update: a fitting hovered measure drifts towards the cursor by at most its pixel-width change per notch (centre reaches the cursor once within that distance), then is clamped inside the edge margins, flush against the side it would have overflowed. A measure that no longer fits is flush with the edge nearest the cursor (edge margin applied), the overflow going off the opposite side; with no measure under the cursor the cursor time is the anchor.
 - Zoom rule update 2: a hovered measure wider than the view slides towards being flush with the edge nearest the cursor by at most `max_slide_fraction` of the view width per notch (plus the drift the zoom itself causes), so it no longer races across when the cursor crosses the middle; once flush its edge is the anchor. Beyond `cursor_zoom_ratio` usable view widths the measure is ignored and the zoom anchors on the cursor time (both new `ViewTuning` fields).
+
+## 2026-11-06 - analysis crate: beat fit
+
+No change in `core` or other crates, no workspace dependency change (`realfft` and `rayon` were already used). New `fretscribe_analysis::beatfit` (not re-exported at the crate root):
+- `onset_envelope(mono, rate) -> OnsetEnvelope { values, hop_sec }` (value `k` is at `k * hop_sec` of the track's audio time; `at(sec)` interpolates), `detect_onsets(&env) -> Vec<f64>` (works on any envelope, so per helper track too).
+- `combine_envelopes(&[EnvelopeInput { env, offset_sec, weight }])` into project time (frames before 0 are dropped); `default_weight(TrackRole)` and `envelope_input(&Track, env) -> Option<EnvelopeInput>` (`None` when `use_for_beats` is off; uses `track.offset_sec`). The app decides which tracks, including the source guitar, have `use_for_beats` set.
+- `fit_measures(&env, &measures, max_shift_beats) -> Vec<MeasureFit { index, new_start_sec, confidence }>`; `fitted_grid(&measures, &fits) -> Vec<FittedMeasure>` refits every tempo to the fitted spans and feeds `Project::auto_fit` (callers normally pass `KeepAudioPosition`).
+- `estimate_tempo(&env, (lo, hi)) -> Vec<(bpm, score)>` (top 3, ranked with a mild log-Gaussian prior around 120 BPM) and `octave_ratio(a, b)` for the double/half-time ambiguity.
+- `beatfit::synth` is `#[doc(hidden)]` test material shared with the `beatfit_bench` example.
