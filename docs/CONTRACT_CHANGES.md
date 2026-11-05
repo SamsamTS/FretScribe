@@ -74,11 +74,8 @@ Backward compatible; no existing signature or behaviour changed.
 - `Propagation { Following (default), Single }` and `set_tempo_scoped` / `set_time_sig_scoped`, both as functions in `measures` and as `Project` methods (`Project::set_tempo_scoped(index, bpm, propagation, policy)`, `Project::set_time_sig_scoped(...)`). `set_tempo` / `set_time_sig` are now thin wrappers using `Following`, so they behave exactly as before. `Single` edits only `index`, which backs the "apply to following identical measures" checkbox of the grid popup.
 - `UndoStack` (`undo` module, also re-exported with `DEFAULT_UNDO_LIMIT = 200`): linear history of `ProjectEdit`. `push`, `undo(&mut Project) -> Option<&ProjectEdit>`, `redo(...)`, `can_undo`, `can_redo`, `undo_label`, `redo_label`, `clear`, `with_limit`. Pushing discards the redo branch and the oldest edits are dropped beyond the limit. It is not generic: every edit already produces a `ProjectEdit` snapshot pair, so `UndoStack<ProjectEdit>` would be the only instantiation.
 
-## 2026-11-05 - ui crate: overview timeline always snaps
+## 2026-11-05 - ui crate: overview snapping
 
-- `OverviewTimeline::snap_region` is removed and Ctrl no longer toggles snapping: the seek point (click and drag) and the region edges (create, resize, move) always snap to `snap_points` (default: `measure_starts`); the viewport box does not. No points, no snapping.
-- `DragContext::snap` is now `&[f64]` instead of `Option<&[f64]>`; `DragUpdate::Seek` is snapped.
-
-## 2026-11-05 - ui crate: overview snapping toggle
-
-Supersedes the entry above: snapping is on by default and Alt disables it while dragging. The widget has a magnet button; `OverviewTimeline::snapping(bool)` gives its state and `OverviewEvent::SnapToggled(bool)` reports clicks (the app stores the state). With the button off, Alt enables snapping instead.
+- Snapping is on by default and Alt disables it while dragging. The seek point (click and drag) and the region edges (create, resize, move) snap to `snap_points` (default: `measure_starts`); the viewport box does not. No points, no snapping.
+- The widget has a magnet button: `OverviewTimeline::snapping(bool)` gives its state and `OverviewEvent::SnapToggled(bool)` reports clicks (the app stores the state). With the button off, Alt enables snapping instead.
+- Removed: `OverviewTimeline::snap_region` and the Ctrl modifier. `DragContext::snap` is now `&[f64]` instead of `Option<&[f64]>`; `DragUpdate::Seek` is snapped.
