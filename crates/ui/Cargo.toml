@@ -6,3 +6,8 @@ publish.workspace = true
 
 [dependencies]
 fretscribe-core.workspace = true
+egui.workspace = true
+
+[dev-dependencies]
+eframe.workspace = true
+image.workspace = true

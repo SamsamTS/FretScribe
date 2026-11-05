@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::error::EditError;
-use crate::measures::{self, recompute_starts, valid_tempo};
+use crate::measures::{self, recompute_starts, valid_tempo, Propagation};
 use crate::model::{Measure, Note, Project, TimePos, TimeSignature, Track, Technique, MAX_BPM, MIN_BPM};
 use crate::tempo::{NoteTimes, TempoMap};
 
@@ -162,8 +162,18 @@ impl Project {
         new_bpm: f64,
         policy: NotePolicy,
     ) -> Result<ProjectEdit, EditError> {
+        self.set_tempo_scoped(index, new_bpm, Propagation::Following, policy)
+    }
+
+    pub fn set_tempo_scoped(
+        &mut self,
+        index: usize,
+        new_bpm: f64,
+        propagation: Propagation,
+        policy: NotePolicy,
+    ) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Set tempo", policy, |p| {
-            measures::set_tempo(&mut p.measures, index, new_bpm).map(drop)
+            measures::set_tempo_scoped(&mut p.measures, index, new_bpm, propagation).map(drop)
         })
     }
 
@@ -173,8 +183,18 @@ impl Project {
         new_sig: TimeSignature,
         policy: NotePolicy,
     ) -> Result<ProjectEdit, EditError> {
+        self.set_time_sig_scoped(index, new_sig, Propagation::Following, policy)
+    }
+
+    pub fn set_time_sig_scoped(
+        &mut self,
+        index: usize,
+        new_sig: TimeSignature,
+        propagation: Propagation,
+        policy: NotePolicy,
+    ) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Set time signature", policy, |p| {
-            measures::set_time_sig(&mut p.measures, index, new_sig).map(drop)
+            measures::set_time_sig_scoped(&mut p.measures, index, new_sig, propagation).map(drop)
         })
     }
 
@@ -621,6 +641,22 @@ mod tests {
         assert_eq!(p, before);
         edit.redo(&mut p);
         assert_eq!(p, after);
+        assert_eq!(edit.label(), "Set tempo");
+    }
+
+    #[test]
+    fn single_propagation_edits_only_the_chosen_measure() {
+        let mut p = project(4);
+        let n = note(&mut p, 60, (3, 0.0), (3, 1.0));
+        let edit = p.set_tempo_scoped(0, 60.0, Propagation::Single, Follow).unwrap();
+        let tempos: Vec<f64> = p.measures.iter().map(|m| m.tempo_bpm).collect();
+        assert_eq!(tempos, [60.0, 120.0, 120.0, 120.0]);
+        close(p.measures[1].start_sec, 4.0);
+        close(secs(&p, n).0, 6.0);
+        p.set_time_sig_scoped(1, TimeSignature::new(3, 4), Propagation::Single, Follow).unwrap();
+        assert_eq!(p.measures[1].time_sig, TimeSignature::new(3, 4));
+        assert_eq!(p.measures[2].time_sig, TimeSignature::COMMON);
+        p.validate().unwrap();
         assert_eq!(edit.label(), "Set tempo");
     }
 
