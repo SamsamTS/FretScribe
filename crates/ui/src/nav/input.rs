@@ -8,6 +8,8 @@ use super::tuning::ViewTuning;
 use super::ViewController;
 
 const NOTCHES_PER_PAGE: f64 = 3.0;
+const NOMINAL_DT_SEC: f64 = 1.0 / 60.0;
+const MAX_DT_SEC: f64 = 0.05;
 
 /// `grid` is the whole measure grid column (ruler, lanes, notation panel), `lanes` the scrolling
 /// part of it and `source_spec` the source spectrogram strip, all in screen coordinates.
@@ -120,6 +122,9 @@ impl ViewController {
             max_scroll_y(f64::from(nav.content_px), f64::from(viewport_px)) / f64::from(ppp),
         );
 
+        // egui does not repaint while idle, so the first frame after a pause reports the whole idle
+        // gap as dt, which would make the animation jump. Start with a nominal frame instead.
+        let was_animating = self.is_animating();
         let tuning = self.tuning;
         let (pos, wheel, pressed, down, delta, dt) = ctx.input_mut(|i| {
             let pos = i.pointer.hover_pos();
@@ -162,7 +167,8 @@ impl ViewController {
             }
         }
 
-        if self.update(f64::from(dt)) {
+        let dt = if was_animating { f64::from(dt).min(MAX_DT_SEC) } else { NOMINAL_DT_SEC };
+        if self.update(dt) {
             ctx.request_repaint();
         }
     }
@@ -249,5 +255,21 @@ mod tests {
         });
         assert!((ctl.target.pixels_per_sec - 125.0).abs() < 1e-9);
         assert_eq!(scroll_seen, Vec2::ZERO);
+    }
+
+    #[test]
+    fn first_frame_after_an_idle_gap_is_animated_not_a_jump() {
+        use crate::nav::{PitchRange, ViewState};
+        let map = TempoMap::new(&fretscribe_core::generate_measures(0.0, 100.0, 120.0, fretscribe_core::TimeSignature::COMMON, &mut 1));
+        let mut ctl = ViewController::new(ViewState { scroll_sec: 10.0, scroll_y: 0.0, pixels_per_sec: 100.0 }, &ViewTuning::DEFAULT, PitchRange { lo: 20.0, hi: 100.0 });
+        let nav = NavContext { regions: regions(), map: &map, audio_len_sec: 100.0, content_px: 1000, strip_pitch_px: 20 };
+        let ctx = Context::default();
+        let shift = Modifiers { shift: true, ..Modifiers::NONE };
+        let _ = ctx.run(egui::RawInput { events: vec![Event::PointerMoved(pos2(300.0, 100.0))], time: Some(0.0), ..Default::default() }, |ctx| ctl.run(ctx, &nav));
+        // Five idle seconds later, one notch: the first frame must only cover part of the way.
+        let input = egui::RawInput { events: vec![wheel(MouseWheelUnit::Line, 0.0, -1.0, shift)], time: Some(5.0), ..Default::default() };
+        let _ = ctx.run(input, |ctx| ctl.run(ctx, &nav));
+        assert!(ctl.target.scroll_sec > 10.0);
+        assert!(ctl.current.scroll_sec > 10.0 && ctl.current.scroll_sec < ctl.target.scroll_sec);
     }
 }
