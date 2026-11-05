@@ -227,4 +227,27 @@ mod tests {
         assert_eq!(counts.iter().sum::<f64>(), 3.0);
         assert_eq!(counts[0], 0.0);
     }
+
+    #[test]
+    fn run_applies_a_ctrl_wheel_zoom_and_consumes_it() {
+        use crate::nav::{PitchRange, ViewState};
+        let map = TempoMap::new(&fretscribe_core::generate_measures(0.0, 100.0, 120.0, fretscribe_core::TimeSignature::COMMON, &mut 1));
+        let mut ctl = ViewController::new(ViewState { scroll_sec: 0.0, scroll_y: 0.0, pixels_per_sec: 100.0 }, &ViewTuning::DEFAULT, PitchRange { lo: 20.0, hi: 100.0 });
+        let nav = NavContext { regions: regions(), map: &map, audio_len_sec: 100.0, content_px: 1000, strip_pitch_px: 20 };
+        let input = egui::RawInput {
+            events: vec![
+                Event::PointerMoved(pos2(300.0, 100.0)),
+                wheel(MouseWheelUnit::Line, 0.0, 1.0, Modifiers { ctrl: true, ..Modifiers::NONE }),
+            ],
+            ..Default::default()
+        };
+        let mut scroll_seen = Vec2::new(1.0, 1.0);
+        let ctx = Context::default();
+        let _ = ctx.run(input, |ctx| {
+            ctl.run(ctx, &nav);
+            scroll_seen = ctx.input(|i| i.smooth_scroll_delta);
+        });
+        assert!((ctl.target.pixels_per_sec - 125.0).abs() < 1e-9);
+        assert_eq!(scroll_seen, Vec2::ZERO);
+    }
 }

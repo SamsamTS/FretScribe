@@ -69,3 +69,12 @@ Backward compatible; no existing signature or behaviour changed.
 
 - Snapping is on by default and Alt disables it while dragging. The seek point (click and drag) and the region edges (create, resize, move) snap to `snap_points` (default: `measure_starts`); the viewport box does not. No points, no snapping. `DragContext::snap` is a `&[f64]`.
 - The widget has a magnet button: `OverviewTimeline::snapping(bool)` gives its state and `OverviewEvent::SnapToggled(bool)` reports clicks (the app stores the state). With the button off, Alt enables snapping instead.
+
+## 2026-11-05 - ui crate: view navigation
+
+No change in `core` or other crates. New `fretscribe_ui::nav` (re-exported: `ViewController`, `ViewTuning`, `NavContext`, `NavRegions`):
+- `nav::ViewState { scroll_sec, scroll_y, pixels_per_sec }` is the navigation state (`From<core::ViewState>`, `timeline() -> TimelineView`). `scroll_y` is not persisted (core's `ViewState` is unchanged).
+- `ViewController`: input moves `target`, `current` chases it; widgets read `current` only. Per frame: `ctl.run(ctx, &NavContext)` (reads wheel and middle-drag, then animates and requests a repaint while running). Also `set_target`, `jump_to` (centres, animated), `update(dt) -> bool`, `offset_y(ppp)` (vertical offset in whole physical pixels, for drawing), and `pitch.current` (shared pitch range, set via `PitchRange` bounds in `new`).
+- All feel constants are in `nav/tuning.rs` (`ViewTuning::DEFAULT`); `min_pitch_span_semitones` was added to the list of the prompt. The JSON loading for live tweaking was not done.
+- Lane geometry assumption (Prompt 6b was not available): every strip height is a whole multiple of the strip pitch P in physical pixels, a lane is `(k + 1) * P` (`k = 0` is a collapsed spectrogram, no strip), borders are drawn inside the strip. The app passes `content_px` and `strip_pitch_px` in `NavContext`.
+- `run` consumes only the wheel events it uses, by clearing egui's pre-mapped scroll deltas; egui's keyboard UI zoom is switched off by the app with `ctx.options_mut(|o| o.zoom_with_keyboard = false)`.
