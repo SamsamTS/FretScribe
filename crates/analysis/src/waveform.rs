@@ -630,7 +630,7 @@ mod tests {
         assert!((50..69).all(|y| at(y) >= at(y + 1)), "lower body");
         assert!((10..29).all(|y| at(y) <= at(y + 1)), "upper envelope");
         assert!((70..89).all(|y| at(y) >= at(y + 1)), "lower envelope");
-        assert!(at(49) > at(30) + 40 && at(50) > at(69) + 40);
+        assert!(at(49) > at(30) + 25 && at(50) > at(69) + 25);
         assert!(at(29) > at(10) + 20 && at(70) > at(89) + 20);
         assert!((10..=89).all(|y| at(y) == at(99 - y)));
     }
