@@ -4,6 +4,7 @@ mod cqt;
 mod display;
 mod error;
 pub mod lut;
+pub mod pitchref;
 mod render;
 mod spectrogram;
 #[cfg(test)]

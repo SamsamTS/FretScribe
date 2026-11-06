@@ -80,3 +80,12 @@ No change in `core` or other crates. New `fretscribe_ui::nav` (re-exported: `Vie
 - `run` consumes only the wheel events it uses, by clearing egui's pre-mapped scroll deltas; egui's keyboard UI zoom is switched off by the app with `ctx.options_mut(|o| o.zoom_with_keyboard = false)`.
 - Zoom rule update: a fitting hovered measure drifts towards the cursor by at most its pixel-width change per notch (centre reaches the cursor once within that distance), then is clamped inside the edge margins, flush against the side it would have overflowed. A measure that no longer fits is flush with the edge nearest the cursor (edge margin applied), the overflow going off the opposite side; with no measure under the cursor the cursor time is the anchor.
 - Zoom rule update 2: a hovered measure wider than the view slides towards being flush with the edge nearest the cursor by at most `max_slide_fraction` of the view width per notch (plus the drift the zoom itself causes), so it no longer races across when the cursor crosses the middle; once flush its edge is the anchor. Beyond `cursor_zoom_ratio` usable view widths the measure is ignored and the zoom anchors on the cursor time (both new `ViewTuning` fields).
+
+## 2026-11-06 - analysis crate: reference pitch estimation
+
+No change in `core` or other crates, no workspace dependency change. New `fretscribe_analysis::pitchref` (not re-exported at the crate root); conversions go through `core::cents_off` and `core::ref_from_cents`.
+- `estimate_reference(mono, rate, region: Option<(f64, f64)>, PitchRefOptions { max_analysis_sec: 90, min_hz: 80, max_hz: 2000 }) -> PitchRefEstimate { cents, a4_hz, confidence, histogram }`. It only estimates: the app decides whether to propose `a4_hz`. `cents` is the offset from the 440 Hz grid within -50..=+50 (positive: sharp); a recording a whole semitone off, or played with a capo, reads about 0 (that is the tuning and capo, not the reference).
+- `histogram`: 100 circular 1-cent bins over -50..+50 (bin `i` centred on `i - 49.5`), smoothed, normalised to a sum of 1 (all zero when nothing was found).
+- Without `region`, a file longer than `max_analysis_sec` is analysed on its most tonal stretch of that length. An invalid region (non-finite) is ignored.
+- Confidence is robust to mild broadband noise (the long window gives the tonal peaks about 40 dB of gain); it drops with heavy noise, vibrato or bends, an out-of-tune guitar, noise and drums.
+- `cargo run --release -p fretscribe-analysis --example pitchref -- file.wav [--start s --end s]`.
