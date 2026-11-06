@@ -98,3 +98,12 @@ No change in `core` or other crates, no workspace dependency change (`rubato` is
 - `snap_offsets(other_onsets, targets, current_offset_sec, max_dist_sec)`: offsets within `max_dist_sec` of the current one, nearest first.
 - Cost: the signal-level refinement is one FFT correlation over the full signals (about 300 MB and a few seconds for two 3-minute tracks at 44.1 kHz).
 - `cargo run --release -p fretscribe-analysis --example sync_offset -- ref.wav other.wav [--max-lag 15]`.
+
+## 2026-11-06 - analysis crate: reference pitch estimation
+
+No change in `core` or other crates, no workspace dependency change. New `fretscribe_analysis::pitchref` (not re-exported at the crate root); conversions go through `core::cents_off` and `core::ref_from_cents`.
+- `estimate_reference(mono, rate, region: Option<(f64, f64)>, PitchRefOptions { max_analysis_sec: 90, min_hz: 80, max_hz: 2000 }) -> PitchRefEstimate { cents, a4_hz, confidence, histogram }`. It only estimates: the app decides whether to propose `a4_hz`. `cents` is the offset from the 440 Hz grid within -50..=+50 (positive: sharp); a recording a whole semitone off, or played with a capo, reads about 0 (that is the tuning and capo, not the reference).
+- `histogram`: 100 circular 1-cent bins over -50..+50 (bin `i` centred on `i - 49.5`), smoothed, normalised to a sum of 1 (all zero when nothing was found).
+- Without `region`, a file longer than `max_analysis_sec` is analysed on its most tonal stretch of that length. An invalid region (non-finite) is ignored.
+- Confidence is robust to mild broadband noise (the long window gives the tonal peaks about 40 dB of gain); it drops with heavy noise, vibrato or bends, an out-of-tune guitar, noise and drums.
+- `cargo run --release -p fretscribe-analysis --example pitchref -- file.wav [--start s --end s]`.
