@@ -87,6 +87,41 @@ impl TimelineView {
     }
 }
 
+/// Vertical view shared by the spectrograms: the axis is linear in note number, i.e. logarithmic in
+/// frequency, so every semitone has the same height. Higher pitch is higher on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PitchView {
+    pub min_midi: f32,
+    pub max_midi: f32,
+}
+
+impl Default for PitchView {
+    fn default() -> Self {
+        Self { min_midi: 28.0, max_midi: 88.0 }
+    }
+}
+
+impl From<crate::nav::PitchRange> for PitchView {
+    fn from(r: crate::nav::PitchRange) -> Self {
+        Self { min_midi: r.lo as f32, max_midi: r.hi as f32 }
+    }
+}
+
+impl PitchView {
+    pub fn span(&self) -> f32 {
+        (self.max_midi - self.min_midi).max(f32::EPSILON)
+    }
+
+    /// `y` is relative to a strip starting at `top` and `height` tall.
+    pub fn midi_to_y(&self, midi: f32, top: f32, height: f32) -> f32 {
+        top + (self.max_midi - midi) / self.span() * height
+    }
+
+    pub fn y_to_midi(&self, y: f32, top: f32, height: f32) -> f32 {
+        self.max_midi - (y - top) / height.max(f32::EPSILON) * self.span()
+    }
+}
+
 /// Shortest selectable region.
 pub const MIN_REGION_SEC: f64 = 0.05;
 
@@ -232,6 +267,17 @@ mod tests {
         let mut v = view(1.0, 0.0);
         v.clamp(5.0);
         assert_eq!(v.pixels_per_sec, MIN_PIXELS_PER_SEC);
+    }
+
+    #[test]
+    fn pitch_axis_is_linear_in_note_number_and_inverts() {
+        let p = PitchView { min_midi: 40.0, max_midi: 64.0 };
+        assert_eq!(p.midi_to_y(64.0, 10.0, 240.0), 10.0);
+        assert_eq!(p.midi_to_y(40.0, 10.0, 240.0), 250.0);
+        let octave = p.midi_to_y(52.0, 0.0, 240.0) - p.midi_to_y(64.0, 0.0, 240.0);
+        let low_octave = p.midi_to_y(40.0, 0.0, 240.0) - p.midi_to_y(52.0, 0.0, 240.0);
+        assert!((octave - low_octave).abs() < 1e-4);
+        assert!((p.y_to_midi(p.midi_to_y(51.3, 7.0, 240.0), 7.0, 240.0) - 51.3).abs() < 1e-4);
     }
 
     #[test]
