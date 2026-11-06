@@ -38,7 +38,7 @@ impl WaveformView {
         let range = view.visible_range(rect.width());
         painter.add(Shape::mesh(columns_mesh(rect, ppp, &peaks((range.start, range.end), columns))));
         if let Some(sec) = self.playhead_sec {
-            painter.vline(rect.left() + view.sec_to_x(sec), rect.y_range(), Stroke::new(1.5, Color32::from_rgb(255, 90, 80)));
+            painter.vline(rect.left() + view.sec_to_x(sec), rect.y_range(), Stroke::new(1.5_f32, Color32::from_rgb(255, 90, 80)));
         }
         response
     }

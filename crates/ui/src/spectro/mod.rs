@@ -198,7 +198,7 @@ impl<'a> SpectrogramView<'a> {
             }
             let y = geo.midi_to_y(midi as f32);
             let color = if is_open { OPEN_STRING.gamma_multiply(0.55) } else { Color32::from_white_alpha(if midi.rem_euclid(12) == 0 { 40 } else { 16 }) };
-            painter.hline(rect.x_range(), y, Stroke::new(1.0, color));
+            painter.hline(rect.x_range(), y, Stroke::new(1.0_f32, color));
             let labelled = is_open || midi.rem_euclid(12) == 0 || (is_natural(midi) && semitone_px >= SEMITONE_PX_FOR_ALL_LABELS);
             if labelled && (0..=127).contains(&midi) {
                 let text = midi_to_name(midi as u8);
@@ -211,7 +211,7 @@ impl<'a> SpectrogramView<'a> {
     }
 
     fn draw_readout(&self, painter: &Painter, geo: &SpectroGeometry, hover: &HoverInfo) {
-        let cross = Stroke::new(1.0, Color32::from_white_alpha(70));
+        let cross = Stroke::new(1.0_f32, Color32::from_white_alpha(70));
         painter.hline(geo.rect.x_range(), hover.pos.y, cross);
         painter.vline(hover.pos.x, geo.rect.y_range(), cross);
         let r = readout(hover.midi_float, &self.pitch_ref, self.tuning, self.capo);
@@ -245,7 +245,7 @@ impl<'a> SpectrogramView<'a> {
             notes::draw_ghost(&painter, &geo, ghost, self.notes, times);
         }
         if let Some(sec) = self.playhead_sec {
-            painter.vline(geo.sec_to_x(sec), rect.y_range(), Stroke::new(1.5, PLAYHEAD));
+            painter.vline(geo.sec_to_x(sec), rect.y_range(), Stroke::new(1.5_f32, PLAYHEAD));
         }
 
         let hover = response.hover_pos().filter(|p| rect.contains(*p)).map(|pos| HoverInfo { pos, time_sec: geo.x_to_sec(pos.x), midi_float: geo.y_to_midi(pos.y) });

@@ -31,8 +31,7 @@ impl Harness {
         };
         let mut next = 1;
         let map = TempoMap::new(&generate_measures(0.0, 10.0, 120.0, TimeSignature::COMMON, &mut next));
-        let mut note = Note::new(1, 52, map.sec_to_pos(1.0), map.sec_to_pos(2.0));
-        note.string_fret = None;
+        let note = Note::new(1, 52, map.sec_to_pos(1.0), map.sec_to_pos(2.0));
         let notes = vec![note];
         let mut h = Self {
             ctx: Context::default(),
@@ -56,7 +55,7 @@ impl Harness {
         let tuning = Tuning::standard();
         let mut out = Vec::new();
         let mut rect = self.rect;
-        self.ctx.run(raw, |ctx| {
+        let _ = self.ctx.run(raw, |ctx| {
             CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
                 let o = SpectrogramView::new(&self.spectrogram, &self.style, self.pitch_ref, &tuning)
                     .notes(&self.notes, &self.times, &[])

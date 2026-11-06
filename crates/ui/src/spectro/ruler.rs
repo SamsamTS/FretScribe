@@ -32,11 +32,11 @@ pub fn show_time_ruler(ui: &mut Ui, view: &TimelineView, height: f32, playhead_s
     for i in first..=last {
         let sec = i as f64 * step;
         let x = rect.left() + view.sec_to_x(sec);
-        painter.vline(x, rect.bottom() - 6.0..=rect.bottom(), Stroke::new(1.0, Color32::from_white_alpha(110)));
+        painter.vline(x, rect.bottom() - 6.0..=rect.bottom(), Stroke::new(1.0_f32, Color32::from_white_alpha(110)));
         painter.text(pos2(x + 3.0, rect.top() + 2.0), Align2::LEFT_TOP, format_time(sec, step), FontId::monospace(10.0), Color32::from_white_alpha(160));
     }
     let x = rect.left() + view.sec_to_x(playhead_sec);
-    painter.vline(x, rect.y_range(), Stroke::new(2.0, Color32::from_rgb(255, 90, 80)));
+    painter.vline(x, rect.y_range(), Stroke::new(2.0_f32, Color32::from_rgb(255, 90, 80)));
     let pos = response.interact_pointer_pos().filter(|_| response.clicked() || response.dragged())?;
     Some(SpectroEvent::SeekRequested(view.x_to_sec(pos.x - rect.left()).max(0.0)))
 }

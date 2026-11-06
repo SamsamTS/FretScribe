@@ -107,3 +107,12 @@ No change in `core` or other crates, no workspace dependency change. New `fretsc
 - Without `region`, a file longer than `max_analysis_sec` is analysed on its most tonal stretch of that length. An invalid region (non-finite) is ignored.
 - Confidence is robust to mild broadband noise (the long window gives the tonal peaks about 40 dB of gain); it drops with heavy noise, vibrato or bends, an out-of-tune guitar, noise and drums.
 - `cargo run --release -p fretscribe-analysis --example pitchref -- file.wav [--start s --end s]`.
+
+## 2026-11-07 - ui crate: spectrogram view
+
+- `fretscribe-ui` now depends on `fretscribe-analysis` (`SpectroStyle` uses `Levels`/`Lut`; the widget calls `Spectrogram::render_rgba`) and on `fretscribe-notation`. This departs from the earlier "ui does not depend on analysis" comment in `overview/waveform.rs`; the waveform strip still takes its peaks from a closure.
+- `fretscribe-notation` was empty: added the provisional `tab::{lowest_fret_candidate, candidate_label}` ("E 10" format, string 0 = lowest, capo respected) for the hover readout. Replace with the real tab inference when it lands, keeping the signatures.
+- New `fretscribe_ui::spectro`: `SpectrogramView` (builder, `show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`), `SpectroStyle`, `SpectroEvent::{AddNoteRequested, SeekRequested}`, `GhostNote`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`. `view::PitchView { min_midi, max_midi }` (`From<nav::PitchRange>`).
+- Notes come as `&[Note]` plus the core `NoteTimes` (project seconds). `link_to` goes from the start note to the next one and the connector kind is the start note's `technique` (Slide, Bend; anything else is a plain line).
+- The texture cache key includes window, pixel size, pitch range, A4, levels, gamma, LUT name, spectrogram data pointer and a caller `revision` (bump it when the data changes in place, e.g. streamed chunks).
+- `PITCH_RULER_WIDTH` (left strip with the pitch labels) is exposed as `SpectroOutput::pitch_ruler` for the nav drag; clicks there add no note.

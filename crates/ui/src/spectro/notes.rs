@@ -203,7 +203,7 @@ fn arrow(painter: &Painter, path: &[Pos2], color: Color32) {
 
 fn draw_connector(painter: &Painter, from: Pos2, to: Pos2, kind: LinkKind, color: Color32) {
     let path = connector_path(from, to, kind);
-    painter.add(Shape::line(path.clone(), PathStroke::new(1.5, color)));
+    painter.add(Shape::line(path.clone(), PathStroke::new(1.5_f32, color)));
     if kind != LinkKind::Plain {
         arrow(painter, &path, color);
     }
@@ -221,7 +221,7 @@ pub fn draw_notes(painter: &Painter, geo: &SpectroGeometry, notes: &[Note], time
     for n in notes {
         let Some(r) = geo.note_rect_of(n, times).filter(|r| r.intersects(geo.rect)) else { continue };
         painter.rect_filled(r, 3.0, faded(FILL));
-        let border = if selected.contains(&n.id) { Stroke::new(2.0, faded(SELECTED_BORDER)) } else { Stroke::new(1.0, faded(BORDER)) };
+        let border = if selected.contains(&n.id) { Stroke::new(2.0_f32, faded(SELECTED_BORDER)) } else { Stroke::new(1.0_f32, faded(BORDER)) };
         painter.rect_stroke(r, 3.0, border, StrokeKind::Inside);
         if r.width() >= MIN_LABEL_WIDTH && r.height() >= 9.0 {
             let font = FontId::monospace((r.height() - 2.0).min(11.0));
@@ -246,7 +246,7 @@ pub fn draw_notes(painter: &Painter, geo: &SpectroGeometry, notes: &[Note], time
 pub fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostNote, notes: &[Note], times: &NoteTimes) {
     let r = geo.note_rect(ghost.midi, ghost.start_sec, ghost.end_sec);
     painter.rect_filled(r, 3.0, Color32::from_white_alpha(40));
-    painter.rect_stroke(r, 3.0, Stroke::new(1.0, Color32::from_white_alpha(140)), StrokeKind::Inside);
+    painter.rect_stroke(r, 3.0, Stroke::new(1.0_f32, Color32::from_white_alpha(140)), StrokeKind::Inside);
     let start = ghost.link_from.and_then(|id| notes.iter().find(|n| n.id == id));
     if let Some(r0) = start.and_then(|n| geo.note_rect_of(n, times)) {
         draw_connector(painter, r0.right_center(), r.left_center(), LinkKind::Slide, Color32::from_white_alpha(160));
@@ -256,7 +256,7 @@ pub fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostNote, n
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fretscribe_core::{generate_measures, TempoMap, TimePos, TimeSignature};
+    use fretscribe_core::{generate_measures, TempoMap, TimeSignature};
 
     fn geo() -> SpectroGeometry {
         SpectroGeometry {
@@ -266,7 +266,9 @@ mod tests {
         }
     }
 
-    fn setup(specs: &[(u64, u8, f64, f64, Option<u64>, Option<Technique>)]) -> (Vec<Note>, NoteTimes) {
+    type Spec = (u64, u8, f64, f64, Option<u64>, Option<Technique>);
+
+    fn setup(specs: &[Spec]) -> (Vec<Note>, NoteTimes) {
         let mut next = 1;
         let measures = generate_measures(0.0, 20.0, 120.0, TimeSignature::COMMON, &mut next);
         let map = TempoMap::new(&measures);
