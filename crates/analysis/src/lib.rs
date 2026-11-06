@@ -6,6 +6,7 @@ mod cqt;
 mod display;
 mod error;
 pub mod lut;
+pub mod sync;
 mod render;
 mod spectrogram;
 #[cfg(test)]

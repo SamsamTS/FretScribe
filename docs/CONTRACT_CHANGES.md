@@ -89,3 +89,12 @@ No change in `core` or other crates, no workspace dependency change (`realfft` a
 - `fit_measures(&env, &measures, max_shift_beats) -> Vec<MeasureFit { index, new_start_sec, confidence }>`; `fitted_grid(&measures, &fits) -> Vec<FittedMeasure>` refits every tempo to the fitted spans and feeds `Project::auto_fit` (callers normally pass `KeepAudioPosition`).
 - `estimate_tempo(&env, (lo, hi)) -> Vec<(bpm, score)>` (top 3, ranked with a mild log-Gaussian prior around 120 BPM) and `octave_ratio(a, b)` for the double/half-time ambiguity.
 - `beatfit::synth` is `#[doc(hidden)]` test material shared with the `beatfit_bench` example.
+
+## 2026-11-06 - analysis crate: track sync
+
+No change in `core` or other crates, no workspace dependency change (`rubato` is not used: `estimate_offset` takes one sample rate for both signals, so the caller resamples). New `fretscribe_analysis::sync` (not re-exported at the crate root); it reuses `beatfit::{onset_envelope, estimate_tempo, detect_onsets, octave_ratio, HOP}` for tempo, drift and grid-hint onsets and has its own 3-band envelope for the correlation.
+- `assume_synced(ref_sec, other_sec, tolerance_ms)` (`DEFAULT_TOLERANCE_MS = 20`).
+- `estimate_offset(reference, other, rate, SyncOptions { max_lag_sec (default 15), grid_hint: Option<&[Measure]> }) -> Vec<SyncCandidate { offset_sec, confidence, note }>`: at most 3, best first; empty for too short or silent input. `project_time = audio_time + offset_sec`. Notes: "ambiguous by one beat (about 0.52 s)" (confidence of the best is scaled by `1 - lower/higher`, unless `grid_hint` decides) and a drift note with the tempo ratio.
+- `snap_offsets(other_onsets, targets, current_offset_sec, max_dist_sec)`: offsets within `max_dist_sec` of the current one, nearest first.
+- Cost: the signal-level refinement is one FFT correlation over the full signals (about 300 MB and a few seconds for two 3-minute tracks at 44.1 kHz).
+- `cargo run --release -p fretscribe-analysis --example sync_offset -- ref.wav other.wav [--max-lag 15]`.
