@@ -1467,7 +1467,9 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "fretscribe-analysis",
  "fretscribe-core",
+ "fretscribe-notation",
  "image",
 ]
 

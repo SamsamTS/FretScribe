@@ -12,12 +12,11 @@ const NOMINAL_DT_SEC: f64 = 1.0 / 60.0;
 const MAX_DT_SEC: f64 = 0.05;
 
 /// `grid` is the whole measure grid column (ruler, lanes, notation panel), `lanes` the scrolling
-/// part of it and `source_spec` the source spectrogram strip, all in screen coordinates.
+/// part of it, in screen coordinates.
 #[derive(Clone, Copy, Debug)]
 pub struct NavRegions {
     pub grid: Rect,
     pub lanes: Rect,
-    pub source_spec: Option<Rect>,
 }
 
 pub struct NavContext<'a> {
@@ -33,7 +32,6 @@ pub struct WheelAccum {
     zoom: f64,
     horiz: f64,
     vert: f64,
-    pitch: f64,
 }
 
 /// Whole notches; positive `zoom` zooms in, positive `horiz` and `vert` go forward / down.
@@ -42,11 +40,10 @@ pub struct WheelActions {
     pub zoom: f64,
     pub horiz: f64,
     pub vert: f64,
-    pub pitch: f64,
     pub claimed: bool,
 }
 
-fn notches(unit: MouseWheelUnit, delta: Vec2, t: &ViewTuning) -> (f64, f64) {
+pub(crate) fn notches(unit: MouseWheelUnit, delta: Vec2, t: &ViewTuning) -> (f64, f64) {
     let per = match unit {
         MouseWheelUnit::Point => 1.0 / t.points_per_notch,
         MouseWheelUnit::Line => 1.0,
@@ -66,16 +63,12 @@ pub fn read_wheel(events: &mut Vec<Event>, pointer: Option<Pos2>, r: &NavRegions
     let mut claimed = false;
     if let Some(pos) = pointer {
         let (in_grid, in_lanes) = (r.grid.contains(pos), r.lanes.contains(pos));
-        let in_spec = r.source_spec.is_some_and(|s| s.contains(pos));
         events.retain(|e| {
             let Event::MouseWheel { unit, delta, modifiers: m } = e else { return true };
             let (nx, ny) = notches(*unit, *delta, t);
             let mut used = false;
             if m.alt {
-                if in_spec {
-                    acc.pitch += ny;
-                    used = true;
-                }
+                // Alt + wheel resizes the lane under the pointer (see `tracks`).
             } else if m.ctrl {
                 if in_grid {
                     acc.zoom += ny;
@@ -104,7 +97,6 @@ pub fn read_wheel(events: &mut Vec<Event>, pointer: Option<Pos2>, r: &NavRegions
         zoom: take_whole(&mut acc.zoom),
         horiz: take_whole(&mut acc.horiz),
         vert: take_whole(&mut acc.vert),
-        pitch: take_whole(&mut acc.pitch),
         claimed,
     }
 }
@@ -143,11 +135,6 @@ impl ViewController {
                 let sec = self.current.scroll_sec + x / self.current.pixels_per_sec;
                 self.zoom(&Hover { x, sec, measure: measure_at(nav.map, sec) }, wheel.zoom);
             }
-            if wheel.pitch != 0.0 {
-                if let Some(s) = r.source_spec.filter(|s| s.height() > 0.0) {
-                    self.zoom_pitch(f64::from(((pos.y - s.top()) / s.height()).clamp(0.0, 1.0)), wheel.pitch);
-                }
-            }
         }
         if wheel.horiz != 0.0 {
             let centre = self.target.scroll_sec + self.width() / self.target.pixels_per_sec / 2.0;
@@ -183,7 +170,6 @@ mod tests {
         NavRegions {
             grid: Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 600.0)),
             lanes: Rect::from_min_max(pos2(0.0, 50.0), pos2(1000.0, 400.0)),
-            source_spec: Some(Rect::from_min_max(pos2(0.0, 50.0), pos2(1000.0, 200.0))),
         }
     }
 
@@ -209,7 +195,7 @@ mod tests {
         assert_eq!(read(vec![wheel(line, 0.0, -3.0, shift)], p, &mut acc).0.horiz, 3.0);
         assert_eq!(read(vec![wheel(line, -1.0, 0.0, Modifiers::NONE)], p, &mut acc).0.horiz, 1.0);
         assert_eq!(read(vec![wheel(line, 0.0, -2.0, Modifiers::NONE)], p, &mut acc).0.vert, 2.0);
-        assert_eq!(read(vec![wheel(line, 0.0, 1.0, alt)], p, &mut acc).0.pitch, 1.0);
+        assert!(!read(vec![wheel(line, 0.0, 1.0, alt)], p, &mut acc).0.claimed);
     }
 
     #[test]
@@ -219,7 +205,7 @@ mod tests {
         let (a, left) = read(vec![wheel(line, 0.0, -1.0, Modifiers::NONE)], pos2(100.0, 500.0), &mut acc);
         assert_eq!((a.vert, a.claimed, left), (0.0, false, 1));
         let (a, left) = read(vec![wheel(line, 0.0, 1.0, Modifiers { alt: true, ..Modifiers::NONE })], pos2(100.0, 300.0), &mut acc);
-        assert_eq!((a.pitch, a.claimed, left), (0.0, false, 1));
+        assert_eq!((a.claimed, left), (false, 1));
         let (a, left) = read(vec![wheel(line, 0.0, 1.0, Modifiers { ctrl: true, ..Modifiers::NONE })], pos2(100.0, 500.0), &mut acc);
         assert_eq!((a.zoom, a.claimed, left), (1.0, true, 0));
     }

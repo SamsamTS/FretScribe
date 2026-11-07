@@ -5,6 +5,9 @@ use std::ops::Range;
 
 use fretscribe_core::ViewState;
 
+/// Width in points of the left column of every lane strip; the timeline starts at its right edge.
+pub const LANE_HEADER_WIDTH: f32 = 240.0;
+
 pub const MIN_PIXELS_PER_SEC: f64 = 0.5;
 pub const MAX_PIXELS_PER_SEC: f64 = 5000.0;
 
@@ -84,6 +87,46 @@ impl TimelineView {
         } else {
             0.0
         };
+    }
+}
+
+/// Vertical view shared by the spectrograms: the axis is linear in note number, i.e. logarithmic in
+/// frequency, so every semitone has the same height. Higher pitch is higher on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PitchView {
+    pub min_midi: f32,
+    pub max_midi: f32,
+}
+
+impl Default for PitchView {
+    fn default() -> Self {
+        Self::including(28, 88)
+    }
+}
+
+impl From<crate::nav::PitchRange> for PitchView {
+    fn from(r: crate::nav::PitchRange) -> Self {
+        Self { min_midi: r.lo as f32, max_midi: r.hi as f32 }
+    }
+}
+
+impl PitchView {
+    /// Shows the whole bands of both end notes (a note's band reaches half a semitone beyond its pitch).
+    pub fn including(lowest_midi: u8, highest_midi: u8) -> Self {
+        Self { min_midi: f32::from(lowest_midi) - 0.5, max_midi: f32::from(highest_midi) + 0.5 }
+    }
+
+    pub fn span(&self) -> f32 {
+        (self.max_midi - self.min_midi).max(f32::EPSILON)
+    }
+
+    /// `y` is relative to a strip starting at `top` and `height` tall.
+    pub fn midi_to_y(&self, midi: f32, top: f32, height: f32) -> f32 {
+        top + (self.max_midi - midi) / self.span() * height
+    }
+
+    pub fn y_to_midi(&self, y: f32, top: f32, height: f32) -> f32 {
+        self.max_midi - (y - top) / height.max(f32::EPSILON) * self.span()
     }
 }
 
@@ -232,6 +275,22 @@ mod tests {
         let mut v = view(1.0, 0.0);
         v.clamp(5.0);
         assert_eq!(v.pixels_per_sec, MIN_PIXELS_PER_SEC);
+    }
+
+    #[test]
+    fn including_pads_half_a_semitone() {
+        assert_eq!(PitchView::including(36, 84), PitchView { min_midi: 35.5, max_midi: 84.5 });
+    }
+
+    #[test]
+    fn pitch_axis_is_linear_in_note_number_and_inverts() {
+        let p = PitchView { min_midi: 40.0, max_midi: 64.0 };
+        assert_eq!(p.midi_to_y(64.0, 10.0, 240.0), 10.0);
+        assert_eq!(p.midi_to_y(40.0, 10.0, 240.0), 250.0);
+        let octave = p.midi_to_y(52.0, 0.0, 240.0) - p.midi_to_y(64.0, 0.0, 240.0);
+        let low_octave = p.midi_to_y(40.0, 0.0, 240.0) - p.midi_to_y(52.0, 0.0, 240.0);
+        assert!((octave - low_octave).abs() < 1e-4);
+        assert!((p.y_to_midi(p.midi_to_y(51.3, 7.0, 240.0), 7.0, 240.0) - 51.3).abs() < 1e-4);
     }
 
     #[test]

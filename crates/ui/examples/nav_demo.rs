@@ -80,17 +80,9 @@ impl eframe::App for NavDemo {
             let lanes = Rect::from_min_max(ruler.left_bottom(), notation.left_top());
             let pitch_px = (PITCH_PT * ppp).round() as u32;
             let content_px: u32 = LANE_SPEC_K.iter().map(|k| (k + 1) * pitch_px).sum();
-            let spec_top = |scroll_px: f32| lanes.top() + (-scroll_px) / ppp;
-            let source_spec = {
-                let r = Rect::from_min_size(
-                    pos2(lanes.left(), spec_top((self.ctl.current.scroll_y as f32 * ppp).round())),
-                    egui::vec2(lanes.width(), (LANE_SPEC_K[0] * pitch_px) as f32 / ppp),
-                );
-                Some(r.intersect(lanes)).filter(|r| r.height() > 0.0)
-            };
 
             let nav = NavContext {
-                regions: NavRegions { grid: area, lanes, source_spec },
+                regions: NavRegions { grid: area, lanes },
                 map: &self.map,
                 audio_len_sec: AUDIO_LEN_SEC,
                 content_px,

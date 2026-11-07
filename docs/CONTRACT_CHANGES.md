@@ -80,3 +80,65 @@ No change in `core` or other crates. New `fretscribe_ui::nav` (re-exported: `Vie
 - `run` consumes only the wheel events it uses, by clearing egui's pre-mapped scroll deltas; egui's keyboard UI zoom is switched off by the app with `ctx.options_mut(|o| o.zoom_with_keyboard = false)`.
 - Zoom rule update: a fitting hovered measure drifts towards the cursor by at most its pixel-width change per notch (centre reaches the cursor once within that distance), then is clamped inside the edge margins, flush against the side it would have overflowed. A measure that no longer fits is flush with the edge nearest the cursor (edge margin applied), the overflow going off the opposite side; with no measure under the cursor the cursor time is the anchor.
 - Zoom rule update 2: a hovered measure wider than the view slides towards being flush with the edge nearest the cursor by at most `max_slide_fraction` of the view width per notch (plus the drift the zoom itself causes), so it no longer races across when the cursor crosses the middle; once flush its edge is the anchor. Beyond `cursor_zoom_ratio` usable view widths the measure is ignored and the zoom anchors on the cursor time (both new `ViewTuning` fields).
+
+## 2026-11-06 - analysis crate: beat fit
+
+No change in `core` or other crates, no workspace dependency change (`realfft` and `rayon` were already used). New `fretscribe_analysis::beatfit` (not re-exported at the crate root):
+- `onset_envelope(mono, rate) -> OnsetEnvelope { values, hop_sec }` (value `k` is at `k * hop_sec` of the track's audio time; `at(sec)` interpolates), `detect_onsets(&env) -> Vec<f64>` (works on any envelope, so per helper track too).
+- `combine_envelopes(&[EnvelopeInput { env, offset_sec, weight }])` into project time (frames before 0 are dropped); `default_weight(TrackRole)` and `envelope_input(&Track, env) -> Option<EnvelopeInput>` (`None` when `use_for_beats` is off; uses `track.offset_sec`). The app decides which tracks, including the source guitar, have `use_for_beats` set.
+- `fit_measures(&env, &measures, max_shift_beats) -> Vec<MeasureFit { index, new_start_sec, confidence }>`; `fitted_grid(&measures, &fits) -> Vec<FittedMeasure>` refits every tempo to the fitted spans and feeds `Project::auto_fit` (callers normally pass `KeepAudioPosition`).
+- `estimate_tempo(&env, (lo, hi)) -> Vec<(bpm, score)>` (top 3, ranked with a mild log-Gaussian prior around 120 BPM) and `octave_ratio(a, b)` for the double/half-time ambiguity.
+- `beatfit::synth` is `#[doc(hidden)]` test material shared with the `beatfit_bench` example.
+
+## 2026-11-06 - analysis crate: track sync
+
+No change in `core` or other crates, no workspace dependency change (`rubato` is not used: `estimate_offset` takes one sample rate for both signals, so the caller resamples). New `fretscribe_analysis::sync` (not re-exported at the crate root); it reuses `beatfit::{onset_envelope, estimate_tempo, detect_onsets, octave_ratio, HOP}` for tempo, drift and grid-hint onsets and has its own 3-band envelope for the correlation.
+- `assume_synced(ref_sec, other_sec, tolerance_ms)` (`DEFAULT_TOLERANCE_MS = 20`).
+- `estimate_offset(reference, other, rate, SyncOptions { max_lag_sec (default 15), grid_hint: Option<&[Measure]> }) -> Vec<SyncCandidate { offset_sec, confidence, note }>`: at most 3, best first; empty for too short or silent input. `project_time = audio_time + offset_sec`. Notes: "ambiguous by one beat (about 0.52 s)" (confidence of the best is scaled by `1 - lower/higher`, unless `grid_hint` decides) and a drift note with the tempo ratio.
+- `snap_offsets(other_onsets, targets, current_offset_sec, max_dist_sec)`: offsets within `max_dist_sec` of the current one, nearest first.
+- Cost: the signal-level refinement is one FFT correlation over the full signals (about 300 MB and a few seconds for two 3-minute tracks at 44.1 kHz).
+- `cargo run --release -p fretscribe-analysis --example sync_offset -- ref.wav other.wav [--max-lag 15]`.
+
+## 2026-11-06 - analysis crate: reference pitch estimation
+
+No change in `core` or other crates, no workspace dependency change. New `fretscribe_analysis::pitchref` (not re-exported at the crate root); conversions go through `core::cents_off` and `core::ref_from_cents`.
+- `estimate_reference(mono, rate, region: Option<(f64, f64)>, PitchRefOptions { max_analysis_sec: 90, min_hz: 80, max_hz: 2000 }) -> PitchRefEstimate { cents, a4_hz, confidence, histogram }`. It only estimates: the app decides whether to propose `a4_hz`. `cents` is the offset from the 440 Hz grid within -50..=+50 (positive: sharp); a recording a whole semitone off, or played with a capo, reads about 0 (that is the tuning and capo, not the reference).
+- `histogram`: 100 circular 1-cent bins over -50..+50 (bin `i` centred on `i - 49.5`), smoothed, normalised to a sum of 1 (all zero when nothing was found).
+- Without `region`, a file longer than `max_analysis_sec` is analysed on its most tonal stretch of that length. An invalid region (non-finite) is ignored.
+- Confidence is robust to mild broadband noise (the long window gives the tonal peaks about 40 dB of gain); it drops with heavy noise, vibrato or bends, an out-of-tune guitar, noise and drums.
+- `cargo run --release -p fretscribe-analysis --example pitchref -- file.wav [--start s --end s]`.
+
+## 2026-11-07 - ui crate: spectrogram view
+
+- `fretscribe-ui` now depends on `fretscribe-analysis` (`SpectroStyle` uses `Levels`/`Lut`; the widget calls `Spectrogram::render_rgba`) and on `fretscribe-notation`. This departs from the earlier "ui does not depend on analysis" comment in `overview/waveform.rs`; the waveform strip still takes its peaks from a closure.
+- `fretscribe-notation` was empty: added the provisional `tab::{lowest_fret_candidate, candidate_label}` ("E 10" format, string 0 = lowest, capo respected) for the hover readout. Replace with the real tab inference when it lands, keeping the signatures.
+- New `fretscribe_ui::spectro`: `SpectrogramView` (builder, `show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`), `SpectroStyle`, `SpectroEvent::{AddNoteRequested, SeekRequested}`, `GhostNote`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`. `view::PitchView { min_midi, max_midi }` (`From<nav::PitchRange>`).
+- Notes come as `&[Note]` plus the core `NoteTimes` (project seconds). `link_to` goes from the start note to the next one and the connector kind is the start note's `technique` (Slide, Bend; anything else is a plain line).
+- The texture cache key includes window, pixel size, pitch range, A4, levels, gamma, LUT name, spectrogram data pointer and a caller `revision` (bump it when the data changes in place, e.g. streamed chunks).
+- Pitch guides are one band per semitone (alternating +5% white; the band under the cursor is brighter), no crosshair.
+- `PITCH_RULER_WIDTH` (left strip with the pitch labels) is exposed as `SpectroOutput::pitch_ruler` for the nav drag; clicks there add no note.
+
+## 2026-11-07 - ui crate: track lanes
+
+No change in `core`. New `fretscribe_ui::tracks` (`TrackLanes`, `TrackLane`, `TrackHeader`, `TrackLanesState`, `LaneOptions`, `LaneSource`, `TrackEvent`) and `view::LANE_HEADER_WIDTH` (240 pt).
+- Geometry in whole physical pixels: `WAVE_H_PX = 66`, `BORDER_PX = 1`, `STRIP_PITCH_PX = 67` (pass it as `NavContext::strip_pitch_px`), `SPECTRO_ROWS = 5`, resizable 1..=16 rows by dragging the bottom edge of a spectrogram. Collapsing steps through whole rows, so every strip top stays a multiple of the pitch; the "+" row is one pitch tall. `TrackLanesState::strips` gives the strips and `content_px` for the navigation before `show`; (`NavRegions` no longer takes the source strip).
+- Timeline x = 0 is the right edge of the header column: the ruler and the grid must start `LANE_HEADER_WIDTH` to the right of the lane area's left edge. `TimelineView` stays in project time; only a lane's spectrogram and waveform are shifted (`SpectrogramView::audio_offset`, `WaveformView::audio_offset`). Notes are never shifted.
+- Audio comes through the `LaneSource` trait (spectrogram, peaks, duration, onsets, `snap_candidates` backed by `analysis::sync::snap_offsets`), all in the track's own audio time. The reference track and `ghost` are passed by the app; `LaneOptions` (notes on all lanes, onsets, unlinked pitch, "move notes") are display preferences owned by the app, not project data.
+- Added to the listed events: `OffsetDragBegan(id)` / `OffsetDragEnded(id)` bracket the live `OffsetChanged` events of one drag so the app can make it a single undo step. Typed and nudged values send one `OffsetChanged` each; the reset button sends offset 0. `OffsetChanged::move_notes` is true only for the source track while the menu option is on; the app applies it with `core::shift_track`.
+- Snapping is within 8 px (`SNAP_TOLERANCE_PX`) of the raw dragged offset; Alt disables it, Shift drags 10x slower. Clicks on a helper lane's spectrogram come back as `SpectroEvent::SeekRequested`, never `AddNoteRequested`.
+- The offset field commits on Enter; Esc or clicking away reverts. Offsets are limited to +-60 s.
+
+## 2026-11-07 - ui crate: Alt + wheel resizes the lane
+
+No change in `core`. Alt + wheel over a lane changes its configured spectrogram rows (wheel up = taller, 1..=16), replacing the Alt + wheel pitch zoom; the pitch range is always shown in full.
+- Removed: `NavRegions::source_spec` and `TrackLanes::source_spec`, `ViewController::zoom_pitch`, `ViewTuning::{pitch_zoom_per_notch, min_pitch_span_semitones}`, `WheelActions::pitch`, `LaneOptions::unlink_pitch` and `LaneState::pitch`. `ViewController::pitch` stays (always the full range) and `PitchView` keeps feeding the spectrograms.
+- The nav no longer claims Alt + wheel; the lane reads it.
+
+
+## 2026-11-07 - ui crate: animated lane resize
+
+No change in `core`. Alt + wheel notches are read from the wheel events with the nav's notch conversion (one notch = one row). Wheel resizes animate (`RESIZE_ANIM_SEC`, whole rows, like collapsing); dragging the bottom edge still follows at once. `geometry::rows_shown` now takes `rows: f32` (the animated value); `LaneOutput::resized_rows` is `Option<(rows, animate)>`.
+
+## 2026-11-07 - ui crate: smoother lane resize, animated reorder, bottom handle
+
+No change in `core`. Wheel resizes now glide exponentially (`RESIZE_TAU_MS`, retargets smoothly on rapid notches) instead of restarting a fixed-time animation; `RESIZE_ANIM_SEC` is gone. When the track order changes (reorder, add, remove) the lanes slide from their old position (`REORDER_TAU_MS`). The resize handle is the bottom edge of the whole lane (below the waveform), timeline part only.
