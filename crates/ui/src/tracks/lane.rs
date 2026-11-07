@@ -20,7 +20,7 @@ const ONSET_TICK: Color32 = Color32::from_rgb(255, 170, 90);
 const FAINT_NOTES: f32 = 0.3;
 const RESIZE_HANDLE_PT: f32 = 5.0;
 const TICK_PT: f32 = 10.0;
-const PITCH_WHEEL_SENSITIVITY: f32 = 0.002;
+const WHEEL_POINTS_PER_ROW: f32 = 50.0;
 
 /// What the lanes need from the audio side. Offsets are applied by the widgets, so everything here
 /// is in the track's own audio time.
@@ -195,14 +195,6 @@ impl TrackLane<'_> {
                         SpectroEvent::AddNoteRequested { time_sec, .. } if !is_source => SpectroEvent::SeekRequested(time_sec),
                         other => other,
                     }));
-                    if options.unlink_pitch && out.response.hovered() && ctx.input(|i| i.modifiers.alt) {
-                        let wheel = ctx.input(|i| i.raw_scroll_delta.y);
-                        if wheel != 0.0 {
-                            let anchor = out.hover.map_or((pitch.min_midi + pitch.max_midi) / 2.0, |h| h.midi_float);
-                            let factor = (1.0 - wheel * PITCH_WHEEL_SENSITIVITY).clamp(0.5, 2.0);
-                            state.pitch = Some(PitchView { min_midi: anchor - (anchor - pitch.min_midi) * factor, max_midi: anchor + (pitch.max_midi - anchor) * factor });
-                        }
-                    }
                 }
                 None => {
                     ui.painter_at(spec_rect).rect_filled(spec_rect, 0.0, Color32::from_gray(12));
@@ -222,6 +214,16 @@ impl TrackLane<'_> {
                     ctx.data_mut(|d| d.insert_temp(key, (start, acc)));
                     resized_rows = Some(clamp_rows(i64::from(start) + (acc * ppp / STRIP_PITCH_PX as f32).round() as i64));
                 }
+            }
+        }
+
+        if self.shown_rows == self.configured_rows && ctx.input(|i| i.modifiers.alt) && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
+            let key = Id::new(("wheel-rows", id));
+            let acc = ctx.data(|d| d.get_temp::<f32>(key).unwrap_or(0.0)) - ctx.input(|i| i.raw_scroll_delta.y) / WHEEL_POINTS_PER_ROW;
+            let whole = acc.trunc();
+            ctx.data_mut(|d| d.insert_temp(key, acc - whole));
+            if whole != 0.0 {
+                resized_rows = Some(clamp_rows(i64::from(self.configured_rows) + whole as i64));
             }
         }
 
