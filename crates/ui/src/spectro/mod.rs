@@ -25,7 +25,13 @@ const MAX_TEXTURE_SIDE: usize = 8192;
 const SEMITONE_PX_FOR_ALL_LABELS: f32 = 10.0;
 /// 5% of 255, white over the image, on every other semitone.
 const BAND_ALPHA: u8 = 13;
-const BAND_HIGHLIGHT_ALPHA: u8 = 45;
+const BAND_HIGHLIGHT_ALPHA: u8 = 32;
+
+/// `Color32::from_white_alpha` converts its alpha from linear to gamma, which is not what a plain
+/// percentage of white means.
+pub(crate) fn white(alpha: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(255, 255, 255, alpha)
+}
 const OPEN_STRING: Color32 = Color32::from_rgb(255, 200, 90);
 const PLAYHEAD: Color32 = Color32::from_rgb(255, 90, 80);
 
@@ -202,11 +208,11 @@ impl<'a> SpectrogramView<'a> {
                 continue;
             }
             let alpha = if cursor_midi == Some(midi) { BAND_HIGHLIGHT_ALPHA } else if midi.rem_euclid(2) == 1 { BAND_ALPHA } else { 0 };
-            painter.rect_filled(band, 0.0, Color32::from_white_alpha(alpha));
+            painter.rect_filled(band, 0.0, white(alpha));
             let is_open = open.contains(&midi);
             let labelled = is_open || midi.rem_euclid(12) == 0 || (is_natural(midi) && semitone_px >= SEMITONE_PX_FOR_ALL_LABELS) || semitone_px >= SEMITONE_PX_FOR_ALL_LABELS * 1.5;
             if labelled && (0..=127).contains(&midi) && geo.pitch.min_midi <= midi as f32 && midi as f32 <= geo.pitch.max_midi {
-                let color = if is_open { OPEN_STRING } else if cursor_midi == Some(midi) { Color32::WHITE } else { Color32::from_white_alpha(170) };
+                let color = if is_open { OPEN_STRING } else if cursor_midi == Some(midi) { Color32::WHITE } else { white(170) };
                 let galley = painter.layout_no_wrap(midi_to_name(midi as u8), FontId::monospace(10.0), color);
                 let at = pos2(rect.left() + 3.0, geo.midi_to_y(midi as f32) - galley.size().y / 2.0);
                 painter.rect_filled(Rect::from_min_size(at, galley.size()).expand(1.0), 2.0, label_bg);

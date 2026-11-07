@@ -6,6 +6,7 @@ use egui::epaint::PathStroke;
 use egui::{pos2, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
 use fretscribe_core::{midi_to_name, Note, NoteTimes, Technique};
 
+use super::white;
 use crate::view::{PitchView, TimelineView};
 
 pub const EDGE_PX: f32 = 5.0;
@@ -245,11 +246,11 @@ pub fn draw_notes(painter: &Painter, geo: &SpectroGeometry, notes: &[Note], time
 
 pub fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostNote, notes: &[Note], times: &NoteTimes) {
     let r = geo.note_rect(ghost.midi, ghost.start_sec, ghost.end_sec);
-    painter.rect_filled(r, 3.0, Color32::from_white_alpha(40));
-    painter.rect_stroke(r, 3.0, Stroke::new(1.0_f32, Color32::from_white_alpha(140)), StrokeKind::Inside);
+    painter.rect_filled(r, 3.0, white(40));
+    painter.rect_stroke(r, 3.0, Stroke::new(1.0_f32, white(140)), StrokeKind::Inside);
     let start = ghost.link_from.and_then(|id| notes.iter().find(|n| n.id == id));
     if let Some(r0) = start.and_then(|n| geo.note_rect_of(n, times)) {
-        draw_connector(painter, r0.right_center(), r.left_center(), LinkKind::Slide, Color32::from_white_alpha(160));
+        draw_connector(painter, r0.right_center(), r.left_center(), LinkKind::Slide, white(160));
     }
 }
 
