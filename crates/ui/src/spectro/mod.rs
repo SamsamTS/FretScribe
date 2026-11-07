@@ -27,10 +27,10 @@ const SEMITONE_PX_FOR_ALL_LABELS: f32 = 10.0;
 const BAND_ALPHA: u8 = 13;
 const BAND_HIGHLIGHT_ALPHA: u8 = 32;
 
-/// `Color32::from_white_alpha` converts its alpha from linear to gamma, which is not what a plain
-/// percentage of white means.
+/// White at `alpha`/255 blended in gamma space. egui's own `from_white_alpha` and
+/// `from_rgba_unmultiplied` premultiply in linear space, which comes out far brighter.
 pub(crate) fn white(alpha: u8) -> Color32 {
-    Color32::from_rgba_unmultiplied(255, 255, 255, alpha)
+    Color32::from_rgba_premultiplied(alpha, alpha, alpha, alpha)
 }
 const OPEN_STRING: Color32 = Color32::from_rgb(255, 200, 90);
 const PLAYHEAD: Color32 = Color32::from_rgb(255, 90, 80);
