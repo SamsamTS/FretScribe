@@ -77,6 +77,7 @@ struct CacheKey {
     lut: String,
     data: (usize, usize, usize),
     revision: u64,
+    offset: u64,
 }
 
 /// Texture of the visible window, kept between frames; it is re-rendered only when its key changes.
@@ -102,6 +103,7 @@ pub struct SpectrogramView<'a> {
     revision: u64,
     height: f32,
     note_opacity: f32,
+    audio_offset_sec: f64,
 }
 
 impl<'a> SpectrogramView<'a> {
@@ -120,6 +122,7 @@ impl<'a> SpectrogramView<'a> {
             revision: 0,
             height: 160.0,
             note_opacity: 1.0,
+            audio_offset_sec: 0.0,
         }
     }
 
@@ -154,6 +157,12 @@ impl<'a> SpectrogramView<'a> {
         self
     }
 
+    /// Shifts the image (project time = audio time + offset); notes and playhead stay in project time.
+    pub fn audio_offset(mut self, sec: f64) -> Self {
+        self.audio_offset_sec = sec;
+        self
+    }
+
     pub fn note_opacity(mut self, opacity: f32) -> Self {
         self.note_opacity = opacity;
         self
@@ -161,7 +170,7 @@ impl<'a> SpectrogramView<'a> {
 
     fn cache_key(&self, view: &TimelineView, pitch: &PitchView, rect: Rect, ppp: f32) -> CacheKey {
         let side = |v: f32| ((v * ppp).round() as usize).clamp(1, MAX_TEXTURE_SIDE);
-        let range = view.visible_range(rect.width());
+        let range = self.audio_window(view, rect.width());
         let s = self.spectrogram;
         CacheKey {
             window: [range.start.to_bits(), range.end.to_bits()],
@@ -173,7 +182,13 @@ impl<'a> SpectrogramView<'a> {
             lut: self.style.lut.name.clone(),
             data: (s.data.as_ptr() as usize, s.n_frames, s.n_rows),
             revision: self.revision,
+            offset: self.audio_offset_sec.to_bits(),
         }
+    }
+
+    fn audio_window(&self, view: &TimelineView, width: f32) -> std::ops::Range<f64> {
+        let r = view.visible_range(width);
+        r.start - self.audio_offset_sec..r.end - self.audio_offset_sec
     }
 
     fn update_texture(&self, ctx: &Context, cache: &mut SpectroCache, view: &TimelineView, pitch: &PitchView, rect: Rect) {
@@ -181,7 +196,7 @@ impl<'a> SpectrogramView<'a> {
         if cache.key.as_ref() == Some(&key) && cache.texture.is_some() {
             return;
         }
-        let range = view.visible_range(rect.width());
+        let range = self.audio_window(view, rect.width());
         let [w, h] = key.size;
         let rgba = self.spectrogram.render_rgba((range.start, range.end), w, h, (pitch.min_midi, pitch.max_midi), &self.pitch_ref, &self.style.lut, self.style.levels, self.style.gamma);
         let image = ColorImage::from_rgba_unmultiplied([w, h], &rgba);

@@ -5,6 +5,9 @@ use std::ops::Range;
 
 use fretscribe_core::ViewState;
 
+/// Width in points of the left column of every lane strip; the timeline starts at its right edge.
+pub const LANE_HEADER_WIDTH: f32 = 240.0;
+
 pub const MIN_PIXELS_PER_SEC: f64 = 0.5;
 pub const MAX_PIXELS_PER_SEC: f64 = 5000.0;
 

@@ -117,3 +117,13 @@ No change in `core` or other crates, no workspace dependency change. New `fretsc
 - The texture cache key includes window, pixel size, pitch range, A4, levels, gamma, LUT name, spectrogram data pointer and a caller `revision` (bump it when the data changes in place, e.g. streamed chunks).
 - Pitch guides are one band per semitone (alternating +5% white; the band under the cursor is brighter), no crosshair.
 - `PITCH_RULER_WIDTH` (left strip with the pitch labels) is exposed as `SpectroOutput::pitch_ruler` for the nav drag; clicks there add no note.
+
+## 2026-11-07 - ui crate: track lanes
+
+No change in `core`. New `fretscribe_ui::tracks` (`TrackLanes`, `TrackLane`, `TrackHeader`, `TrackLanesState`, `LaneOptions`, `LaneSource`, `TrackEvent`) and `view::LANE_HEADER_WIDTH` (240 pt).
+- Geometry in whole physical pixels: `WAVE_H_PX = 66`, `BORDER_PX = 1`, `STRIP_PITCH_PX = 67` (pass it as `NavContext::strip_pitch_px`), `SPECTRO_ROWS = 5`, resizable 1..=16 rows by dragging the bottom edge of a spectrogram. Collapsing steps through whole rows, so every strip top stays a multiple of the pitch; the "+" row is one pitch tall. `TrackLanesState::strips` gives the strips and `content_px` for the navigation before `show`; `source_spec` gives the source strip for `NavRegions`.
+- Timeline x = 0 is the right edge of the header column: the ruler and the grid must start `LANE_HEADER_WIDTH` to the right of the lane area's left edge. `TimelineView` stays in project time; only a lane's spectrogram and waveform are shifted (`SpectrogramView::audio_offset`, `WaveformView::audio_offset`). Notes are never shifted.
+- Audio comes through the `LaneSource` trait (spectrogram, peaks, duration, onsets, `snap_candidates` backed by `analysis::sync::snap_offsets`), all in the track's own audio time. The reference track and `ghost` are passed by the app; `LaneOptions` (notes on all lanes, onsets, unlinked pitch, "move notes") are display preferences owned by the app, not project data.
+- Added to the listed events: `OffsetDragBegan(id)` / `OffsetDragEnded(id)` bracket the live `OffsetChanged` events of one drag so the app can make it a single undo step. Typed and nudged values send one `OffsetChanged` each; the reset button sends offset 0. `OffsetChanged::move_notes` is true only for the source track while the menu option is on; the app applies it with `core::shift_track`.
+- Snapping is within 8 px (`SNAP_TOLERANCE_PX`) of the raw dragged offset; Alt disables it, Shift drags 10x slower. Clicks on a helper lane's spectrogram come back as `SpectroEvent::SeekRequested`, never `AddNoteRequested`.
+- The offset field commits on Enter; Esc or clicking away reverts. Offsets are limited to +-60 s.
