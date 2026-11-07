@@ -6,7 +6,8 @@ use egui::{pos2, vec2, Align2, Color32, Context, FontId, Id, Rect, Sense, Stroke
 use fretscribe_core::{audible_tracks, NoteTimes, Project};
 
 use super::events::TrackEvent;
-use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, RESIZE_ANIM_SEC, SPECTRO_ROWS, STRIP_PITCH_PX};
+use crate::nav::maths::smooth;
+use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LaneShared, LaneSource, LaneState, TrackLane};
 use crate::spectro::{white, GhostNote, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
@@ -15,12 +16,32 @@ pub fn audible_set(project: &Project) -> HashSet<u64> {
     audible_tracks(project).into_iter().collect()
 }
 
+/// Exponential approach to `target`, advanced once per egui pass however often it is called.
+fn glide(ctx: &Context, key: Id, target: f32, tau_ms: f64) -> f32 {
+    let pass = ctx.cumulative_pass_nr();
+    let (mut value, last) = ctx.data(|d| d.get_temp::<(f32, u64)>(key)).unwrap_or((target, pass));
+    if pass != last {
+        let dt = f64::from(ctx.input(|i| i.stable_dt)).min(0.05);
+        value = smooth(f64::from(value), f64::from(target), dt, tau_ms) as f32;
+    }
+    if (value - target).abs() < 0.01 {
+        value = target;
+    } else {
+        ctx.request_repaint();
+    }
+    ctx.data_mut(|d| d.insert_temp(key, (value, pass)));
+    value
+}
+
 /// Owned by the app, next to the project: configured heights, per-lane caches and preferences.
 #[derive(Default)]
 pub struct TrackLanesState {
     rows: HashMap<u64, u32>,
     smooth_rows: HashSet<u64>,
     lanes: HashMap<u64, LaneState>,
+    order: Vec<u64>,
+    tops_px: HashMap<u64, f32>,
+    pub(super) slide_px: HashMap<u64, f32>,
     pub options: LaneOptions,
 }
 
@@ -32,13 +53,35 @@ impl TrackLanesState {
             .tracks
             .iter()
             .map(|t| {
-                let time = if self.smooth_rows.contains(&t.id) { RESIZE_ANIM_SEC } else { 0.0 };
-                let rows = ctx.animate_value_with_time(Id::new(("rows", t.id)), self.configured_rows(t.id) as f32, time);
+                let tau = if self.smooth_rows.contains(&t.id) { RESIZE_TAU_MS } else { 0.0 };
+                let rows = glide(ctx, Id::new(("rows", t.id)), self.configured_rows(t.id) as f32, tau);
                 let open = ctx.animate_bool_with_time(Id::new(("collapse", t.id)), !t.spectrogram_collapsed, COLLAPSE_ANIM_SEC);
                 (t.id, geometry::rows_shown(rows, open))
             })
             .collect();
         geometry::stack(&lanes)
+    }
+
+    /// When the track order changes, lanes start from where they were and glide to their new place.
+    fn slide(&mut self, ctx: &Context, project: &Project, strips: &[LaneStrip]) {
+        let order: Vec<u64> = project.tracks.iter().map(|t| t.id).collect();
+        if order != self.order {
+            for s in strips {
+                if let Some(old) = self.tops_px.get(&s.id) {
+                    *self.slide_px.entry(s.id).or_default() += old - s.top_px as f32;
+                }
+            }
+            self.order = order;
+        }
+        self.tops_px = strips.iter().map(|s| (s.id, s.top_px as f32)).collect();
+        let dt = f64::from(ctx.input(|i| i.stable_dt)).min(0.05);
+        self.slide_px.retain(|_, off| {
+            *off = smooth(f64::from(*off), 0.0, dt, REORDER_TAU_MS) as f32;
+            off.abs() >= 0.5
+        });
+        if !self.slide_px.is_empty() {
+            ctx.request_repaint();
+        }
     }
 
     pub fn configured_rows(&self, track_id: u64) -> u32 {
@@ -71,6 +114,7 @@ impl TrackLanes<'_> {
         let ppp = ctx.pixels_per_point();
         let (strips, content_px) = state.strips(&ctx, self.project);
         let audible = audible_set(self.project);
+        state.slide(&ctx, self.project, &strips);
         let shared = LaneShared {
             project: self.project,
             source: self.source,
@@ -91,7 +135,7 @@ impl TrackLanes<'_> {
         let mut grip_drag: Option<(usize, egui::Response)> = None;
 
         for (index, (track, strip)) in self.project.tracks.iter().zip(&strips).enumerate() {
-            let rect = Rect::from_min_size(pos2(lanes.left(), lanes.top() - scroll_y_pt + strip.top_px as f32 / ppp), vec2(lanes.width(), strip.height_px() as f32 / ppp));
+            let rect = Rect::from_min_size(pos2(lanes.left(), lanes.top() - scroll_y_pt + (strip.top_px as f32 + state.slide_px.get(&track.id).copied().unwrap_or(0.0)) / ppp), vec2(lanes.width(), strip.height_px() as f32 / ppp));
             rects.push(rect);
             if !rect.intersects(lanes) {
                 continue;

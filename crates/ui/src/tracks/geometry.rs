@@ -8,7 +8,8 @@ pub const STRIP_PITCH_PX: u32 = WAVE_H_PX + BORDER_PX;
 pub const SPECTRO_ROWS: u32 = 5;
 pub const MAX_SPECTRO_ROWS: u32 = 16;
 pub const COLLAPSE_ANIM_SEC: f32 = 0.18;
-pub const RESIZE_ANIM_SEC: f32 = 0.18;
+pub const RESIZE_TAU_MS: f64 = 60.0;
+pub const REORDER_TAU_MS: f64 = 60.0;
 
 /// Rows shown while the spectrogram is `expanded` (0 = collapsed, 1 = open) of `rows`; always whole.
 pub fn rows_shown(rows: f32, expanded: f32) -> u32 {

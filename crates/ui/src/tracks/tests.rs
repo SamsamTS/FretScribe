@@ -142,7 +142,22 @@ fn one_alt_wheel_notch_resizes_the_lane_by_a_row_with_animation() {
         h.frame(Vec::new());
         seen.push(h.state.strips(&h.ctx, &h.project).0[0].rows);
     }
-    assert!(seen[0] <= SPECTRO_ROWS && *seen.last().unwrap() == SPECTRO_ROWS + 1);
+    assert!(seen.windows(2).all(|w| w[0] <= w[1]) && *seen.last().unwrap() == SPECTRO_ROWS + 1, "{seen:?}");
     h.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, -1.0), modifiers: alt }]);
     assert_eq!(h.state.configured_rows(1), SPECTRO_ROWS);
+}
+
+#[test]
+fn reordering_slides_lanes_to_their_new_place() {
+    let mut h = Harness::new();
+    let first_top = h.state.strips(&h.ctx, &h.project).0[0].top_px as f32;
+    let track = h.project.tracks.remove(0);
+    h.project.tracks.push(track);
+    h.frame(Vec::new());
+    assert!(h.state.slide_px.get(&1).is_some_and(|&off| off < 0.0), "{:?}", h.state.slide_px);
+    for _ in 0..60 {
+        h.frame(Vec::new());
+    }
+    assert!(h.state.slide_px.is_empty());
+    assert!(first_top < h.state.strips(&h.ctx, &h.project).0[2].top_px as f32);
 }

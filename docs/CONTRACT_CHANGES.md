@@ -138,3 +138,7 @@ No change in `core`. Alt + wheel over a lane changes its configured spectrogram 
 ## 2026-11-07 - ui crate: animated lane resize
 
 No change in `core`. Alt + wheel notches are read from the wheel events with the nav's notch conversion (one notch = one row). Wheel resizes animate (`RESIZE_ANIM_SEC`, whole rows, like collapsing); dragging the bottom edge still follows at once. `geometry::rows_shown` now takes `rows: f32` (the animated value); `LaneOutput::resized_rows` is `Option<(rows, animate)>`.
+
+## 2026-11-07 - ui crate: smoother lane resize, animated reorder, bottom handle
+
+No change in `core`. Wheel resizes now glide exponentially (`RESIZE_TAU_MS`, retargets smoothly on rapid notches) instead of restarting a fixed-time animation; `RESIZE_ANIM_SEC` is gone. When the track order changes (reorder, add, remove) the lanes slide from their old position (`REORDER_TAU_MS`). The resize handle is the bottom edge of the whole lane (below the waveform), timeline part only.
