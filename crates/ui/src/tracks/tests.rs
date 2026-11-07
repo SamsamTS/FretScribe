@@ -128,3 +128,21 @@ fn collapsing_shrinks_the_lane_in_whole_rows() {
     assert_eq!(after[1].top_px, STRIP_PITCH_PX);
     assert!(after.iter().all(|s| s.top_px % STRIP_PITCH_PX == 0) && content % STRIP_PITCH_PX == 0);
 }
+
+#[test]
+fn one_alt_wheel_notch_resizes_the_lane_by_a_row_with_animation() {
+    let mut h = Harness::new();
+    let pos = Pos2::new(500.0, 100.0);
+    h.frame(vec![Event::PointerMoved(pos)]);
+    let alt = egui::Modifiers { alt: true, ..Default::default() };
+    h.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, 1.0), modifiers: alt }]);
+    assert_eq!(h.state.configured_rows(1), SPECTRO_ROWS + 1);
+    let mut seen = vec![h.state.strips(&h.ctx, &h.project).0[0].rows];
+    for _ in 0..30 {
+        h.frame(Vec::new());
+        seen.push(h.state.strips(&h.ctx, &h.project).0[0].rows);
+    }
+    assert!(seen[0] <= SPECTRO_ROWS && *seen.last().unwrap() == SPECTRO_ROWS + 1);
+    h.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, -1.0), modifiers: alt }]);
+    assert_eq!(h.state.configured_rows(1), SPECTRO_ROWS);
+}

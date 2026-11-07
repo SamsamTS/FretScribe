@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use egui::{pos2, vec2, Color32, Context, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
+use egui::{pos2, vec2, Color32, Context, Event, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
 use fretscribe_analysis::Spectrogram;
 use fretscribe_core::{NoteTimes, Project, Track};
 
@@ -10,6 +10,7 @@ use super::events::TrackEvent;
 use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
+use crate::nav::{notches, ViewTuning};
 use crate::spectro::{place_readout, white, GhostNote, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
@@ -20,7 +21,6 @@ const ONSET_TICK: Color32 = Color32::from_rgb(255, 170, 90);
 const FAINT_NOTES: f32 = 0.3;
 const RESIZE_HANDLE_PT: f32 = 5.0;
 const TICK_PT: f32 = 10.0;
-const WHEEL_POINTS_PER_ROW: f32 = 50.0;
 
 /// What the lanes need from the audio side. Offsets are applied by the widgets, so everything here
 /// is in the track's own audio time.
@@ -87,7 +87,8 @@ pub struct LaneOutput {
     pub spectro: Vec<SpectroEvent>,
     pub grip: Response,
     pub spectro_rect: Option<Rect>,
-    pub resized_rows: Option<u32>,
+    /// New configured rows, and whether the height should animate to them (wheel) or follow at once (drag).
+    pub resized_rows: Option<(u32, bool)>,
 }
 
 #[derive(Clone, Copy)]
@@ -209,18 +210,25 @@ impl TrackLane<'_> {
                 if let (true, Some((start, acc))) = (response.dragged(), ctx.data(|d| d.get_temp::<(u32, f32)>(key))) {
                     let acc = acc + response.drag_delta().y;
                     ctx.data_mut(|d| d.insert_temp(key, (start, acc)));
-                    resized_rows = Some(clamp_rows(i64::from(start) + (acc * ppp / STRIP_PITCH_PX as f32).round() as i64));
+                    resized_rows = Some((clamp_rows(i64::from(start) + (acc * ppp / STRIP_PITCH_PX as f32).round() as i64), false));
                 }
             }
         }
 
-        if self.shown_rows == self.configured_rows && ctx.input(|i| i.modifiers.alt) && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
+        if self.shown_rows > 0 && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
             let key = Id::new(("wheel-rows", id));
-            let acc = ctx.data(|d| d.get_temp::<f32>(key).unwrap_or(0.0)) + ctx.input(|i| i.raw_scroll_delta.y) / WHEEL_POINTS_PER_ROW;
+            let added: f64 = ctx.input(|i| {
+                let tuning = ViewTuning::DEFAULT;
+                i.events.iter().map(|e| match e {
+                    Event::MouseWheel { unit, delta, modifiers } if modifiers.alt => notches(*unit, *delta, &tuning).1,
+                    _ => 0.0,
+                }).sum()
+            });
+            let acc = ctx.data(|d| d.get_temp::<f64>(key).unwrap_or(0.0)) + added;
             let whole = acc.trunc();
             ctx.data_mut(|d| d.insert_temp(key, acc - whole));
             if whole != 0.0 {
-                resized_rows = Some(clamp_rows(i64::from(self.configured_rows) + whole as i64));
+                resized_rows = Some((clamp_rows(i64::from(self.configured_rows) + whole as i64), true));
             }
         }
 

@@ -6,7 +6,7 @@ use egui::{pos2, vec2, Align2, Color32, Context, FontId, Id, Rect, Sense, Stroke
 use fretscribe_core::{audible_tracks, NoteTimes, Project};
 
 use super::events::TrackEvent;
-use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, SPECTRO_ROWS, STRIP_PITCH_PX};
+use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, RESIZE_ANIM_SEC, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LaneShared, LaneSource, LaneState, TrackLane};
 use crate::spectro::{white, GhostNote, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
@@ -19,6 +19,7 @@ pub fn audible_set(project: &Project) -> HashSet<u64> {
 #[derive(Default)]
 pub struct TrackLanesState {
     rows: HashMap<u64, u32>,
+    smooth_rows: HashSet<u64>,
     lanes: HashMap<u64, LaneState>,
     pub options: LaneOptions,
 }
@@ -31,7 +32,8 @@ impl TrackLanesState {
             .tracks
             .iter()
             .map(|t| {
-                let rows = self.rows.get(&t.id).copied().unwrap_or(SPECTRO_ROWS);
+                let time = if self.smooth_rows.contains(&t.id) { RESIZE_ANIM_SEC } else { 0.0 };
+                let rows = ctx.animate_value_with_time(Id::new(("rows", t.id)), self.configured_rows(t.id) as f32, time);
                 let open = ctx.animate_bool_with_time(Id::new(("collapse", t.id)), !t.spectrogram_collapsed, COLLAPSE_ANIM_SEC);
                 (t.id, geometry::rows_shown(rows, open))
             })
@@ -99,8 +101,13 @@ impl TrackLanes<'_> {
             let out = TrackLane { shared: &shared, track, rect, shown_rows: strip.rows, configured_rows: configured }.show(&mut area, lane_state, &mut state.options);
             events.extend(out.events);
             spectro.extend(out.spectro.into_iter().map(|e| (track.id, e)));
-            if let Some(rows) = out.resized_rows {
+            if let Some((rows, smooth)) = out.resized_rows {
                 state.rows.insert(track.id, rows);
+                if smooth {
+                    state.smooth_rows.insert(track.id);
+                } else {
+                    state.smooth_rows.remove(&track.id);
+                }
             }
             if out.grip.dragged() || out.grip.drag_stopped() {
                 grip_drag = Some((index, out.grip));

@@ -43,7 +43,7 @@ pub struct WheelActions {
     pub claimed: bool,
 }
 
-fn notches(unit: MouseWheelUnit, delta: Vec2, t: &ViewTuning) -> (f64, f64) {
+pub(crate) fn notches(unit: MouseWheelUnit, delta: Vec2, t: &ViewTuning) -> (f64, f64) {
     let per = match unit {
         MouseWheelUnit::Point => 1.0 / t.points_per_notch,
         MouseWheelUnit::Line => 1.0,

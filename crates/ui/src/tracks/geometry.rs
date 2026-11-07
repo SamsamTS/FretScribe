@@ -8,10 +8,11 @@ pub const STRIP_PITCH_PX: u32 = WAVE_H_PX + BORDER_PX;
 pub const SPECTRO_ROWS: u32 = 5;
 pub const MAX_SPECTRO_ROWS: u32 = 16;
 pub const COLLAPSE_ANIM_SEC: f32 = 0.18;
+pub const RESIZE_ANIM_SEC: f32 = 0.18;
 
 /// Rows shown while the spectrogram is `expanded` (0 = collapsed, 1 = open) of `rows`; always whole.
-pub fn rows_shown(rows: u32, expanded: f32) -> u32 {
-    (rows as f32 * expanded.clamp(0.0, 1.0)).round() as u32
+pub fn rows_shown(rows: f32, expanded: f32) -> u32 {
+    (rows * expanded.clamp(0.0, 1.0)).round() as u32
 }
 
 pub fn lane_height_px(shown_rows: u32) -> u32 {
@@ -72,13 +73,13 @@ mod tests {
 
     #[test]
     fn collapsing_steps_through_whole_rows_down_to_zero() {
-        let heights: Vec<u32> = (0..=20).rev().map(|i| lane_height_px(rows_shown(5, i as f32 / 20.0))).collect();
+        let heights: Vec<u32> = (0..=20).rev().map(|i| lane_height_px(rows_shown(5.0, i as f32 / 20.0))).collect();
         assert!(heights.windows(2).all(|w| w[0] >= w[1]));
         assert_eq!((heights[0], *heights.last().unwrap()), (6 * STRIP_PITCH_PX, STRIP_PITCH_PX));
         assert!(heights.iter().all(|h| h % STRIP_PITCH_PX == 0));
-        assert_eq!(rows_shown(5, 2.0), 5);
-        assert_eq!(rows_shown(5, -1.0), 0);
-        assert_eq!(rows_shown(5, f32::NAN), 0);
+        assert_eq!(rows_shown(5.0, 2.0), 5);
+        assert_eq!(rows_shown(5.0, -1.0), 0);
+        assert_eq!(rows_shown(5.0, f32::NAN), 0);
     }
 
     #[test]

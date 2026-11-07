@@ -134,3 +134,7 @@ No change in `core`. Alt + wheel over a lane changes its configured spectrogram 
 - Removed: `NavRegions::source_spec` and `TrackLanes::source_spec`, `ViewController::zoom_pitch`, `ViewTuning::{pitch_zoom_per_notch, min_pitch_span_semitones}`, `WheelActions::pitch`, `LaneOptions::unlink_pitch` and `LaneState::pitch`. `ViewController::pitch` stays (always the full range) and `PitchView` keeps feeding the spectrograms.
 - The nav no longer claims Alt + wheel; the lane reads it.
 
+
+## 2026-11-07 - ui crate: animated lane resize
+
+No change in `core`. Alt + wheel notches are read from the wheel events with the nav's notch conversion (one notch = one row). Wheel resizes animate (`RESIZE_ANIM_SEC`, whole rows, like collapsing); dragging the bottom edge still follows at once. `geometry::rows_shown` now takes `rows: f32` (the animated value); `LaneOutput::resized_rows` is `Option<(rows, animate)>`.
