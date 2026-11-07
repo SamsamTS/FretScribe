@@ -109,7 +109,7 @@ impl Demo {
         let style = SpectroStyle { levels: Levels::new(0.0, APP_WHITE), gamma: APP_GAMMA, lut: luts[0].clone() };
         let state = ViewState { scroll_sec: 0.0, scroll_y: 0.0, pixels_per_sec: 120.0 };
         Self {
-            ctl: ViewController::new(state, &ViewTuning::DEFAULT, PitchRange { lo: 36.0, hi: 84.0 }),
+            ctl: ViewController::new(state, &ViewTuning::DEFAULT, PitchRange { lo: 35.5, hi: 84.5 }),
             map,
             spectrogram,
             luts,

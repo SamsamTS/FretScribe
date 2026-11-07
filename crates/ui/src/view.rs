@@ -97,7 +97,7 @@ pub struct PitchView {
 
 impl Default for PitchView {
     fn default() -> Self {
-        Self { min_midi: 28.0, max_midi: 88.0 }
+        Self::including(28, 88)
     }
 }
 
@@ -108,6 +108,11 @@ impl From<crate::nav::PitchRange> for PitchView {
 }
 
 impl PitchView {
+    /// Shows the whole bands of both end notes (a note's band reaches half a semitone beyond its pitch).
+    pub fn including(lowest_midi: u8, highest_midi: u8) -> Self {
+        Self { min_midi: f32::from(lowest_midi) - 0.5, max_midi: f32::from(highest_midi) + 0.5 }
+    }
+
     pub fn span(&self) -> f32 {
         (self.max_midi - self.min_midi).max(f32::EPSILON)
     }
@@ -267,6 +272,11 @@ mod tests {
         let mut v = view(1.0, 0.0);
         v.clamp(5.0);
         assert_eq!(v.pixels_per_sec, MIN_PIXELS_PER_SEC);
+    }
+
+    #[test]
+    fn including_pads_half_a_semitone() {
+        assert_eq!(PitchView::including(36, 84), PitchView { min_midi: 35.5, max_midi: 84.5 });
     }
 
     #[test]
