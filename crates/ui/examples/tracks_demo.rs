@@ -185,7 +185,6 @@ impl eframe::App for Demo {
                 let o = &mut self.lanes.options;
                 ui.checkbox(&mut o.show_notes_on_all, "Show notes on all lanes");
                 ui.checkbox(&mut o.show_onsets, "Show onsets");
-                ui.checkbox(&mut o.unlink_pitch, "Unlink pitch");
                 ui.label(&self.log);
             });
         });
@@ -197,7 +196,7 @@ impl eframe::App for Demo {
 
             let (_, content_px) = self.lanes.strips(ctx, &self.project);
             let nav = NavContext {
-                regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max), lanes, source_spec: self.lanes.source_spec(ctx, &self.project, lanes, self.ctl.offset_y(ctx.pixels_per_point())) },
+                regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max), lanes },
                 map: &self.map,
                 audio_len_sec: LEN_SEC,
                 content_px,

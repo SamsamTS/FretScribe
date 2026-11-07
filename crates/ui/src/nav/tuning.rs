@@ -22,8 +22,6 @@ pub struct ViewTuning {
     pub cursor_zoom_ratio: f64,
     pub points_per_notch: f64,
     pub quarter_notes_per_notch: f64,
-    pub pitch_zoom_per_notch: f64,
-    pub min_pitch_span_semitones: f64,
     /// `false` makes every change jump straight to its target.
     pub animate: bool,
 }
@@ -44,8 +42,6 @@ impl ViewTuning {
         cursor_zoom_ratio: 3.0,
         points_per_notch: 40.0,
         quarter_notes_per_notch: 1.0,
-        pitch_zoom_per_notch: 1.25,
-        min_pitch_span_semitones: 8.0,
         animate: true,
     };
 }

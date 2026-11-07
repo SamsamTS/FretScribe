@@ -157,9 +157,8 @@ impl eframe::App for Demo {
             let area = ui.available_rect_before_wrap();
             let ppp = ctx.pixels_per_point();
             let spec_h = (area.height() - RULER_H - WAVE_H).max(40.0);
-            let spec_rect = Rect::from_min_size(pos2(area.left(), area.top() + RULER_H), vec2(area.width(), spec_h));
             let nav = NavContext {
-                regions: NavRegions { grid: area, lanes: area, source_spec: Some(spec_rect) },
+                regions: NavRegions { grid: area, lanes: area },
                 map: &self.map,
                 audio_len_sec: AUDIO_LEN_SEC,
                 content_px: (area.height() * ppp) as u32,

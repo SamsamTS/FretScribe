@@ -44,21 +44,18 @@ pub trait LaneSource {
 pub struct LaneOptions {
     pub show_notes_on_all: bool,
     pub show_onsets: bool,
-    pub unlink_pitch: bool,
     pub move_notes: bool,
 }
 
 impl Default for LaneOptions {
     fn default() -> Self {
-        Self { show_notes_on_all: false, show_onsets: false, unlink_pitch: false, move_notes: true }
+        Self { show_notes_on_all: false, show_onsets: false, move_notes: true }
     }
 }
 
 #[derive(Default)]
 pub struct LaneState {
     pub cache: SpectroCache,
-    /// Own pitch range while `LaneOptions::unlink_pitch` is on.
-    pub pitch: Option<PitchView>,
 }
 
 pub struct LaneShared<'a> {
@@ -172,7 +169,7 @@ impl TrackLane<'_> {
             let height = spec_rect.height() - px(BORDER_PX);
             let mut sui = ui.new_child(UiBuilder::new().max_rect(spec_rect));
             sui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            let pitch = if options.unlink_pitch { state.pitch.unwrap_or(shared.pitch) } else { shared.pitch };
+            let pitch = shared.pitch;
             match shared.source.spectrogram(id) {
                 Some(spectrogram) => {
                     let notes_here = is_source || options.show_notes_on_all;
@@ -219,7 +216,7 @@ impl TrackLane<'_> {
 
         if self.shown_rows == self.configured_rows && ctx.input(|i| i.modifiers.alt) && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
             let key = Id::new(("wheel-rows", id));
-            let acc = ctx.data(|d| d.get_temp::<f32>(key).unwrap_or(0.0)) - ctx.input(|i| i.raw_scroll_delta.y) / WHEEL_POINTS_PER_ROW;
+            let acc = ctx.data(|d| d.get_temp::<f32>(key).unwrap_or(0.0)) + ctx.input(|i| i.raw_scroll_delta.y) / WHEEL_POINTS_PER_ROW;
             let whole = acc.trunc();
             ctx.data_mut(|d| d.insert_temp(key, acc - whole));
             if whole != 0.0 {

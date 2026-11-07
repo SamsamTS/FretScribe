@@ -10,7 +10,7 @@ pub use input::{read_wheel, NavContext, NavRegions, WheelAccum, WheelActions};
 pub use maths::{Geometry, Hover, PitchRange};
 pub use tuning::ViewTuning;
 
-use maths::{clamp_scroll, max_scroll_y, pitch_zoom_target, scroll_time_target, scroll_y_target, smooth, snap_y, zoom_target, Anchor};
+use maths::{clamp_scroll, max_scroll_y, scroll_time_target, scroll_y_target, smooth, snap_y, zoom_target, Anchor};
 
 use crate::view::TimelineView;
 
@@ -133,13 +133,6 @@ impl ViewController {
 
     pub fn scroll_y(&mut self, notches: f64) {
         self.target.scroll_y = scroll_y_target(self.target.scroll_y, notches, self.y_pitch, self.y_max);
-        self.settle_if_instant();
-    }
-
-    /// `frac_from_top` is the cursor's position in the source spectrogram strip.
-    pub fn zoom_pitch(&mut self, frac_from_top: f64, notches: f64) {
-        let p = &mut self.pitch;
-        p.target = pitch_zoom_target(p.target, frac_from_top, notches, p.full, &self.tuning);
         self.settle_if_instant();
     }
 

@@ -42,16 +42,6 @@ impl TrackLanesState {
     pub fn configured_rows(&self, track_id: u64) -> u32 {
         self.rows.get(&track_id).copied().unwrap_or(SPECTRO_ROWS)
     }
-
-    /// The source lane's spectrogram strip in screen space, clipped to `lanes`.
-    pub fn source_spec(&self, ctx: &Context, project: &Project, lanes: Rect, scroll_y_pt: f32) -> Option<Rect> {
-        let ppp = ctx.pixels_per_point();
-        let (strips, _) = self.strips(ctx, project);
-        let strip = strips.iter().find(|s| s.id == project.source_track && s.rows > 0)?;
-        let top = lanes.top() - scroll_y_pt + strip.top_px as f32 / ppp;
-        let rect = Rect::from_min_size(pos2(lanes.left() + LANE_HEADER_WIDTH, top), vec2(lanes.width() - LANE_HEADER_WIDTH, (strip.rows * STRIP_PITCH_PX) as f32 / ppp));
-        Some(rect.intersect(lanes)).filter(|r| r.height() > 0.0)
-    }
 }
 
 pub struct TrackLanes<'a> {

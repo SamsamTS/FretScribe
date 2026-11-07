@@ -211,15 +211,6 @@ pub fn scroll_y_target(y: f64, notches: f64, pitch: f64, max: f64) -> f64 {
     (0..n.unsigned_abs()).fold(y.clamp(0.0, max), |y, _| step_stop(y, pitch, max, n > 0))
 }
 
-/// `frac_from_top` is the cursor's position in the strip (0 = top); its pitch stays under it.
-pub fn pitch_zoom_target(range: PitchRange, frac_from_top: f64, notches: f64, full: PitchRange, t: &ViewTuning) -> PitchRange {
-    let span = (range.span() / t.pitch_zoom_per_notch.powf(notches)).clamp(t.min_pitch_span_semitones.min(full.span()), full.span());
-    let under_cursor = range.hi - frac_from_top * range.span();
-    let mut hi = under_cursor + frac_from_top * span;
-    hi = hi.min(full.hi).max(full.lo + span);
-    PitchRange { lo: hi - span, hi }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,19 +400,5 @@ mod tests {
         let run = |hz: f64| (0..(hz * 0.2).round() as usize).fold(0.0, |x, _| smooth(x, 10.0, 1.0 / hz, 55.0));
         close(run(60.0), run(120.0));
         close(run(60.0), run(240.0));
-    }
-
-    #[test]
-    fn pitch_zoom_keeps_the_cursor_pitch_and_stays_inside_the_range() {
-        let full = PitchRange { lo: 20.0, hi: 100.0 };
-        let r = PitchRange { lo: 40.0, hi: 80.0 };
-        let z = pitch_zoom_target(r, 0.25, 1.0, full, &T);
-        close(z.span(), 40.0 / 1.25);
-        close(z.hi - 0.25 * z.span(), 80.0 - 0.25 * 40.0);
-        let z = pitch_zoom_target(r, 0.5, -100.0, full, &T);
-        assert_eq!((z.lo, z.hi), (20.0, 100.0));
-        let z = pitch_zoom_target(PitchRange { lo: 20.0, hi: 60.0 }, 1.0, 1.0, full, &T);
-        assert!(z.lo >= 20.0 && z.hi <= 100.0);
-        close(pitch_zoom_target(r, 0.5, 100.0, full, &T).span(), T.min_pitch_span_semitones);
     }
 }

@@ -12,12 +12,11 @@ const NOMINAL_DT_SEC: f64 = 1.0 / 60.0;
 const MAX_DT_SEC: f64 = 0.05;
 
 /// `grid` is the whole measure grid column (ruler, lanes, notation panel), `lanes` the scrolling
-/// part of it and `source_spec` the source spectrogram strip, all in screen coordinates.
+/// part of it, in screen coordinates.
 #[derive(Clone, Copy, Debug)]
 pub struct NavRegions {
     pub grid: Rect,
     pub lanes: Rect,
-    pub source_spec: Option<Rect>,
 }
 
 pub struct NavContext<'a> {
@@ -171,7 +170,6 @@ mod tests {
         NavRegions {
             grid: Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 600.0)),
             lanes: Rect::from_min_max(pos2(0.0, 50.0), pos2(1000.0, 400.0)),
-            source_spec: Some(Rect::from_min_max(pos2(0.0, 50.0), pos2(1000.0, 200.0))),
         }
     }
 
