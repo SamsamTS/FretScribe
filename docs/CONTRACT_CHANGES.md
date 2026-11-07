@@ -115,4 +115,5 @@ No change in `core` or other crates, no workspace dependency change. New `fretsc
 - New `fretscribe_ui::spectro`: `SpectrogramView` (builder, `show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`), `SpectroStyle`, `SpectroEvent::{AddNoteRequested, SeekRequested}`, `GhostNote`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`. `view::PitchView { min_midi, max_midi }` (`From<nav::PitchRange>`).
 - Notes come as `&[Note]` plus the core `NoteTimes` (project seconds). `link_to` goes from the start note to the next one and the connector kind is the start note's `technique` (Slide, Bend; anything else is a plain line).
 - The texture cache key includes window, pixel size, pitch range, A4, levels, gamma, LUT name, spectrogram data pointer and a caller `revision` (bump it when the data changes in place, e.g. streamed chunks).
+- Pitch guides are one band per semitone (alternating +5% white; the band under the cursor is brighter), no crosshair.
 - `PITCH_RULER_WIDTH` (left strip with the pitch labels) is exposed as `SpectroOutput::pitch_ruler` for the nav drag; clicks there add no note.
