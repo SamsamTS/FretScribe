@@ -6,7 +6,7 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
-use super::draw::{commit_creation, feedback, ghost_of, plan_chain, plan_draw, plan_link, Creation, DrawFeedback, LegatoPlan, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
@@ -74,6 +74,29 @@ pub struct Env<'a> {
     pub hovered: Option<u64>,
 }
 
+/// A link being drawn: aiming (the first point follows the pointer, fixed by the right button's
+/// release, or by a left click when started with L), then extending (the far end follows the
+/// pointer, a left click finishes).
+#[derive(Clone, Debug, PartialEq)]
+struct LinkState {
+    src: u64,
+    hover: bool,
+    pressed: bool,
+    start: Option<LinkStart>,
+    sticky: Sticky,
+}
+
+impl LinkState {
+    fn new(src: u64, hover: bool) -> Self {
+        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY }
+    }
+
+    /// No button is held: left clicks drive it.
+    fn waiting(&self) -> bool {
+        self.hover || self.start.is_some()
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 enum State {
     #[default]
@@ -83,10 +106,9 @@ enum State {
     Move { grab: u64, offset_sec: f64, sticky: Sticky },
     Resize { note: u64, edge: Edge, sticky: Sticky },
     Chain { last: u64, sticky: Sticky },
-    Link { src: u64, slide: bool, sticky: Sticky },
+    Link(LinkState),
     Marquee { from: Sample, add: bool },
     Paste { pressed: bool },
-    LinkHover { src: u64, sticky: Sticky, pressed: bool },
 }
 
 #[derive(Default)]
@@ -131,7 +153,11 @@ impl NoteEditor {
 
     /// Whether a mode that wants the next click (paste preview, link drawing) is on.
     pub fn in_mode(&self) -> bool {
-        matches!(self.state, State::Paste { .. } | State::LinkHover { .. })
+        match &self.state {
+            State::Paste { .. } => true,
+            State::Link(l) => l.waiting(),
+            _ => false,
+        }
     }
 
     fn reset(&mut self) {
@@ -204,8 +230,9 @@ impl NoteEditor {
                     self.state = State::Pending { button, at, mods };
                 }
             }
-            (State::Paste { .. } | State::LinkHover { .. }, Button::Right) => self.cancel(),
-            (State::Paste { pressed }, Button::Left) | (State::LinkHover { pressed, .. }, Button::Left) => *pressed = true,
+            (State::Paste { .. }, Button::Right) => self.cancel(),
+            (State::Paste { pressed }, Button::Left) => *pressed = true,
+            (State::Link(l), Button::Left) if l.waiting() => l.pressed = true,
             _ => self.cancel(),
         }
         Vec::new()
@@ -242,7 +269,7 @@ impl NoteEditor {
             }
             (Button::Right, _) if mods.ctrl => State::Marquee { from: first, add: true },
             (Button::Right, None) => State::Marquee { from: first, add: false },
-            (Button::Right, Some((id, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::LinkLeft | HitZone::LinkRight))) => State::Link { src: id, slide: mods.shift, sticky: NO_STICKY },
+            (Button::Right, Some((id, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::LinkLeft | HitZone::LinkRight))) => State::Link(LinkState::new(id, false)),
             _ => State::Idle,
         };
     }
@@ -272,20 +299,28 @@ impl NoteEditor {
                     self.state = State::Chain { last, sticky: s };
                 }
             }
-            State::Link { src, sticky, .. } | State::LinkHover { src, sticky, .. } => {
-                let slide = matches!(state, State::Link { slide: true, .. });
-                let plan = with_ctx(env, mods.alt, |ctx| match plan_link(src, pt(at), target_of(at.hit), slide, sticky, ctx) {
-                    LegatoPlan::Hidden => None,
-                    LegatoPlan::Draw(p) => Some((ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped)),
-                    LegatoPlan::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY)),
+            State::Link(l) => {
+                let plan = with_ctx(env, mods.alt, |ctx| {
+                    let extend = |start: &LinkStart, sec, sticky| {
+                        let p = plan_extend(start, sec, sticky, ctx);
+                        (ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped)
+                    };
+                    match &l.start {
+                        Some(start) => Some(extend(start, Some(at.sec), l.sticky)),
+                        None => match plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, ctx) {
+                            LinkAim::Hidden => None,
+                            LinkAim::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY)),
+                            LinkAim::Start { start, snapped } => {
+                                let (ghost, fb, _) = extend(&start, None, NO_STICKY);
+                                Some((ghost, fb, snapped))
+                            }
+                        },
+                    }
                 });
                 let next = plan.as_ref().map(|p| p.2);
                 self.show_plan(plan);
-                if let Some(s) = next {
-                    match &mut self.state {
-                        State::Link { sticky, .. } | State::LinkHover { sticky, .. } => *sticky = s,
-                        _ => {}
-                    }
+                if let (Some(s), State::Link(l)) = (next, &mut self.state) {
+                    l.sticky = s;
                 }
             }
             State::Draw { press, was_slide, sticky } => {
@@ -351,15 +386,7 @@ impl NoteEditor {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
                 plan.map_or_else(Vec::new, |p| self.commit(env, &p.creation, "Extend chain", true))
             }
-            (State::Link { src, slide, sticky }, Button::Right) => self.finish_link(env, src, slide, sticky, &at, mods),
-            (State::LinkHover { src, sticky, pressed: true }, Button::Left) => {
-                self.ignore_seek = true;
-                self.finish_link(env, src, false, sticky, &at, mods)
-            }
-            (State::LinkHover { src, sticky, pressed: false }, Button::Left) => {
-                self.state = State::LinkHover { src, sticky, pressed: false };
-                Vec::new()
-            }
+            (State::Link(l), _) => self.release_link(env, l, button, &at, mods),
             (State::Marquee { from, add }, Button::Right) => {
                 let hits = with_ctx(env, false, |ctx| {
                     let times = fretscribe_core::NoteTimes::build(&ctx.project.notes, ctx.tempo);
@@ -385,7 +412,7 @@ impl NoteEditor {
                     None => Vec::new(),
                 }
             }
-            (other @ (State::Paste { .. } | State::LinkHover { .. }), _) => {
+            (other @ State::Paste { .. }, _) => {
                 self.state = other;
                 return Vec::new();
             }
@@ -414,12 +441,28 @@ impl NoteEditor {
         }
     }
 
-    fn finish_link(&mut self, env: &mut Env, src: u64, slide: bool, sticky: Sticky, at: &Sample, mods: Mods) -> Vec<Effect> {
-        let plan = with_ctx(env, mods.alt, |ctx| plan_link(src, pt(at), target_of(at.hit), slide, sticky, ctx));
-        match plan {
-            LegatoPlan::Hidden => Vec::new(),
-            LegatoPlan::Draw(p) => self.commit(env, &p.creation, "Draw linked note", true),
-            LegatoPlan::Join(c) => self.commit(env, &c, "Link notes", false),
+    /// A button went up while linking: the right one (or a left click when waiting) fixes the first
+    /// point, or finishes the link.
+    fn release_link(&mut self, env: &mut Env, mut l: LinkState, button: Button, at: &Sample, mods: Mods) -> Vec<Effect> {
+        let places = if l.waiting() { button == Button::Left && l.pressed } else { button == Button::Right };
+        if !places {
+            l.pressed = false;
+            self.state = State::Link(l);
+            return Vec::new();
+        }
+        self.ignore_seek |= l.waiting();
+        if let Some(start) = &l.start {
+            let plan = with_ctx(env, mods.alt, |ctx| plan_extend(start, Some(at.sec), l.sticky, ctx));
+            return self.commit(env, &plan.creation, "Draw linked note", true);
+        }
+        match with_ctx(env, mods.alt, |ctx| plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, ctx)) {
+            LinkAim::Hidden => Vec::new(),
+            LinkAim::Join(c) => self.commit(env, &c, "Link notes", false),
+            LinkAim::Start { start, .. } => {
+                self.state = State::Link(LinkState { start: Some(start), pressed: false, sticky: NO_STICKY, ..l });
+                self.update(env, at, mods);
+                Vec::new()
+            }
         }
     }
 
@@ -506,7 +549,7 @@ impl NoteEditor {
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
         if action == NoteAction::LinkHover && self.selection.ids.is_empty() {
             if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
-                self.state = State::LinkHover { src, sticky: NO_STICKY, pressed: false };
+                self.state = State::Link(LinkState::new(src, true));
             }
             return Vec::new();
         }

@@ -1,5 +1,5 @@
 use egui::pos2;
-use fretscribe_core::{LinkType, Project, SnapGrid};
+use fretscribe_core::{LinkType, Project, SnapGrid, TimePos};
 
 use super::testkit::*;
 use super::*;
@@ -254,32 +254,6 @@ fn right_click_on_empty_space_clears_the_selection() {
 }
 
 #[test]
-fn right_drag_from_a_body_creates_a_legato_note_on_the_cursor_side_and_flips() {
-    let mut h = H::new();
-    let src = add(&mut h.p, 60, 2.0, 3.0);
-    h.press(Button::Right, s(2.5, 60.0, body(src)), NONE);
-    h.mv(s(4.02, 62.0, None), NONE);
-    assert!(h.ed.ghost.is_some());
-    h.mv(s(1.0, 58.0, None), NONE);
-    let out = h.rel(Button::Right, s(1.0, 58.0, None), NONE);
-    assert_eq!(edits(&out), 1);
-    let new = h.ed.selection.ids[0];
-    assert_eq!(h.p.note(new).unwrap().midi, 58);
-    assert_eq!(h.p.outgoing(new), Some((src, LinkType::Legato)));
-}
-
-#[test]
-fn right_drag_inside_the_source_span_creates_nothing() {
-    let mut h = H::new();
-    let src = add(&mut h.p, 60, 2.0, 3.0);
-    h.press(Button::Right, s(2.2, 60.0, body(src)), NONE);
-    h.mv(s(2.8, 63.0, None), NONE);
-    assert!(h.ed.ghost.is_none());
-    assert_eq!(edits(&h.rel(Button::Right, s(2.8, 63.0, None), NONE)), 0);
-    assert_eq!(h.p.notes.len(), 1);
-}
-
-#[test]
 fn right_drag_onto_any_valid_note_links_without_a_new_note() {
     let mut h = H::new();
     let (a, b, c) = (add(&mut h.p, 60, 0.0, 1.0), add(&mut h.p, 62, 1.05, 2.0), add(&mut h.p, 64, 3.0, 4.0));
@@ -298,24 +272,6 @@ fn right_drag_over_an_invalid_note_does_nothing() {
     let (a, b) = (add(&mut h.p, 60, 0.0, 1.0), add(&mut h.p, 60, 2.0, 3.0));
     let out = h.drag(Button::Right, s(0.5, 60.0, body(a)), s(2.5, 60.0, body(b)), NONE);
     assert_eq!((edits(&out), h.p.notes.len()), (0, 2));
-}
-
-#[test]
-fn right_press_on_a_link_point_starts_a_link() {
-    let mut h = H::new();
-    let a = add(&mut h.p, 60, 2.0, 3.0);
-    let out = h.drag(Button::Right, s(3.0, 60.0, Some((a, HitZone::LinkRight))), s(4.02, 62.0, None), NONE);
-    assert_eq!(edits(&out), 1);
-    assert_eq!(h.p.outgoing(a).map(|l| l.1), Some(LinkType::Legato));
-}
-
-#[test]
-fn shift_right_drag_draws_a_slide() {
-    let mut h = H::new();
-    let a = add(&mut h.p, 60, 2.0, 3.0);
-    let shift = Mods { shift: true, ..NONE };
-    h.drag(Button::Right, s(2.5, 60.0, body(a)), s(4.02, 62.0, None), shift);
-    assert_eq!(h.p.outgoing(a).map(|l| l.1), Some(LinkType::Slide));
 }
 
 #[test]
@@ -458,9 +414,10 @@ fn link_hover_mode_links_from_the_hovered_note_and_confirms_with_a_left_click() 
     assert!(h.ed.in_mode());
     h.mv(s(4.02, 62.0, None), NONE);
     assert!(h.ed.ghost.is_some());
-    h.press(Button::Left, s(4.02, 62.0, None), NONE);
-    let out = h.rel(Button::Left, s(4.02, 62.0, None), NONE);
-    assert_eq!(edits(&out), 1);
+    assert_eq!(edits(&h.click(Button::Left, s(4.02, 62.0, None), NONE)), 0);
+    assert!(h.ed.in_mode());
+    h.mv(s(6.0, 62.0, None), NONE);
+    assert_eq!(edits(&h.click(Button::Left, s(6.0, 62.0, None), NONE)), 1);
     assert_eq!(h.p.notes.len(), 2);
     assert!(!h.ed.in_mode());
 }
@@ -498,4 +455,100 @@ fn actions_flow_through_apply_and_report_through_effects() {
     assert!(h.p.notes.is_empty() && h.ed.selection.ids.is_empty());
     let out = h.send(Input::Action(NoteAction::Transpose(1)));
     assert!(out.is_empty(), "an empty selection is ignored quietly");
+}
+
+/// Right press on `src`, drag to `aim`, release: the first point is fixed.
+fn aimed(h: &mut H, from: Sample, aim: Sample) {
+    h.press(Button::Right, from, NONE);
+    h.mv(aim, NONE);
+    assert!(h.ed.ghost.is_some(), "the aim is previewed");
+    assert_eq!(edits(&h.rel(Button::Right, aim, NONE)), 0);
+    assert!(h.ed.in_mode(), "waiting for the left click");
+}
+
+#[test]
+fn right_drag_past_the_end_aims_a_slide_then_a_left_click_sets_the_end() {
+    let mut h = H::new();
+    let src = add(&mut h.p, 60, 2.0, 3.0);
+    aimed(&mut h, s(2.5, 60.0, body(src)), s(4.02, 62.0, None));
+    assert_eq!(h.p.notes.len(), 1);
+    h.mv(s(6.0, 62.0, None), NONE);
+    let out = h.click(Button::Left, s(6.0, 62.0, None), NONE);
+    assert_eq!(edits(&out), 1);
+    let new = h.ed.selection.ids[0];
+    let n = h.p.note(new).unwrap();
+    assert_eq!((n.midi, n.start, n.end), (62, TimePos::new(2, 0.0), TimePos::new(2, 2.0)));
+    assert_eq!(h.p.outgoing(src), Some((new, LinkType::Slide)));
+    assert!(h.ed.ghost.is_none() && !h.ed.in_mode());
+    assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(3.0), NONE)).is_empty(), "the click is not a seek");
+}
+
+#[test]
+fn right_drag_inside_the_note_is_a_legato_and_the_left_half_goes_backwards() {
+    let mut h = H::new();
+    let src = add(&mut h.p, 60, 2.0, 3.0);
+    aimed(&mut h, s(2.2, 60.0, body(src)), s(2.8, 62.0, None));
+    h.click(Button::Left, s(5.0, 62.0, None), NONE);
+    let new = h.ed.selection.ids[0];
+    assert_eq!(h.p.outgoing(src), Some((new, LinkType::Legato)));
+    assert_eq!(h.p.note(new).unwrap().start, h.p.note(src).unwrap().end);
+
+    let src = add(&mut h.p, 60, 6.0, 7.0);
+    aimed(&mut h, s(6.8, 60.0, body(src)), s(6.2, 58.0, None));
+    h.click(Button::Left, s(5.0, 58.0, None), NONE);
+    let new = h.ed.selection.ids[0];
+    assert_eq!(h.p.outgoing(new), Some((src, LinkType::Legato)));
+    assert_eq!(h.p.note(new).unwrap().end, h.p.note(src).unwrap().start);
+}
+
+#[test]
+fn right_drag_before_the_note_aims_a_reverse_slide() {
+    let mut h = H::new();
+    let src = add(&mut h.p, 60, 2.0, 3.0);
+    aimed(&mut h, s(2.5, 60.0, body(src)), s(1.0, 58.0, None));
+    h.click(Button::Left, s(0.5, 58.0, None), NONE);
+    let new = h.ed.selection.ids[0];
+    let n = h.p.note(new).unwrap();
+    assert_eq!((n.midi, n.start.beat, n.end.beat), (58, 0.5, 1.0));
+    assert_eq!(h.p.outgoing(new), Some((src, LinkType::Slide)));
+}
+
+#[test]
+fn right_press_on_a_link_point_starts_a_link() {
+    let mut h = H::new();
+    let src = add(&mut h.p, 60, 2.0, 3.0);
+    aimed(&mut h, s(3.0, 60.0, Some((src, HitZone::LinkRight))), s(4.02, 62.0, None));
+}
+
+#[test]
+fn cancelling_at_any_point_cancels_the_whole_link() {
+    let mut h = H::new();
+    let src = add(&mut h.p, 60, 2.0, 3.0);
+    let cancels: [&dyn Fn(&mut H); 2] = [
+        &|h| {
+            h.send(Input::Escape);
+        },
+        &|h| {
+            h.press(Button::Right, s(5.0, 62.0, None), NONE);
+            h.rel(Button::Right, s(5.0, 62.0, None), NONE);
+        },
+    ];
+    for cancel in cancels {
+        // While aiming (right button held), then while extending.
+        h.press(Button::Right, s(2.5, 60.0, body(src)), NONE);
+        h.mv(s(4.02, 62.0, None), NONE);
+        h.send(Input::Escape);
+        h.rel(Button::Right, s(4.02, 62.0, None), NONE);
+        assert!(h.ed.ghost.is_none() && !h.ed.in_mode() && !h.ed.is_busy());
+        aimed(&mut h, s(2.5, 60.0, body(src)), s(4.02, 62.0, None));
+        cancel(&mut h);
+        assert!(h.ed.ghost.is_none() && !h.ed.in_mode() && !h.ed.is_busy());
+        assert_eq!(h.p.notes.len(), 1);
+    }
+    h.press(Button::Right, s(2.5, 60.0, body(src)), NONE);
+    h.mv(s(4.02, 62.0, None), NONE);
+    h.press(Button::Left, s(4.02, 62.0, None), NONE);
+    h.rel(Button::Left, s(4.02, 62.0, None), NONE);
+    h.rel(Button::Right, s(4.02, 62.0, None), NONE);
+    assert_eq!((h.p.notes.len(), h.ed.is_busy()), (1, false));
 }

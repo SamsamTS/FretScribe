@@ -48,13 +48,6 @@ pub struct DrawPlan {
     pub slide: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum LegatoPlan {
-    Hidden,
-    Draw(DrawPlan),
-    Join(Creation),
-}
-
 fn row(midi: f32) -> u8 {
     midi.round().clamp(0.0, 127.0) as u8
 }
@@ -133,46 +126,82 @@ pub fn plan_chain(last: u64, cur: Pt, sticky: Sticky, ctx: &EditCtx) -> Option<D
     })
 }
 
-/// Right-drag from a note (body or link point): over another note, a link between the two when
-/// valid (nothing is drawn when not); elsewhere, a new note on the side of the source where the
-/// pointer is. Legato or slide as `infer_link_type` says, a slide when `slide` (Shift at the press).
-pub fn plan_link(src: u64, cur: Pt, target: Option<u64>, slide: bool, sticky: Sticky, ctx: &EditCtx) -> LegatoPlan {
+/// First point of a right-drag link, fixed on release: the new note's near end (its start when
+/// `forward`) and pitch. The link kind is the one previewed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkStart {
+    pub src: u64,
+    pub forward: bool,
+    pub kind: LinkType,
+    pub midi: u8,
+    pub near: TimePos,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LinkAim {
+    Hidden,
+    /// Link of two existing notes, complete.
+    Join(Creation),
+    Start { start: LinkStart, snapped: Sticky },
+}
+
+/// Right-drag from a note, first step. Over another note: a link to it when valid (nothing when
+/// not). Elsewhere, inside the span of the source a legato (hammer-on or pull-off, falling back to
+/// a slide when no string fits) joined to its right half's end or left half's start; past either
+/// end a slide starting at the pointer. The pointer pitch is the new note's pitch.
+pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, ctx: &EditCtx) -> LinkAim {
     let project = ctx.project;
     let Some(source) = project.note(src) else {
-        return LegatoPlan::Hidden;
+        return LinkAim::Hidden;
     };
     if let Some(t) = target.and_then(|id| project.note(id)).filter(|t| t.id != src) {
         let (from, to) = if ctx.tempo.pos_to_sec(t.start) >= ctx.tempo.pos_to_sec(source.start) { (source, t) } else { (t, source) };
-        let kind = if slide { LinkType::Slide } else { project.infer_link_type(from.id, to.id) };
+        let kind = project.infer_link_type(from.id, to.id);
         return if project.can_link(from.id, to.id, kind).is_ok() {
-            LegatoPlan::Join(Creation { notes: Vec::new(), links: vec![(Ref::Existing(from.id), Ref::Existing(to.id), kind)] })
+            LinkAim::Join(Creation { notes: Vec::new(), links: vec![(Ref::Existing(from.id), Ref::Existing(to.id), kind)] })
         } else {
-            LegatoPlan::Hidden
+            LinkAim::Hidden
         };
     }
-    let (src_start, src_end) = (ctx.tempo.pos_to_sec(source.start), ctx.tempo.pos_to_sec(source.end));
-    if cur.sec >= src_start && cur.sec <= src_end {
-        return LegatoPlan::Hidden;
-    }
-    let after = cur.sec > src_end;
-    let busy = if after { project.outgoing(src) } else { project.incoming(src) };
-    if busy.is_some() {
-        return LegatoPlan::Hidden;
-    }
-
+    let (s0, s1) = (ctx.tempo.pos_to_sec(source.start), ctx.tempo.pos_to_sec(source.end));
+    let inside = cur.sec >= s0 && cur.sec <= s1;
+    let forward = if inside { cur.sec >= (s0 + s1) / 2.0 } else { cur.sec > s1 };
     let midi = row(cur.midi);
-    if midi == source.midi {
-        return LegatoPlan::Hidden;
+    let busy = if forward { project.outgoing(src) } else { project.incoming(src) };
+    if midi == source.midi || busy.is_some() {
+        return LinkAim::Hidden;
     }
-    let far = snap_edge(ctx.tempo.sec_to_pos(cur.sec), if after { Edge::End } else { Edge::Start }, ctx.tempo, &project.notes, &ctx.opts(sticky));
-    let (start, end) = if after { (source.end, far) } else { (far, source.start) };
-    if beats(ctx, end) - beats(ctx, start) < min_subdivision_beats(ctx.grid) - EPS {
-        return LegatoPlan::Hidden;
-    }
-    let kind = if slide { LinkType::Slide } else { infer_link(&project.tuning, project.capo, source.midi, midi) };
-    let links = if after { vec![(Ref::Existing(src), Ref::New(0), kind)] } else { vec![(Ref::New(0), Ref::Existing(src), kind)] };
-    let snapped = if after { (None, Some(far)) } else { (Some(far), None) };
-    LegatoPlan::Draw(DrawPlan { creation: Creation { notes: vec![NewNote { midi, start, end }], links }, snapped, slide: kind == LinkType::Slide })
+    let bound = if forward { source.end } else { source.start };
+    let (near, snapped) = if inside {
+        (bound, (None, None))
+    } else {
+        let at = snap_edge(ctx.tempo.sec_to_pos(cur.sec), if forward { Edge::Start } else { Edge::End }, ctx.tempo, &project.notes, &ctx.opts(sticky));
+        let wrong = if forward { beats(ctx, at) < beats(ctx, bound) } else { beats(ctx, at) > beats(ctx, bound) };
+        let near = if wrong { bound } else { at };
+        (near, if forward { (Some(near), None) } else { (None, Some(near)) })
+    };
+    let kind = if inside { infer_link(&project.tuning, project.capo, source.midi, midi) } else { LinkType::Slide };
+    LinkAim::Start { start: LinkStart { src, forward, kind, midi, near }, snapped }
+}
+
+/// Right-drag link, second step: the new note runs from the fixed point to the pointer (one step
+/// long while the pointer is not past it, or `None`).
+pub fn plan_extend(start: &LinkStart, cur_sec: Option<f64>, sticky: Sticky, ctx: &EditCtx) -> DrawPlan {
+    let step = step_beats(ctx);
+    let minimal = add_beats(ctx.tempo, start.near, if start.forward { step } else { -step });
+    let free = cur_sec.map(|sec| snap_edge(ctx.tempo.sec_to_pos(sec), if start.forward { Edge::End } else { Edge::Start }, ctx.tempo, &ctx.project.notes, &ctx.opts(sticky)));
+    let long_enough = |far: TimePos| {
+        let len = if start.forward { beats(ctx, far) - beats(ctx, start.near) } else { beats(ctx, start.near) - beats(ctx, far) };
+        len >= min_subdivision_beats(ctx.grid) - EPS
+    };
+    let (far, snapped) = match free.filter(|f| long_enough(*f)) {
+        Some(far) => (far, if start.forward { (None, Some(far)) } else { (Some(far), None) }),
+        None => (minimal, (None, None)),
+    };
+    let (first, second) = if start.forward { (start.near, far) } else { (far, start.near) };
+    let new = Ref::New(0);
+    let link = if start.forward { (Ref::Existing(start.src), new, start.kind) } else { (new, Ref::Existing(start.src), start.kind) };
+    DrawPlan { creation: Creation { notes: vec![NewNote { midi: start.midi, start: first, end: second }], links: vec![link] }, snapped, slide: start.kind == LinkType::Slide }
 }
 
 /// Adds the notes and links of `creation` as one edit; returns the ids of the new notes.
@@ -229,6 +258,7 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
 pub struct DrawFeedback {
     /// Start time, pitch and the "B 5" string/fret label of every new note.
     pub labels: Vec<(f64, u8, String)>,
+    pub link: Option<LinkType>,
     pub interval: Option<String>,
     pub warning: Option<String>,
 }
@@ -262,6 +292,7 @@ pub fn feedback(creation: &Creation, project: &Project, tempo: &TempoMap) -> Dra
     };
     if let Some(&(a, b, kind)) = creation.links.first() {
         if let (Some(from), Some(to)) = (midi_of(a), midi_of(b)) {
+            out.link = Some(kind);
             out.interval = Some(interval_label(i32::from(to) - i32::from(from)));
             let lower = from.min(to);
             out.warning = if !same_string_fit(&project.tuning, project.capo, &[from, to]) {
@@ -394,70 +425,81 @@ mod tests {
         assert_eq!(p.notes, before);
     }
 
-    fn legato(p: &Project, src: u64, cur: Pt, on: Option<u64>) -> LegatoPlan {
-        with_ctx(p, &[4, 3], false, |ctx| plan_link(src, cur, on, false, (None, None), ctx))
+    fn aim(p: &Project, src: u64, cur: Pt, on: Option<u64>) -> LinkAim {
+        with_ctx(p, &[4, 3], false, |ctx| plan_aim(src, cur, on, (None, None), ctx))
+    }
+
+    fn start(p: &Project, src: u64, cur: Pt) -> LinkStart {
+        let LinkAim::Start { start, .. } = aim(p, src, cur, None) else { panic!("start") };
+        start
     }
 
     #[test]
-    fn legato_drag_creates_a_note_on_the_cursor_side_and_flips_mid_drag() {
+    fn inside_the_source_is_a_legato_on_the_near_half_s_side() {
         let mut p = project();
         let s = add(&mut p, 60, 2.0, 3.0);
-        let LegatoPlan::Draw(after) = legato(&p, s, pt(4.02, 62.0), None) else { panic!("after") };
-        assert_eq!(after.creation.notes, [NewNote { midi: 62, start: at(3.0), end: TimePos::new(2, 0.0) }]);
-        assert_eq!(after.creation.links, [(Ref::Existing(s), Ref::New(0), LinkType::Legato)]);
-        let LegatoPlan::Draw(before) = legato(&p, s, pt(1.0, 58.0), None) else { panic!("before") };
-        assert_eq!(before.creation.notes, [NewNote { midi: 58, start: at(1.0), end: at(2.0) }]);
-        assert_eq!(before.creation.links, [(Ref::New(0), Ref::Existing(s), LinkType::Legato)]);
+        let fwd = start(&p, s, pt(2.8, 62.0));
+        assert_eq!((fwd.forward, fwd.kind, fwd.midi, fwd.near), (true, LinkType::Legato, 62, at(3.0)));
+        let rev = start(&p, s, pt(2.2, 58.0));
+        assert_eq!((rev.forward, rev.kind, rev.near), (false, LinkType::Legato, at(2.0)));
+        let far = add(&mut p, 40, 5.0, 6.0);
+        assert_eq!(start(&p, far, pt(5.8, 65.0)).kind, LinkType::Slide, "no string fits");
     }
 
     #[test]
-    fn legato_drag_hides_inside_the_source_and_needs_a_different_pitch() {
+    fn past_either_end_is_a_slide_starting_at_the_pointer() {
         let mut p = project();
         let s = add(&mut p, 60, 2.0, 3.0);
-        assert_eq!(legato(&p, s, pt(2.5, 62.0), None), LegatoPlan::Hidden);
-        assert_eq!(legato(&p, s, pt(4.0, 60.2), None), LegatoPlan::Hidden);
-        assert_eq!(legato(&p, s, pt(3.05, 62.0), None), LegatoPlan::Hidden);
+        let fwd = start(&p, s, pt(4.02, 62.0));
+        assert_eq!((fwd.forward, fwd.kind, fwd.near), (true, LinkType::Slide, TimePos::new(2, 0.0)));
+        let rev = start(&p, s, pt(1.0, 58.0));
+        assert_eq!((rev.forward, rev.kind, rev.near), (false, LinkType::Slide, at(1.0)));
+        let LinkAim::Start { snapped, .. } = aim(&p, s, pt(4.02, 62.0), None) else { panic!() };
+        assert_eq!(snapped, (Some(TimePos::new(2, 0.0)), None));
     }
 
     #[test]
-    fn legato_drag_falls_back_to_a_slide_when_no_string_fits() {
+    fn aim_needs_a_different_pitch_and_a_free_side() {
         let mut p = project();
-        let s = add(&mut p, 40, 2.0, 3.0);
-        let LegatoPlan::Draw(plan) = legato(&p, s, pt(4.0, 65.0), None) else { panic!("draw") };
-        assert_eq!(plan.creation.links[0].2, LinkType::Slide);
+        let (s, t) = (add(&mut p, 60, 2.0, 3.0), add(&mut p, 62, 3.0, 4.0));
+        assert_eq!(aim(&p, s, pt(4.0, 60.2), None), LinkAim::Hidden);
+        p.link_notes(s, t, LinkType::Slide).unwrap();
+        assert_eq!(aim(&p, s, pt(5.0, 65.0), None), LinkAim::Hidden);
+        assert!(matches!(aim(&p, s, pt(1.0, 65.0), None), LinkAim::Start { .. }));
     }
 
     #[test]
-    fn link_drag_joins_any_valid_note_under_the_pointer_in_either_direction() {
+    fn extending_runs_from_the_fixed_point_and_never_collapses() {
+        let mut p = project();
+        let s = add(&mut p, 60, 2.0, 3.0);
+        let fwd = start(&p, s, pt(2.8, 62.0));
+        let run = |st: &LinkStart, sec: Option<f64>| with_ctx(&p, &[4, 3], false, |ctx| plan_extend(st, sec, (None, None), ctx));
+        let plan = run(&fwd, Some(sec(5.0)));
+        assert_eq!(plan.creation.notes, [NewNote { midi: 62, start: at(3.0), end: TimePos::new(2, 1.0) }]);
+        assert_eq!(plan.creation.links, [(Ref::Existing(s), Ref::New(0), LinkType::Legato)]);
+        assert_eq!(plan.snapped, (None, Some(TimePos::new(2, 1.0))));
+        assert_eq!(run(&fwd, None).creation.notes[0].end, at(3.25));
+        assert_eq!(run(&fwd, Some(sec(2.0))).creation.notes[0].end, at(3.25));
+        let rev = start(&p, s, pt(2.2, 58.0));
+        let plan = run(&rev, Some(sec(0.5)));
+        assert_eq!(plan.creation.notes, [NewNote { midi: 58, start: at(0.5), end: at(2.0) }]);
+        assert_eq!(plan.creation.links, [(Ref::New(0), Ref::Existing(s), LinkType::Legato)]);
+    }
+
+    #[test]
+    fn aim_over_a_note_joins_it_when_valid_in_either_direction() {
         let mut p = project();
         let (s, t) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.05, 2.0));
-        let LegatoPlan::Join(c) = legato(&p, s, pt(1.5, 62.0), Some(t)) else { panic!("join") };
+        let LinkAim::Join(c) = aim(&p, s, pt(1.5, 62.0), Some(t)) else { panic!("join") };
         assert!(c.notes.is_empty());
         assert_eq!(c.links, [(Ref::Existing(s), Ref::Existing(t), LinkType::Legato)]);
-        let LegatoPlan::Join(c) = legato(&p, t, pt(0.3, 60.0), Some(s)) else { panic!("join before") };
+        let LinkAim::Join(c) = aim(&p, t, pt(0.3, 60.0), Some(s)) else { panic!("join before") };
         assert_eq!(c.links, [(Ref::Existing(s), Ref::Existing(t), LinkType::Legato)]);
         let far = add(&mut p, 64, 3.0, 4.0);
-        let LegatoPlan::Join(c) = legato(&p, s, pt(3.5, 64.0), Some(far)) else { panic!("far") };
+        let LinkAim::Join(c) = aim(&p, s, pt(3.5, 64.0), Some(far)) else { panic!("far") };
         assert_eq!(c.links, [(Ref::Existing(s), Ref::Existing(far), LinkType::Slide)]);
-    }
-
-    #[test]
-    fn link_drag_over_an_invalid_target_draws_nothing() {
-        let mut p = project();
-        let (s, t, u) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 62, 3.0, 4.0));
-        p.link_notes(s, t, LinkType::Slide).unwrap();
-        assert_eq!(legato(&p, s, pt(3.5, 62.0), Some(u)), LegatoPlan::Hidden);
-    }
-
-    #[test]
-    fn shift_forces_a_slide_for_new_and_existing_notes() {
-        let mut p = project();
-        let (s, t) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0));
-        let slide = |p: &Project, target| with_ctx(p, &[4, 3], false, |ctx| plan_link(s, pt(3.0, 62.0), target, true, (None, None), ctx));
-        let LegatoPlan::Join(c) = slide(&p, Some(t)) else { panic!("join") };
-        assert_eq!(c.links[0].2, LinkType::Slide);
-        let LegatoPlan::Draw(d) = slide(&p, None) else { panic!("draw") };
-        assert_eq!(d.creation.links[0].2, LinkType::Slide);
+        let same = add(&mut p, 60, 5.0, 6.0);
+        assert_eq!(aim(&p, s, pt(5.5, 60.0), Some(same)), LinkAim::Hidden);
     }
 
     #[test]
@@ -493,7 +535,7 @@ mod tests {
         let ghost = ghost_of(&plan.creation, &p, &tempo);
         assert_eq!(ghost.glyphs.len(), 2);
         assert_eq!(ghost.glyphs[0].link_to, Some((1, LinkKind::Slide)));
-        let LegatoPlan::Draw(d) = legato(&p, s, pt(2.0, 62.0), None) else { panic!("draw") };
+        let d = with_ctx(&p, &[4, 3], false, |ctx| plan_extend(&start(&p, s, pt(0.8, 62.0)), None, (None, None), ctx));
         let ghost = ghost_of(&d.creation, &p, &tempo);
         assert_eq!(ghost.glyphs.len(), 2);
         assert_eq!(ghost.glyphs[0].legato_from, Some(1));

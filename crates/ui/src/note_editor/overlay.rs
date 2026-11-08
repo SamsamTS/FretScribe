@@ -2,6 +2,8 @@
 
 use egui::{pos2, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, StrokeKind};
 
+use fretscribe_core::LinkType;
+
 use super::NoteEditor;
 use crate::spectro::SpectroGeometry;
 
@@ -29,7 +31,12 @@ pub fn paint(painter: &Painter, geo: &SpectroGeometry, editor: &NoteEditor, poin
         }
         if let Some(p) = pointer {
             if let Some(interval) = &feedback.interval {
-                label(painter, p + vec2(14.0, -26.0), interval, Color32::WHITE);
+                let kind = feedback.link.map_or("", |k| match k {
+                    LinkType::Slide => "Slide ",
+                    LinkType::Bend => "Bend ",
+                    LinkType::Legato => "Legato ",
+                });
+                label(painter, p + vec2(14.0, -26.0), &format!("{kind}{interval}"), Color32::WHITE);
             }
             if let Some(warning) = &feedback.warning {
                 label(painter, p + vec2(14.0, 8.0), warning, WARNING);
