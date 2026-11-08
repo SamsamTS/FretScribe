@@ -280,13 +280,59 @@ fn right_drag_inside_the_source_span_creates_nothing() {
 }
 
 #[test]
-fn right_drag_onto_the_free_link_point_of_an_adjacent_note_links_without_a_new_note() {
+fn right_drag_onto_any_valid_note_links_without_a_new_note() {
     let mut h = H::new();
-    let (a, b) = (add(&mut h.p, 60, 0.0, 1.0), add(&mut h.p, 62, 1.05, 2.0));
-    let out = h.drag(Button::Right, s(0.5, 60.0, body(a)), s(1.1, 62.0, Some((b, HitZone::LinkLeft))), NONE);
+    let (a, b, c) = (add(&mut h.p, 60, 0.0, 1.0), add(&mut h.p, 62, 1.05, 2.0), add(&mut h.p, 64, 3.0, 4.0));
+    h.press(Button::Right, s(0.5, 60.0, body(a)), NONE);
+    h.mv(s(1.5, 62.0, body(b)), NONE);
+    assert!(h.ed.ghost.is_some());
+    assert_eq!(edits(&h.rel(Button::Right, s(1.5, 62.0, body(b)), NONE)), 1);
+    assert_eq!((h.p.notes.len(), h.p.outgoing(a)), (3, Some((b, LinkType::Legato))));
+    let out = h.drag(Button::Right, s(1.5, 62.0, body(b)), s(3.5, 64.0, body(c)), NONE);
+    assert_eq!((edits(&out), h.p.notes.len(), h.p.outgoing(b)), (1, 3, Some((c, LinkType::Slide))));
+}
+
+#[test]
+fn right_drag_over_an_invalid_note_does_nothing() {
+    let mut h = H::new();
+    let (a, b) = (add(&mut h.p, 60, 0.0, 1.0), add(&mut h.p, 60, 2.0, 3.0));
+    let out = h.drag(Button::Right, s(0.5, 60.0, body(a)), s(2.5, 60.0, body(b)), NONE);
+    assert_eq!((edits(&out), h.p.notes.len()), (0, 2));
+}
+
+#[test]
+fn right_press_on_a_link_point_starts_a_link() {
+    let mut h = H::new();
+    let a = add(&mut h.p, 60, 2.0, 3.0);
+    let out = h.drag(Button::Right, s(3.0, 60.0, Some((a, HitZone::LinkRight))), s(4.02, 62.0, None), NONE);
     assert_eq!(edits(&out), 1);
-    assert_eq!(h.p.notes.len(), 2);
-    assert_eq!(h.p.outgoing(a), Some((b, LinkType::Legato)));
+    assert_eq!(h.p.outgoing(a).map(|l| l.1), Some(LinkType::Legato));
+}
+
+#[test]
+fn shift_right_drag_draws_a_slide() {
+    let mut h = H::new();
+    let a = add(&mut h.p, 60, 2.0, 3.0);
+    let shift = Mods { shift: true, ..NONE };
+    h.drag(Button::Right, s(2.5, 60.0, body(a)), s(4.02, 62.0, None), shift);
+    assert_eq!(h.p.outgoing(a).map(|l| l.1), Some(LinkType::Slide));
+}
+
+#[test]
+fn a_left_click_cancelling_a_right_drag_does_not_seek() {
+    let mut h = H::new();
+    let a = add(&mut h.p, 60, 2.0, 3.0);
+    h.press(Button::Right, s(2.5, 60.0, body(a)), NONE);
+    h.mv(s(4.0, 62.0, None), NONE);
+    h.press(Button::Left, s(4.0, 62.0, None), NONE);
+    h.rel(Button::Left, s(4.0, 62.0, None), NONE);
+    let out = h.send(Input::Spectro(SpectroEvent::SeekRequested(4.0), NONE));
+    assert!(out.is_empty() && h.ed.ghost.is_none());
+    h.rel(Button::Right, s(4.0, 62.0, None), NONE);
+    assert!(h.p.outgoing(a).is_none());
+    h.press(Button::Left, s(5.0, 62.0, None), NONE);
+    h.rel(Button::Left, s(5.0, 62.0, None), NONE);
+    assert!(matches!(h.send(Input::Spectro(SpectroEvent::SeekRequested(5.0), NONE))[..], [Effect::Seek(_)]));
 }
 
 #[test]

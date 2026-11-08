@@ -17,7 +17,7 @@ mod testkit;
 
 pub use action::{apply, ActionError, Applied, NoteAction};
 pub use clip::Clipboard;
-pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_legato, Creation, DrawFeedback, DrawPlan, LegatoPlan, NewNote, Pt, Ref, Sticky};
+pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_link, Creation, DrawFeedback, DrawPlan, LegatoPlan, NewNote, Pt, Ref, Sticky};
 pub use buttons::{action_buttons, default_shortcut, show_action_row, ActionButton, HINT};
 pub use exact::{apply_exact, fields_for, parse_pitch, ExactError, ExactFields};
 pub use input::{collect, Collected, SourcePointer};
@@ -48,9 +48,5 @@ impl<'a> EditCtx<'a> {
         opts.disabled = self.alt;
         (opts.sticky_start, opts.sticky_end) = sticky;
         opts
-    }
-
-    pub(crate) fn threshold_sec(&self) -> f64 {
-        self.threshold_px / self.px_per_sec.max(f64::EPSILON)
     }
 }

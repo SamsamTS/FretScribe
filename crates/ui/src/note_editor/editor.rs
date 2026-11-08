@@ -6,11 +6,11 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
-use super::draw::{commit_creation, feedback, ghost_of, plan_chain, plan_draw, plan_legato, Creation, DrawFeedback, LegatoPlan, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_chain, plan_draw, plan_link, Creation, DrawFeedback, LegatoPlan, Pt, Sticky};
 use super::modify::{apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
-use crate::spectro::{GhostShape, HitZone, Side, SpectroEvent};
+use crate::spectro::{GhostShape, HitZone, SpectroEvent};
 
 const DRAG_PX: f32 = 4.0;
 const CYCLE_WINDOW_SEC: f64 = 1.0;
@@ -83,7 +83,7 @@ enum State {
     Move { grab: u64, offset_sec: f64, sticky: Sticky },
     Resize { note: u64, edge: Edge, sticky: Sticky },
     Chain { last: u64, sticky: Sticky },
-    Legato { src: u64, sticky: Sticky },
+    Link { src: u64, slide: bool, sticky: Sticky },
     Marquee { from: Sample, add: bool },
     Paste { pressed: bool },
     LinkHover { src: u64, sticky: Sticky, pressed: bool },
@@ -115,12 +115,9 @@ fn pt(at: &Sample) -> Pt {
     Pt { sec: at.sec, midi: at.refined }
 }
 
-fn side_of(hit: Option<(u64, HitZone)>) -> Option<(u64, Side)> {
-    match hit {
-        Some((id, HitZone::LinkLeft)) => Some((id, Side::Left)),
-        Some((id, HitZone::LinkRight)) => Some((id, Side::Right)),
-        _ => None,
-    }
+/// The note under the pointer as a link target: its body, edges or free link points.
+fn target_of(hit: Option<(u64, HitZone)>) -> Option<u64> {
+    hit.filter(|(_, z)| matches!(z, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::LinkLeft | HitZone::LinkRight)).map(|h| h.0)
 }
 
 fn on_note(hit: Option<(u64, HitZone)>) -> Option<(u64, HitZone)> {
@@ -197,6 +194,7 @@ impl NoteEditor {
         let idx = usize::from(button == Button::Right);
         self.down[idx] = true;
         self.last = Some(at);
+        self.ignore_seek = false;
         if self.swallow {
             return Vec::new();
         }
@@ -244,7 +242,7 @@ impl NoteEditor {
             }
             (Button::Right, _) if mods.ctrl => State::Marquee { from: first, add: true },
             (Button::Right, None) => State::Marquee { from: first, add: false },
-            (Button::Right, Some((id, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge))) => State::Legato { src: id, sticky: NO_STICKY },
+            (Button::Right, Some((id, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::LinkLeft | HitZone::LinkRight))) => State::Link { src: id, slide: mods.shift, sticky: NO_STICKY },
             _ => State::Idle,
         };
     }
@@ -274,8 +272,9 @@ impl NoteEditor {
                     self.state = State::Chain { last, sticky: s };
                 }
             }
-            State::Legato { src, sticky } | State::LinkHover { src, sticky, .. } => {
-                let plan = with_ctx(env, mods.alt, |ctx| match plan_legato(src, pt(at), side_of(at.hit), sticky, ctx) {
+            State::Link { src, sticky, .. } | State::LinkHover { src, sticky, .. } => {
+                let slide = matches!(state, State::Link { slide: true, .. });
+                let plan = with_ctx(env, mods.alt, |ctx| match plan_link(src, pt(at), target_of(at.hit), slide, sticky, ctx) {
                     LegatoPlan::Hidden => None,
                     LegatoPlan::Draw(p) => Some((ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped)),
                     LegatoPlan::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY)),
@@ -284,7 +283,7 @@ impl NoteEditor {
                 self.show_plan(plan);
                 if let Some(s) = next {
                     match &mut self.state {
-                        State::Legato { sticky, .. } | State::LinkHover { sticky, .. } => *sticky = s,
+                        State::Link { sticky, .. } | State::LinkHover { sticky, .. } => *sticky = s,
                         _ => {}
                     }
                 }
@@ -332,6 +331,8 @@ impl NoteEditor {
         self.last = Some(at);
         if self.swallow {
             self.swallow = self.down.iter().any(|d| *d);
+            // The click that cancelled a gesture must not move the playhead.
+            self.ignore_seek |= button == Button::Left;
             return Vec::new();
         }
         let state = std::mem::take(&mut self.state);
@@ -350,10 +351,10 @@ impl NoteEditor {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
                 plan.map_or_else(Vec::new, |p| self.commit(env, &p.creation, "Extend chain", true))
             }
-            (State::Legato { src, sticky }, Button::Right) => self.finish_legato(env, src, sticky, &at, mods),
+            (State::Link { src, slide, sticky }, Button::Right) => self.finish_link(env, src, slide, sticky, &at, mods),
             (State::LinkHover { src, sticky, pressed: true }, Button::Left) => {
                 self.ignore_seek = true;
-                self.finish_legato(env, src, sticky, &at, mods)
+                self.finish_link(env, src, false, sticky, &at, mods)
             }
             (State::LinkHover { src, sticky, pressed: false }, Button::Left) => {
                 self.state = State::LinkHover { src, sticky, pressed: false };
@@ -413,8 +414,8 @@ impl NoteEditor {
         }
     }
 
-    fn finish_legato(&mut self, env: &mut Env, src: u64, sticky: Sticky, at: &Sample, mods: Mods) -> Vec<Effect> {
-        let plan = with_ctx(env, mods.alt, |ctx| plan_legato(src, pt(at), side_of(at.hit), sticky, ctx));
+    fn finish_link(&mut self, env: &mut Env, src: u64, slide: bool, sticky: Sticky, at: &Sample, mods: Mods) -> Vec<Effect> {
+        let plan = with_ctx(env, mods.alt, |ctx| plan_link(src, pt(at), target_of(at.hit), slide, sticky, ctx));
         match plan {
             LegatoPlan::Hidden => Vec::new(),
             LegatoPlan::Draw(p) => self.commit(env, &p.creation, "Draw linked note", true),
