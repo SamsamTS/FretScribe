@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use eframe::egui::{self, pos2, vec2, Color32, Rect, Sense, Stroke};
 use fretscribe_analysis::{clamp_gamma, discover_luts, Levels, Lut, Spectrogram, SpectrogramParams, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
-use fretscribe_core::{generate_measures, Note, NoteTimes, PitchRef, TempoMap, TimeSignature, Technique, Tuning};
+use fretscribe_core::{generate_measures, Legato, LegatoLink, Note, NoteTimes, PitchRef, TempoMap, TimeSignature, Technique, Tuning};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::spectro::show_time_ruler;
 use fretscribe_ui::{NavContext, NavRegions, PitchView, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, ViewController, ViewTuning, WaveformView};
@@ -72,6 +72,44 @@ fn levels_slider(ui: &mut egui::Ui, levels: &mut Levels) {
     response.on_hover_text(format!("black {black_db:.0} dB, white {white_db:.0} dB"));
 }
 
+type Spec = (u8, f64, f64, Option<(u64, Technique)>, bool);
+
+/// Lone note, slide chain with a long last note, bend and release, hammer-on, pull-off; `squeeze`
+/// scales every time to show the minimum width, the run rule and the corner radius.
+fn scene(map: &TempoMap, t0: f64, squeeze: f64) -> Vec<Note> {
+    let specs: [Spec; 13] = [
+        (52, 0.0, 1.0, None, false),
+        (45, 1.5, 2.0, Some((3, Technique::Slide)), false),
+        (50, 2.5, 3.0, Some((4, Technique::Slide)), false),
+        (47, 3.5, 6.0, None, false),
+        (52, 7.0, 7.5, Some((6, Technique::Bend)), false),
+        (54, 8.0, 8.5, Some((7, Technique::Bend)), false),
+        (52, 9.0, 9.5, None, false),
+        (48, 10.0, 10.5, None, false),
+        (52, 10.5, 11.0, None, true),
+        (55, 11.5, 12.0, None, false),
+        (50, 12.0, 12.5, None, true),
+        (40, 13.0, 13.2, Some((13, Technique::Slide)), false),
+        (60, 13.4, 13.6, None, false),
+    ];
+    let base = (t0 * 100.0) as u64;
+    specs
+        .iter()
+        .enumerate()
+        .map(|(i, &(midi, start, end, link, legato))| {
+            let at = |t: f64| map.sec_to_pos(t0 + t * squeeze);
+            let mut n = Note::new(base + i as u64 + 1, midi, at(start), at(end));
+            if let Some((to, technique)) = link {
+                (n.link_to, n.technique) = (Some(base + to), Some(technique));
+            }
+            if legato {
+                n.legato = Some(LegatoLink { kind: Legato::HammerOn, from: base + i as u64 });
+            }
+            n
+        })
+        .collect()
+}
+
 struct Demo {
     ctl: ViewController,
     map: TempoMap,
@@ -98,13 +136,7 @@ impl Demo {
             luts.push(Arc::new(Lut::builtin()));
         }
         let spectrogram = synthetic();
-        let mut notes = Vec::new();
-        for (id, (start, end, midi, technique)) in [(1.0, 2.0, 52, Some(Technique::Bend)), (2.0, 3.0, 54, Some(Technique::Bend)), (3.0, 4.0, 52, None), (5.0, 6.0, 45, Some(Technique::Slide)), (6.5, 7.5, 50, None)].into_iter().enumerate() {
-            let mut n = Note::new(id as u64 + 1, midi, map.sec_to_pos(start), map.sec_to_pos(end));
-            n.technique = technique;
-            n.link_to = [Some(2), Some(3), None, Some(5), None][id];
-            notes.push(n);
-        }
+        let notes = scene(&map, 0.0, 1.0).into_iter().chain(scene(&map, 15.0, 0.12)).collect::<Vec<_>>();
         let times = NoteTimes::build(&notes, &map);
         let style = SpectroStyle { levels: Levels::new(0.0, APP_WHITE), gamma: APP_GAMMA, lut: luts[0].clone() };
         let state = ViewState { scroll_sec: 0.0, scroll_y: 0.0, pixels_per_sec: 120.0 };
@@ -117,7 +149,7 @@ impl Demo {
             cache: SpectroCache::default(),
             notes,
             times,
-            selected: vec![3],
+            selected: vec![5],
             tuning: Tuning::standard(),
             pitch_ref: PitchRef::default(),
             a4_hz: 440.0,

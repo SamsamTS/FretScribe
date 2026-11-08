@@ -11,7 +11,7 @@ use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::nav::{notches, ViewTuning};
-use crate::spectro::{place_readout, white, GhostNote, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
+use crate::spectro::{place_readout, white, GhostShape, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 const BORDER_COLOR: Color32 = Color32::from_gray(60);
@@ -64,7 +64,7 @@ pub struct LaneShared<'a> {
     pub style: &'a SpectroStyle,
     pub times: &'a NoteTimes,
     pub selected: &'a [u64],
-    pub ghost: Option<GhostNote>,
+    pub ghost: Option<&'a GhostShape>,
     pub playhead_sec: f64,
     pub view: TimelineView,
     pub pitch: PitchView,

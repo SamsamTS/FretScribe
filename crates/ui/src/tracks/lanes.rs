@@ -9,7 +9,7 @@ use super::events::TrackEvent;
 use crate::nav::maths::smooth;
 use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LaneShared, LaneSource, LaneState, TrackLane};
-use crate::spectro::{white, GhostNote, SpectroEvent, SpectroStyle};
+use crate::spectro::{white, GhostShape, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 pub fn audible_set(project: &Project) -> HashSet<u64> {
@@ -95,7 +95,7 @@ pub struct TrackLanes<'a> {
     pub style: &'a SpectroStyle,
     pub times: &'a NoteTimes,
     pub selected: &'a [u64],
-    pub ghost: Option<GhostNote>,
+    pub ghost: Option<&'a GhostShape>,
     pub playhead_sec: f64,
     pub reference_track: u64,
 }
