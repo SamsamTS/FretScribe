@@ -227,9 +227,9 @@ impl Scene {
         self.order.iter().rev().find_map(|&id| {
             let r = *self.rects.get(&id).filter(|r| r.contains(pos))?;
             let edge = EDGE_PX.min(r.width() / 3.0);
-            let zone = if pos.x < r.left() + edge && !self.side_attached(id, Side::Left) {
+            let zone = if pos.x < r.left() + edge {
                 HitZone::LeftEdge
-            } else if pos.x > r.right() - edge && !self.side_attached(id, Side::Right) {
+            } else if pos.x > r.right() - edge {
                 HitZone::RightEdge
             } else {
                 HitZone::Body

@@ -271,7 +271,9 @@ fn hit_priority_is_dot_then_path_then_edge_then_body() {
     assert_eq!(at(path[0].lerp(path[1], 0.5)), Some((1, HitZone::Line)));
     assert_eq!(at(r1.left_center() + vec2(2.0, 0.0)), Some((1, HitZone::LeftEdge)));
     assert_eq!(at(r1.center()), Some((1, HitZone::Body)));
-    assert_eq!(at(r1.right_center() - vec2(9.0, 0.0)), Some((1, HitZone::Body)), "no resize edge where a link is attached");
+    assert_eq!(at(r1.right_center() - vec2(9.0, 0.0)), Some((1, HitZone::Body)));
+    let top_right = pos2(r1.right() - 2.0, r1.top() + 1.0);
+    assert_eq!(at(top_right), Some((1, HitZone::RightEdge)), "chain notes resize too");
     let arc = arc_of(&glyph);
     let on_arc = arc[8] + vec2(0.0, -1.0);
     assert_eq!(at(on_arc), Some((4, HitZone::Arc)));

@@ -73,6 +73,11 @@ pub fn same_string_fit(tuning: &Tuning, capo: u8, midis: &[u8]) -> bool {
     })
 }
 
+fn adjacent(tempo: &TempoMap, a: &Note, b: &Note) -> bool {
+    let gap = tempo.pos_to_beats(b.start).zip(tempo.pos_to_beats(a.end)).map(|(s, e)| (s - e).abs());
+    gap.is_none_or(|g| g <= LEGATO_MAX_GAP_BEATS)
+}
+
 fn legato_kind(from: &Note, to: &Note) -> Legato {
     if to.midi > from.midi {
         Legato::HammerOn
@@ -127,9 +132,11 @@ impl Project {
         same_string_fit(&self.tuning, self.capo, &midis)
     }
 
+    /// Legato when the notes are adjacent and a same-string placement exists, slide otherwise.
     pub fn infer_link_type(&self, from: u64, to: u64) -> LinkType {
+        let tempo = TempoMap::new(&self.measures);
         match (self.note(from), self.note(to)) {
-            (Some(a), Some(b)) => infer_link(&self.tuning, self.capo, a.midi, b.midi),
+            (Some(a), Some(b)) if adjacent(&tempo, a, b) => infer_link(&self.tuning, self.capo, a.midi, b.midi),
             _ => LinkType::Slide,
         }
     }
@@ -169,8 +176,7 @@ impl Project {
                 if !same_string_fit(&self.tuning, self.capo, &[a.midi, b.midi]) {
                     return Err(LinkError::NoSameString);
                 }
-                let gap = tempo.pos_to_beats(b.start).zip(tempo.pos_to_beats(a.end)).map(|(s, e)| (s - e).abs());
-                if gap.is_some_and(|g| g > LEGATO_MAX_GAP_BEATS) {
+                if !adjacent(tempo, a, b) {
                     return Err(LinkError::NotAdjacent);
                 }
             }
@@ -394,6 +400,8 @@ mod tests {
         assert_eq!(p.link_notes(low, high, LinkType::Legato), Err(LinkError::NoSameString));
         assert_eq!(p.infer_link_type(low, high), LinkType::Slide);
         assert_eq!(p.infer_link_type(a, far), LinkType::Legato);
+        let distant = add(&mut p, 62, 3.9, 4.0);
+        assert_eq!(p.infer_link_type(a, distant), LinkType::Slide, "legato needs adjacent notes");
         let gap = add(&mut p, 62, 3.9, 4.0);
         assert_eq!(p.link_notes(a, gap, LinkType::Legato), Err(LinkError::NotAdjacent));
         p.link_notes(low, high, LinkType::Slide).unwrap();

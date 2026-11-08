@@ -92,7 +92,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
 
     match action {
         NoteAction::OpenExactEdit => Ok(Applied { open_exact: sel.anchor.filter(|a| sel.contains(*a)).or(Some(anchor)), ..Applied::default() }),
-        NoteAction::LinkHover => Ok(Applied { message: Some("Linking acts on the selection".to_owned()), ..Applied::default() }),
+        NoteAction::LinkHover => apply(project, sel, NoteAction::LinkSelection, grid),
         NoteAction::Delete { bridge } => {
             let edit = project.delete_notes(&ids, bridge);
             Ok(Applied { edit: Some(edit), selection: Some(Selection::default()), ..Applied::default() })
@@ -276,7 +276,9 @@ mod tests {
         assert_eq!(run(&mut p, &[], NoteAction::Transpose(1)).unwrap_err(), ActionError::EmptySelection);
         assert_eq!(run(&mut p, &[], NoteAction::SelectAll).unwrap().selection.unwrap().ids, [a]);
         assert!(run(&mut p, &[], NoteAction::LinkHover).unwrap().link_hover);
-        assert!(!run(&mut p, &[a], NoteAction::LinkHover).unwrap().link_hover);
+        let applied = run(&mut p, &[a], NoteAction::LinkHover).unwrap();
+        assert!(!applied.link_hover);
+        assert_eq!(applied.message.as_deref(), Some("0 linked"));
     }
 
     #[test]

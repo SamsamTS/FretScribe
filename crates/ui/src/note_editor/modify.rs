@@ -4,6 +4,7 @@ use fretscribe_core::{snap_edge, snap_resized, EditError, Edge, Note, Project, P
 
 use super::draw::{Pt, Sticky};
 use super::EditCtx;
+use crate::spectro::{GhostGlyph, GhostShape, LinkKind};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NoteChange {
@@ -73,6 +74,25 @@ pub fn plan_resize(note: u64, edge: Edge, pointer_sec: f64, sticky: Sticky, ctx:
         }
     };
     Some((change, kept))
+}
+
+/// Dashed preview of the changed notes, keeping the links between them.
+pub fn ghost_of_changes(project: &Project, tempo: &fretscribe_core::TempoMap, changes: &[NoteChange]) -> GhostShape {
+    let index = |id: u64| changes.iter().position(|c| c.id == id);
+    let glyphs = changes
+        .iter()
+        .map(|c| {
+            let link = project.note(c.id).and_then(|n| n.link_to.zip(Some(n.technique == Some(fretscribe_core::Technique::Bend))));
+            GhostGlyph {
+                midi: c.midi,
+                start_sec: tempo.pos_to_sec(c.start),
+                end_sec: tempo.pos_to_sec(c.end),
+                link_to: link.and_then(|(to, bend)| index(to).map(|i| (i, if bend { LinkKind::Bend } else { LinkKind::Slide }))),
+                legato_from: project.note(c.id).and_then(|n| n.legato).and_then(|l| index(l.from)),
+            }
+        })
+        .collect();
+    GhostShape { glyphs }
 }
 
 pub fn is_noop(project: &Project, changes: &[NoteChange]) -> bool {
