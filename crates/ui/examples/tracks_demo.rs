@@ -214,8 +214,8 @@ impl eframe::App for Demo {
             }
             for (id, event) in out.spectro.into_iter().chain(seek.map(|e| (0, e))) {
                 self.log = match event {
-                    SpectroEvent::AddNoteRequested { midi, time_sec, .. } => format!("add note {midi} at {time_sec:.2}s (lane {id})"),
                     SpectroEvent::SeekRequested(sec) => format!("seek {sec:.2}s (lane {id})"),
+                    other => format!("{other:?} (lane {id})"),
                 };
             }
         });

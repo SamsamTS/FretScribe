@@ -3,13 +3,14 @@
 
 mod glyphs;
 mod notes;
+mod pointer;
 mod readout;
 mod ruler;
 mod waveform;
 
 use std::sync::Arc;
 
-use egui::{pos2, vec2, Color32, ColorImage, Context, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke, TextureHandle, TextureOptions, Ui};
+use egui::{pos2, vec2, Color32, ColorImage, Context, FontId, Painter, Pos2, Rect, Response, Sense, Stroke, TextureHandle, TextureOptions, Ui};
 use fretscribe_analysis::{Levels, Lut, Spectrogram};
 use fretscribe_core::{midi_to_name, Note, NoteTimes, PitchRef, Tuning};
 
@@ -47,8 +48,14 @@ pub struct SpectroStyle {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SpectroEvent {
-    AddNoteRequested { midi: u8, time_sec: f64, exact_midi_float: f32 },
+    /// A click without drag on empty space.
     SeekRequested(f64),
+    /// The left button moved about 4 px from empty space; carries the PRESS position.
+    DrawBegan { midi: u8, exact_midi_float: f32, time_sec: f64 },
+    DrawMoved { midi: u8, exact_midi_float: f32, time_sec: f64 },
+    DrawEnded { midi: u8, exact_midi_float: f32, time_sec: f64 },
+    /// Escape or the other button; the release that follows is swallowed.
+    DrawCancelled,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -253,7 +260,7 @@ impl<'a> SpectrogramView<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, view: &TimelineView, pitch: &PitchView, cache: &mut SpectroCache) -> SpectroOutput {
-        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.height), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.height), Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         let geo = SpectroGeometry { rect, view: *view, pitch: *pitch };
         let empty = NoteTimes::default();
@@ -287,13 +294,7 @@ impl<'a> SpectrogramView<'a> {
             self.draw_readout(&painter, &geo, h);
         }
 
-        let mut events = Vec::new();
-        if response.clicked_by(PointerButton::Primary) {
-            if let Some(pos) = response.interact_pointer_pos().filter(|p| p.x >= pitch_ruler.right() && hit_test(&geo, self.notes, times, *p, hovered_id).is_none()) {
-                let exact = geo.y_to_midi(pos.y);
-                events.push(SpectroEvent::AddNoteRequested { midi: exact.round().clamp(0.0, 127.0) as u8, time_sec: geo.x_to_sec(pos.x).max(0.0), exact_midi_float: exact });
-            }
-        }
+        let events = pointer::events(ui, &response, &geo, pitch_ruler, |pos| hit_test(&geo, self.notes, times, pos, hovered_id).is_none());
         SpectroOutput { events, hover, hovered_note, geometry: geo, pitch_ruler, response }
     }
 }

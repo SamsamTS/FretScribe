@@ -83,7 +83,7 @@ pub struct TrackLane<'a> {
 
 pub struct LaneOutput {
     pub events: Vec<TrackEvent>,
-    /// Only the source lane can produce `AddNoteRequested`; clicks elsewhere become seeks.
+    /// Only the source lane can draw (`Draw*`); on the other lanes a click only seeks.
     pub spectro: Vec<SpectroEvent>,
     pub grip: Response,
     pub spectro_rect: Option<Rect>,
@@ -189,10 +189,7 @@ impl TrackLane<'_> {
                         widget = widget.note_opacity(FAINT_NOTES);
                     }
                     let out = widget.show(&mut sui, &view, &pitch, &mut state.cache);
-                    spectro_events.extend(out.events.into_iter().map(|e| match e {
-                        SpectroEvent::AddNoteRequested { time_sec, .. } if !is_source => SpectroEvent::SeekRequested(time_sec),
-                        other => other,
-                    }));
+                    spectro_events.extend(out.events.into_iter().filter(|e| is_source || matches!(e, SpectroEvent::SeekRequested(_))));
                 }
                 None => {
                     ui.painter_at(spec_rect).rect_filled(spec_rect, 0.0, Color32::from_gray(12));

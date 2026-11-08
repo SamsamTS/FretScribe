@@ -229,9 +229,7 @@ impl eframe::App for Demo {
                         self.playhead = sec;
                         self.last_event = format!("seek {sec:.2}s");
                     }
-                    SpectroEvent::AddNoteRequested { midi, time_sec, exact_midi_float } => {
-                        self.last_event = format!("add note {midi} ({exact_midi_float:.2}) at {time_sec:.2}s");
-                    }
+                    other => self.last_event = format!("{other:?}"),
                 }
             }
         });
