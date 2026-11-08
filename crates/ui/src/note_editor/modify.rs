@@ -1,6 +1,6 @@
 //! Move and resize of existing notes.
 
-use fretscribe_core::{snap_edge, snap_resized, EditError, Edge, Note, Project, ProjectEdit, TimePos};
+use fretscribe_core::{snap_edge, snap_resized, EditError, Edge, LinkType, Note, Project, ProjectEdit, TempoMap, TimePos};
 
 use super::draw::{Pt, Sticky};
 use super::EditCtx;
@@ -53,7 +53,8 @@ pub fn plan_move(grab: u64, selected: &[u64], pointer: Pt, grab_offset_sec: f64,
     Some((changes, (Some(start), None)))
 }
 
-/// Moves one edge of a note, never closer than a minimal subdivision to the other one.
+/// Moves one edge of a note, never closer than a minimal subdivision to the other one and never
+/// past the note it is linked to (the start of the target, or the end of the source).
 pub fn plan_resize(note: u64, edge: Edge, pointer_sec: f64, sticky: Sticky, ctx: &EditCtx) -> Option<(NoteChange, Sticky)> {
     let n = ctx.project.note(note)?;
     let others: Vec<Note> = ctx.project.notes.iter().filter(|o| o.id != note).cloned().collect();
@@ -62,7 +63,16 @@ pub fn plan_resize(note: u64, edge: Edge, pointer_sec: f64, sticky: Sticky, ctx:
         Edge::End => (n.start, NoteChange { id: note, midi: n.midi, start: n.start, end: n.end }),
         Edge::Start => (n.end, NoteChange { id: note, midi: n.midi, start: n.start, end: n.end }),
     };
-    let moved = snap_resized(edge, raw, fixed, ctx.tempo, &others, &ctx.opts(sticky));
+    let snapped = snap_resized(edge, raw, fixed, ctx.tempo, &others, &ctx.opts(sticky));
+    let project = ctx.project;
+    let limit = match edge {
+        Edge::End => project.outgoing(note).and_then(|(to, _)| project.note(to)).map(|t| t.start),
+        Edge::Start => project.incoming(note).and_then(|(from, _)| project.note(from)).map(|f| f.end),
+    };
+    let moved = match limit {
+        Some(l) if (edge == Edge::End && beats(ctx, snapped) > beats(ctx, l)) || (edge == Edge::Start && beats(ctx, snapped) < beats(ctx, l)) => l,
+        _ => snapped,
+    };
     let kept = match edge {
         Edge::End => {
             change.end = moved;
@@ -104,6 +114,26 @@ pub fn apply_changes(project: &mut Project, changes: &[NoteChange], label: &str)
         for c in changes {
             let n = p.notes.iter_mut().find(|n| n.id == c.id).ok_or(EditError::UnknownNote(c.id))?;
             (n.midi, n.start, n.end) = (c.midi, c.start, c.end);
+        }
+        Ok(())
+    })
+}
+
+/// Applies a resize. A slide whose notes now touch becomes a legato when one is valid.
+pub fn apply_resize(project: &mut Project, change: &NoteChange, edge: Edge, label: &str) -> Result<ProjectEdit, EditError> {
+    project.edit_notes(label, |p| {
+        let n = p.notes.iter_mut().find(|n| n.id == change.id).ok_or(EditError::UnknownNote(change.id))?;
+        (n.midi, n.start, n.end) = (change.midi, change.start, change.end);
+        let tempo = TempoMap::new(&p.measures);
+        let touching = |end: TimePos, start: TimePos| (tempo.pos_to_beats(end).unwrap_or(0.0) - tempo.pos_to_beats(start).unwrap_or(1.0)).abs() < 1e-9;
+        let link = match edge {
+            Edge::End => p.outgoing(change.id).filter(|(to, _)| p.note(*to).is_some_and(|t| touching(change.end, t.start))).map(|(to, kind)| (change.id, to, kind)),
+            Edge::Start => p.incoming(change.id).filter(|(from, _)| p.note(*from).is_some_and(|f| touching(f.end, change.start))).map(|(from, kind)| (from, change.id, kind)),
+        };
+        if let Some((from, to, LinkType::Slide)) = link {
+            p.unlink(from);
+            let kind = if p.can_link(from, to, LinkType::Legato).is_ok() { LinkType::Legato } else { LinkType::Slide };
+            p.link_notes(from, to, kind)?;
         }
         Ok(())
     })
@@ -194,14 +224,38 @@ mod tests {
     }
 
     #[test]
+    fn a_linked_note_cannot_be_resized_past_its_link_and_touching_makes_a_legato_when_valid() {
+        let mut p = project();
+        let (a, b) = (add(&mut p, 60, 1.0, 2.0), add(&mut p, 64, 3.0, 4.0));
+        p.link_notes(a, b, LinkType::Slide).unwrap();
+        near(rs(&p, a, Edge::End, 3.6).end, 3.0);
+        near(rs(&p, b, Edge::Start, 0.2).start, 2.0);
+        near(rs(&p, a, Edge::End, 2.5).end, 2.5);
+        let change = rs(&p, a, Edge::End, 3.6);
+        let edit = apply_resize(&mut p, &change, Edge::End, "Resize").unwrap();
+        assert_eq!(p.outgoing(a), Some((b, LinkType::Legato)));
+        edit.undo(&mut p);
+        assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
+        let change = rs(&p, a, Edge::End, 2.5);
+        apply_resize(&mut p, &change, Edge::End, "Resize").unwrap();
+        assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)), "not touching");
+        let c = add(&mut p, 30, 5.0, 6.0);
+        let d = add(&mut p, 80, 7.0, 8.0);
+        p.link_notes(c, d, LinkType::Slide).unwrap();
+        let change = rs(&p, c, Edge::End, 7.0);
+        apply_resize(&mut p, &change, Edge::End, "Resize").unwrap();
+        assert_eq!(p.outgoing(c), Some((d, LinkType::Slide)), "no string fits");
+    }
+
+    #[test]
     fn resizing_an_edge_snaps_keeps_links_and_moves_no_other_note() {
         let mut p = project();
-        let (a, b) = (add(&mut p, 60, 1.0, 2.0), add(&mut p, 64, 2.0, 3.0));
+        let (a, b) = (add(&mut p, 60, 1.0, 2.0), add(&mut p, 64, 3.0, 4.0));
         p.link_notes(a, b, LinkType::Slide).unwrap();
         let c = rs(&p, a, Edge::End, 2.76);
         assert_eq!((c.start, c.end), (at(1.0), at(2.75)));
         apply_changes(&mut p, &[c], "Resize").unwrap();
-        assert_eq!(p.note(b).unwrap().start, at(2.0));
+        assert_eq!(p.note(b).unwrap().start, at(3.0));
         assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
         let c = rs(&p, a, Edge::Start, 0.51);
         assert_eq!((c.start, c.end), (at(0.5), at(2.75)));

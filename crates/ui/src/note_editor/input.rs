@@ -1,6 +1,6 @@
 //! egui to editor: turns the frame's pointer, keys and spectrogram events into `Input`s.
 
-use egui::{Context, Event, Id, Key, PointerButton, Pos2, Rect};
+use egui::{Context, CursorIcon, Event, Id, Key, PointerButton, Pos2, Rect};
 use fretscribe_core::{Note, NoteTimes};
 
 use super::editor::{Button, Input, Mods, NoteEditor, Sample};
@@ -31,9 +31,10 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
     let mods = mods_of(ctx);
     let geo = &src.geometry;
     let hover_id = src.hovered_note.map(|h| h.0);
-    let sample = |pos: Pos2| {
+    // Free link points are only for the right button: a left press sees what is under them.
+    let sample = |pos: Pos2, dots: bool| {
         let (midi, sec) = (geo.y_to_midi(pos.y), geo.x_to_sec(pos.x).max(0.0));
-        Sample { pos, sec, midi, refined: refine(sec, midi), hit: hit_test(geo, src.notes, src.times, pos, hover_id) }
+        Sample { pos, sec, midi, refined: refine(sec, midi), hit: hit_test(geo, src.notes, src.times, pos, hover_id.filter(|_| dots)) }
     };
     let key = Id::new("note-editor-pressed");
     let mut pressed: [bool; 2] = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
@@ -45,21 +46,26 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
     for (i, (pb, button)) in buttons.iter().enumerate() {
         if let Some(p) = pos.filter(|p| inside(*p) && ctx.input(|inp| inp.pointer.button_pressed(*pb))) {
             pressed[i] = true;
-            inputs.push(Input::Press { button: *button, at: sample(p), mods });
+            inputs.push(Input::Press { button: *button, at: sample(p, *button == Button::Right), mods });
         }
     }
     if let Some(p) = pos.filter(|_| pressed.iter().any(|d| *d) || editor.in_mode()) {
-        inputs.push(Input::Move { at: sample(p), mods });
+        inputs.push(Input::Move { at: sample(p, true), mods });
     }
     for (i, (pb, button)) in buttons.iter().enumerate() {
         if pressed[i] && ctx.input(|inp| inp.pointer.button_released(*pb)) {
             pressed[i] = false;
             if let Some(p) = pos {
-                inputs.push(Input::Release { button: *button, at: sample(p), mods });
+                inputs.push(Input::Release { button: *button, at: sample(p, true), mods });
             }
         }
     }
     ctx.data_mut(|d| d.insert_temp(key, pressed));
+
+    let on_edge = matches!(src.hovered_note, Some((_, HitZone::LeftEdge | HitZone::RightEdge)));
+    if editor.is_resizing() || (on_edge && !editor.is_busy() && !editor.in_mode()) {
+        ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
+    }
 
     let mut cancelled = false;
     for event in spectro_events {
@@ -107,6 +113,6 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
         });
     }
     let double = ctx.input(|i| i.pointer.button_double_clicked(PointerButton::Primary));
-    let open_exact = double.then(|| pos.and_then(|p| sample(p).hit)).flatten().and_then(|(id, zone)| matches!(zone, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge).then_some(id));
+    let open_exact = double.then(|| pos.and_then(|p| sample(p, false).hit)).flatten().and_then(|(id, zone)| matches!(zone, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge).then_some(id));
     Collected { inputs, open_exact }
 }
