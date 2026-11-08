@@ -204,6 +204,21 @@ pub fn plan_extend(start: &LinkStart, cur_sec: Option<f64>, sticky: Sticky, ctx:
     DrawPlan { creation: Creation { notes: vec![NewNote { midi: start.midi, start: first, end: second }], links: vec![link] }, snapped, slide: start.kind == LinkType::Slide }
 }
 
+/// Third step of a drawn slide: the last note of `base` ends at the pointer (it keeps its minimal
+/// length while the pointer is not past its start). Returns the creation and the end snap.
+pub fn plan_slide_end(base: &Creation, cur_sec: f64, sticky: Sticky, ctx: &EditCtx) -> (Creation, Sticky) {
+    let mut creation = base.clone();
+    let Some(last) = creation.notes.last_mut() else {
+        return (creation, sticky);
+    };
+    let free = snap_edge(ctx.tempo.sec_to_pos(cur_sec), Edge::End, ctx.tempo, &ctx.project.notes, &ctx.opts(sticky));
+    if beats(ctx, free) - beats(ctx, last.start) < min_subdivision_beats(ctx.grid) - EPS {
+        return (creation, (None, None));
+    }
+    last.end = free;
+    (creation, (None, Some(free)))
+}
+
 /// Adds the notes and links of `creation` as one edit; returns the ids of the new notes.
 pub fn commit_creation(project: &mut Project, creation: &Creation, label: &str) -> Result<(ProjectEdit, Vec<u64>), EditError> {
     let mut ids = Vec::new();
@@ -500,6 +515,18 @@ mod tests {
         assert_eq!(c.links, [(Ref::Existing(s), Ref::Existing(far), LinkType::Slide)]);
         let same = add(&mut p, 60, 5.0, 6.0);
         assert_eq!(aim(&p, s, pt(5.5, 60.0), Some(same)), LinkAim::Hidden);
+    }
+
+    #[test]
+    fn slide_end_follows_the_pointer_and_keeps_the_minimal_length_before_the_start() {
+        let p = project();
+        let plan = draw(&p, pt(0.0, 60.0), pt(2.0, 62.0), false, false).unwrap();
+        let run = |sec| with_ctx(&p, &[4, 3], false, |ctx| plan_slide_end(&plan.creation, sec, (None, None), ctx));
+        let (c, snapped) = run(sec(4.0));
+        let end = TimePos::new(2, 0.0);
+        assert_eq!((c.notes[1].start, c.notes[1].end, snapped.1), (at(2.0), end, Some(end)));
+        assert_eq!(c.notes[0], plan.creation.notes[0]);
+        assert_eq!(run(sec(1.0)).0, plan.creation);
     }
 
     #[test]

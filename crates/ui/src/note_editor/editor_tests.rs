@@ -105,10 +105,22 @@ fn drawing_left_to_right_and_right_to_left_gives_the_same_note_in_one_undo_step(
 #[test]
 fn a_different_pitch_makes_two_linked_notes_and_a_tiny_span_nothing() {
     let mut h = H::new();
-    h.draw((1.0, 60.0), (3.0, 62.0), NONE);
+    assert_eq!(edits(&h.draw((1.0, 60.0), (3.0, 62.0), NONE)), 0);
+    assert!(h.p.notes.is_empty() && h.ed.in_mode() && h.ed.ghost.is_some(), "the slide waits for its end");
+    h.mv(s(4.5, 62.0, None), NONE);
+    assert_eq!(edits(&h.click(Button::Left, s(4.5, 62.0, None), NONE)), 1);
     assert_eq!(h.p.notes.len(), 2);
+    assert_eq!((h.p.notes[1].start.beat, h.p.notes[1].end.beat), (3.0, 0.5));
     assert_eq!(h.p.outgoing(h.p.notes[0].id), Some((h.p.notes[1].id, LinkType::Slide)));
     assert_eq!(h.ed.selection.ids.len(), 2);
+    assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(2.0), NONE)).is_empty());
+    let mut h = H::new();
+    h.draw((1.0, 60.0), (3.0, 62.0), NONE);
+    h.send(Input::Escape);
+    assert!(!h.ed.in_mode() && h.ed.ghost.is_none() && h.p.notes.is_empty());
+    h.draw((1.0, 60.0), (3.0, 62.0), NONE);
+    h.click(Button::Right, s(4.0, 62.0, None), NONE);
+    assert!(!h.ed.in_mode() && h.p.notes.is_empty());
     let mut h = H::new();
     assert_eq!(edits(&h.draw((1.0, 60.0), (1.04, 60.0), NONE)), 0);
     assert!(h.p.notes.is_empty());

@@ -17,7 +17,7 @@ mod testkit;
 
 pub use action::{apply, ActionError, Applied, NoteAction};
 pub use clip::Clipboard;
-pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_aim, plan_extend, Creation, DrawFeedback, DrawPlan, LinkAim, LinkStart, NewNote, Pt, Ref, Sticky};
+pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_aim, plan_extend, plan_slide_end, Creation, DrawFeedback, DrawPlan, LinkAim, LinkStart, NewNote, Pt, Ref, Sticky};
 pub use buttons::{action_buttons, default_shortcut, show_action_row, ActionButton, HINT};
 pub use exact::{apply_exact, fields_for, parse_pitch, ExactError, ExactFields};
 pub use input::{collect, Collected, SourcePointer};

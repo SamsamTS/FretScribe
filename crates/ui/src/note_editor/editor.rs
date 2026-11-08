@@ -6,7 +6,7 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
-use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
@@ -107,6 +107,8 @@ enum State {
     Resize { note: u64, edge: Edge, sticky: Sticky },
     Chain { last: u64, sticky: Sticky },
     Link(LinkState),
+    /// A drawn slide whose second note waits for its end: a left click places it.
+    SlideEnd { creation: Creation, pressed: bool, sticky: Sticky },
     Marquee { from: Sample, add: bool },
     Paste { pressed: bool },
 }
@@ -154,7 +156,7 @@ impl NoteEditor {
     /// Whether a mode that wants the next click (paste preview, link drawing) is on.
     pub fn in_mode(&self) -> bool {
         match &self.state {
-            State::Paste { .. } => true,
+            State::Paste { .. } | State::SlideEnd { .. } => true,
             State::Link(l) => l.waiting(),
             _ => false,
         }
@@ -230,8 +232,8 @@ impl NoteEditor {
                     self.state = State::Pending { button, at, mods };
                 }
             }
-            (State::Paste { .. }, Button::Right) => self.cancel(),
-            (State::Paste { pressed }, Button::Left) => *pressed = true,
+            (State::Paste { .. } | State::SlideEnd { .. }, Button::Right) => self.cancel(),
+            (State::Paste { pressed } | State::SlideEnd { pressed, .. }, Button::Left) => *pressed = true,
             (State::Link(l), Button::Left) if l.waiting() => l.pressed = true,
             _ => self.cancel(),
         }
@@ -338,6 +340,14 @@ impl NoteEditor {
                     }
                 }
             }
+            State::SlideEnd { creation, sticky, .. } => {
+                let (c, next) = with_ctx(env, mods.alt, |ctx| plan_slide_end(&creation, at.sec, sticky, ctx));
+                let shown = with_ctx(env, mods.alt, |ctx| (ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), next));
+                self.show_plan(Some(shown));
+                if let State::SlideEnd { sticky, .. } = &mut self.state {
+                    *sticky = next;
+                }
+            }
             State::Marquee { from, .. } => self.marquee = Some((from.pos, at.pos)),
             State::Paste { .. } => self.update_paste(env, at, mods.alt),
             State::Idle | State::Pending { .. } => {}
@@ -395,9 +405,11 @@ impl NoteEditor {
                 self.selection.marquee(&hits, add);
                 Vec::new()
             }
-            (State::Draw { press, was_slide, sticky }, Button::Left) => {
-                let plan = with_ctx(env, mods.alt, |ctx| plan_draw(press, pt(&at), was_slide, sticky, ctx));
-                plan.map_or_else(Vec::new, |p| self.commit(env, &p.creation, if p.slide { "Draw slide" } else { "Draw note" }, true))
+            (State::Draw { press, was_slide, sticky }, Button::Left) => self.finish_draw(env, press, was_slide, sticky, pt(&at), mods),
+            (State::SlideEnd { creation, pressed: true, sticky }, Button::Left) => {
+                self.ignore_seek = true;
+                let (c, _) = with_ctx(env, mods.alt, |ctx| plan_slide_end(&creation, at.sec, sticky, ctx));
+                self.commit(env, &c, "Draw slide", true)
             }
             (State::Paste { pressed: true }, Button::Left) => {
                 self.ignore_seek = true;
@@ -412,7 +424,7 @@ impl NoteEditor {
                     None => Vec::new(),
                 }
             }
-            (other @ State::Paste { .. }, _) => {
+            (other @ (State::Paste { .. } | State::SlideEnd { .. }), _) => {
                 self.state = other;
                 return Vec::new();
             }
@@ -439,6 +451,19 @@ impl NoteEditor {
             Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected }],
             Err(e) => vec![Effect::Message(e.to_string())],
         }
+    }
+
+    /// End of a left drag from empty space: a note is created at once, a slide waits for the click
+    /// that sets the end of its second note.
+    fn finish_draw(&mut self, env: &mut Env, press: Pt, was_slide: bool, sticky: Sticky, cur: Pt, mods: Mods) -> Vec<Effect> {
+        let Some(plan) = with_ctx(env, mods.alt, |ctx| plan_draw(press, cur, was_slide, sticky, ctx)) else { return Vec::new() };
+        if !plan.slide {
+            return self.commit(env, &plan.creation, "Draw note", true);
+        }
+        self.state = State::SlideEnd { creation: plan.creation, pressed: false, sticky: (None, None) };
+        let at = Sample { pos: Pos2::ZERO, sec: cur.sec, midi: cur.midi, refined: cur.midi, hit: None };
+        self.update(env, &at, mods);
+        Vec::new()
     }
 
     /// A button went up while linking: the right one (or a left click when waiting) fixes the first
@@ -535,9 +560,7 @@ impl NoteEditor {
             SpectroEvent::DrawEnded { exact_midi_float, time_sec, .. } => {
                 let State::Draw { press, was_slide, sticky } = self.state.clone() else { return Vec::new() };
                 self.reset();
-                let cur = Pt { sec: time_sec, midi: exact_midi_float };
-                let plan = with_ctx(env, mods.alt, |ctx| plan_draw(press, cur, was_slide, sticky, ctx));
-                plan.map_or_else(Vec::new, |p| self.commit(env, &p.creation, if p.slide { "Draw slide" } else { "Draw note" }, true))
+                self.finish_draw(env, press, was_slide, sticky, Pt { sec: time_sec, midi: exact_midi_float }, mods)
             }
             SpectroEvent::DrawCancelled => {
                 self.cancel();
