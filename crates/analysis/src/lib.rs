@@ -6,6 +6,7 @@ mod cqt;
 mod display;
 mod error;
 pub mod lut;
+pub mod notes;
 pub mod pitchref;
 pub mod sync;
 mod render;
