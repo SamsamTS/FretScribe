@@ -146,7 +146,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
             let name = midi_to_name(it.midi);
             let dots: Vec<Pos2> = points.iter().filter(|p| p.note_id == it.id).map(|p| p.pos).collect();
             if label_visible(*r, name.chars().count(), &dots, m) {
-                painter.text(r.center(), Align2::CENTER_CENTER, name, FontId::monospace(m.font_px()), faded(color_of(it.id), 0.5));
+                painter.text(r.center(), Align2::CENTER_CENTER, name, FontId::monospace(m.font_px()), faded(color_of(it.id), 0.9));
             }
         }
     }

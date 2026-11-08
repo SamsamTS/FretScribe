@@ -66,8 +66,10 @@ fn mid_of_cubic(p0: Pos2, c1: Pos2, c2: Pos2, p3: Pos2) -> Pos2 {
 }
 
 #[test]
-fn metrics_enforce_the_minimum_height() {
-    assert_eq!(NoteMetrics::new(5.0).height_px, 12.0);
+fn metrics_follow_the_row_height_and_small_notes_lose_their_name() {
+    assert_eq!(NoteMetrics::new(5.0).height_px, 5.0);
+    let small = NoteMetrics::new(8.0);
+    assert!(!label_visible(Rect::from_min_size(pos2(0.0, 0.0), vec2(80.0, 8.0)), 2, &[], &small));
     assert_eq!(metrics().height_px, H);
 }
 
@@ -226,6 +228,10 @@ fn free_link_points_appear_only_on_the_hovered_note_and_only_where_no_link_is_at
     let sides = |id| link_points(&geo(), &notes, &times, &metrics(), Some(id)).into_iter().filter(|p| p.free && p.note_id == id).map(|p| p.side).collect::<Vec<_>>();
     assert!(link_points(&geo(), &notes, &times, &metrics(), None).iter().all(|p| !p.free));
     assert_eq!(sides(1), vec![Side::Left, Side::Right]);
+    let g = glyphs(&notes, &times);
+    let free: Vec<_> = link_points(&geo(), &notes, &times, &metrics(), Some(1)).into_iter().filter(|p| p.free).collect();
+    near(free[0].pos, rect_of(&g, 1).left_center() + vec2(0.4 * H, 0.0));
+    near(free[1].pos, rect_of(&g, 1).right_center() - vec2(0.4 * H, 0.0));
     assert_eq!(sides(2), vec![Side::Left]);
     assert!(sides(3).is_empty());
     assert_eq!(sides(4), vec![Side::Right]);
@@ -279,8 +285,8 @@ fn bend_hits_as_an_arrow_and_free_points_need_the_hover() {
     let glyph = glyphs(&notes, &times);
     let (path, _) = link_of(&glyph);
     assert_eq!(hit_test(&g, &notes, &times, path[8], None), Some((1, HitZone::Arrow)));
-    let left = rect_of(&glyph, 3).left_center() - vec2(5.0, 0.0);
-    assert_eq!(hit_test(&g, &notes, &times, left, None), None);
+    let left = rect_of(&glyph, 3).left_center() + vec2(0.4 * H, 0.0);
+    assert_eq!(hit_test(&g, &notes, &times, left, None), Some((3, HitZone::Body)));
     assert_eq!(hit_test(&g, &notes, &times, left, Some(3)), Some((3, HitZone::LinkLeft)));
 }
 

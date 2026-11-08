@@ -62,6 +62,6 @@ No change in other crates. Modules are not re-exported at the crate root.
 
 ## 2026-11-08 - ui: note glyphs
 
-- Glyphs replace the connectors (`chains`, `chain_label`, `connector_path`, the old `LinkKind` and the rubber band are gone). `spectro::glyphs`: `note_glyphs`, `link_points`, `Glyph`, `LinkKind {Slide, Bend}`, `LinkPoint`, `Side`, `NoteMetrics` (height = pitch row, at least 12 px).
+- Glyphs replace the connectors (`chains`, `chain_label`, `connector_path`, the old `LinkKind` and the rubber band are gone). `spectro::glyphs`: `note_glyphs`, `link_points`, `Glyph`, `LinkKind {Slide, Bend}`, `LinkPoint`, `Side`, `NoteMetrics` (height = pitch row, no minimum; names hide below 9 px).
 - `HitZone` adds `LinkLeft`, `LinkRight`, `Line`, `Arrow`, `Arc`; `hit_test(geo, notes, times, pos, hovered)` takes the hovered note (whose free link points are hit-testable), normally `SpectroOutput::hovered_note` of the previous frame.
 - `GhostNote` is replaced by `GhostShape { glyphs: Vec<GhostGlyph> }` (project time and pitch; links by index), passed by reference (`SpectrogramView::ghost`, `TrackLanes::ghost`).

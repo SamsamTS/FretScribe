@@ -1,5 +1,5 @@
 //! Pure geometry of the note glyphs: rectangles, slide lines, bend arrows, legato arcs and link
-//! points. Every size is a multiple of the note height `h` (one pitch row, at least 12 px).
+//! points. Every size is a multiple of the note height `h` (one pitch row).
 
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ pub const MIN_NOTE_PX: f32 = 3.0;
 pub const EDGE_PX: f32 = 8.0;
 pub const DOT_HIT_PX: f32 = 7.0;
 pub const PATH_HIT_PX: f32 = 6.0;
-const MIN_HEIGHT_PX: f32 = 12.0;
+const MIN_NAME_HEIGHT_PX: f32 = 9.0;
 const CURVE_SEGMENTS: usize = 16;
 const NAME_FIT: f32 = 0.9;
 const NAME_CHAR_WIDTH: f32 = 0.6;
@@ -33,7 +33,7 @@ pub struct NoteMetrics {
 
 impl NoteMetrics {
     pub fn new(row_px: f32) -> Self {
-        Self { height_px: row_px.max(MIN_HEIGHT_PX) }
+        Self { height_px: row_px }
     }
 
     pub fn dot_radius(&self) -> f32 {
@@ -132,7 +132,7 @@ pub fn name_box(rect: Rect, chars: usize, m: &NoteMetrics) -> Rect {
 
 pub fn label_visible(rect: Rect, chars: usize, dots: &[Pos2], m: &NoteMetrics) -> bool {
     let text = name_box(rect, chars, m);
-    rect.width() >= NAME_FIT * m.height_px && !dots.iter().any(|d| dist_to_rect(*d, text) <= m.dot_radius())
+    m.height_px >= MIN_NAME_HEIGHT_PX && rect.width() >= NAME_FIT * m.height_px && !dots.iter().any(|d| dist_to_rect(*d, text) <= m.dot_radius())
 }
 
 fn dist_to_rect(p: Pos2, r: Rect) -> f32 {
@@ -172,6 +172,7 @@ fn cubic(p0: Pos2, c1: Pos2, c2: Pos2, p3: Pos2) -> Vec<Pos2> {
 }
 
 pub struct Scene {
+    height: f32,
     pub glyphs: Vec<Glyph>,
     pub rects: HashMap<u64, Rect>,
     pub order: Vec<u64>,
@@ -189,7 +190,8 @@ impl Scene {
     pub fn link_points(&self, hovered: Option<u64>) -> Vec<LinkPoint> {
         let mut points = self.dots.clone();
         if let Some((id, r)) = hovered.and_then(|id| Some((id, *self.rects.get(&id)?))) {
-            for (side, pos) in [(Side::Left, r.left_center()), (Side::Right, r.right_center())] {
+            let inset = (LEGATO_INSET * self.height).min(r.width() / 2.0);
+            for (side, pos) in [(Side::Left, r.left_center() + vec2(inset, 0.0)), (Side::Right, r.right_center() - vec2(inset, 0.0))] {
                 if !self.side_attached(id, side) {
                     points.push(LinkPoint { note_id: id, side, pos, free: true });
                 }
@@ -337,7 +339,7 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
     for id in attach_left {
         attached.entry(id).or_default()[Side::Left as usize] = true;
     }
-    Scene { glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached }
+    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached }
 }
 
 pub fn note_glyphs(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, m: &NoteMetrics) -> Vec<Glyph> {
