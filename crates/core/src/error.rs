@@ -46,4 +46,8 @@ pub enum EditError {
     IncompatibleTimeSignatures,
     #[error("the project has no measure grid")]
     NoGrid,
+    #[error("note {0} does not exist")]
+    UnknownNote(u64),
+    #[error(transparent)]
+    Link(#[from] crate::links::LinkError),
 }

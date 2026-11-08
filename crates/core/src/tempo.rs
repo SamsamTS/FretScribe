@@ -129,6 +129,28 @@ impl TempoMap {
         self.try_pos_to_sec(pos).unwrap_or(0.0)
     }
 
+    /// Beats since the start of the first measure; `None` when the measure is not in the grid.
+    pub fn pos_to_beats(&self, pos: TimePos) -> Option<f64> {
+        let normal = self.normalise(pos);
+        let i = self.index_of(normal.measure)?;
+        Some(self.beats[..i].iter().sum::<f64>() + normal.beat)
+    }
+
+    /// Inverse of `pos_to_beats`; positions before the first measure stay negative on it and
+    /// positions after the last stay anchored to it.
+    pub fn beats_to_pos(&self, beats: f64) -> TimePos {
+        let Some(first) = self.measures.first() else {
+            return TimePos::new(0, beats);
+        };
+        let (mut i, mut beat) = (0, beats);
+        while beat >= 0.0 && i + 1 < self.measures.len() && beat >= self.beats[i] - BEAT_EPS {
+            beat = (beat - self.beats[i]).max(0.0);
+            i += 1;
+        }
+        let id = if beat < 0.0 { first.id } else { self.measures[i].id };
+        TimePos::new(id, crate::snap_note::on_lattice(beat))
+    }
+
     /// Moves a beat that overflows its measure into the containing one. Positions after the last
     /// measure stay anchored to it, positions before the first stay negative on it.
     pub fn normalise(&self, pos: TimePos) -> TimePos {
@@ -439,5 +461,17 @@ mod tests {
         close(times.start_sec(8).unwrap(), 1.5);
         close(times.end_sec(8).unwrap(), 3.0);
         assert_eq!(times.start_sec(9), None);
+    }
+
+    #[test]
+    fn absolute_beats_round_trip_across_measures() {
+        let m = TempoMap::new(&grid(&[120.0, 60.0, 120.0]));
+        let pos = TimePos::new(2, 1.0 / 3.0);
+        assert_eq!(m.pos_to_beats(pos), Some(4.0 + 1.0 / 3.0));
+        assert_eq!(m.beats_to_pos(4.0 + 1.0 / 3.0), pos);
+        assert_eq!(m.beats_to_pos(8.0), TimePos::new(3, 0.0));
+        assert_eq!(m.beats_to_pos(-0.5), TimePos::new(1, -0.5));
+        assert_eq!(m.beats_to_pos(13.0), TimePos::new(3, 5.0));
+        assert_eq!(m.pos_to_beats(TimePos::new(99, 0.0)), None);
     }
 }

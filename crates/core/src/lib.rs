@@ -2,6 +2,7 @@
 
 pub mod edit;
 pub mod error;
+pub mod links;
 pub mod measures;
 pub mod model;
 pub mod persist;
@@ -14,6 +15,7 @@ pub mod undo;
 
 pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
 pub use error::{CoreError, EditError};
+pub use links::{same_string_fit, LinkError, LinkReport, LinkType, MAX_FRET};
 pub use measures::{
     generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped,
     valid_tempo, Propagation,
@@ -30,7 +32,7 @@ pub use pitch::{
     cents_of, cents_off, freq_to_midi_float, midi_to_freq, midi_to_name, ref_from_cents, PitchRef,
 };
 pub use snap::{SnapGrid, SnapPreset, SNAP_DIVISIONS};
-pub use snap_note::{effective_divisions, min_subdivision_beats, snap_note, SnapOpts};
+pub use snap_note::{add_beats, effective_divisions, min_subdivision_beats, snap_note, SnapOpts};
 pub use tempo::{BeatKind, BeatLine, NoteTimes, TempoMap};
 pub use tracks::{audible_tracks, next_note_id, project_end_sec, shift_track};
 pub use undo::{UndoStack, DEFAULT_UNDO_LIMIT};

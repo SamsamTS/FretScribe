@@ -103,7 +103,7 @@ fn rank_division(division: u8) -> (u8, bool) {
     (division, division.is_multiple_of(3))
 }
 
-fn on_lattice(beat: f64) -> f64 {
+pub(crate) fn on_lattice(beat: f64) -> f64 {
     let units = (beat * f64::from(UNITS_PER_BEAT)).round();
     if (units / f64::from(UNITS_PER_BEAT) - beat).abs() < BEAT_EPS {
         units / f64::from(UNITS_PER_BEAT)
@@ -112,7 +112,7 @@ fn on_lattice(beat: f64) -> f64 {
     }
 }
 
-fn add_beats(tempo: &TempoMap, pos: TimePos, beats: f64) -> TimePos {
+pub fn add_beats(tempo: &TempoMap, pos: TimePos, beats: f64) -> TimePos {
     tempo.normalise(TimePos::new(pos.measure, on_lattice(pos.beat + beats)))
 }
 
