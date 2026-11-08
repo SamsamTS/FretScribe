@@ -1,6 +1,7 @@
 //! Spectrogram strip: cached texture of the visible window, pitch guides, hover readout, notes and
 //! the click that asks for a new note. Navigation (wheel, pan) belongs to `nav::ViewController`.
 
+mod glyphs;
 mod notes;
 mod readout;
 mod ruler;
@@ -12,7 +13,8 @@ use egui::{pos2, vec2, Color32, ColorImage, Context, FontId, Painter, PointerBut
 use fretscribe_analysis::{Levels, Lut, Spectrogram};
 use fretscribe_core::{midi_to_name, Note, NoteTimes, PitchRef, Tuning};
 
-pub use notes::{chain_label, chains, connector_path, hit_test, GhostNote, HitZone, LinkKind, SpectroGeometry};
+pub use glyphs::{link_points, note_glyphs, Glyph, LinkPoint, NoteMetrics, Side};
+pub use notes::{hit_test, GhostGlyph, GhostShape, HitZone, LinkKind, SpectroGeometry};
 pub use readout::{is_natural, open_pitches, place_readout, readout, Readout};
 pub use ruler::{format_time, ruler_step, show_time_ruler};
 pub use waveform::{Peak, WaveformView};
@@ -98,7 +100,7 @@ pub struct SpectrogramView<'a> {
     notes: &'a [Note],
     times: Option<&'a NoteTimes>,
     selected: &'a [u64],
-    ghost: Option<GhostNote>,
+    ghost: Option<&'a GhostShape>,
     playhead_sec: Option<f64>,
     revision: u64,
     height: f32,
@@ -136,7 +138,7 @@ impl<'a> SpectrogramView<'a> {
         self
     }
 
-    pub fn ghost(mut self, ghost: Option<GhostNote>) -> Self {
+    pub fn ghost(mut self, ghost: Option<&'a GhostShape>) -> Self {
         self.ghost = ghost;
         self
     }
@@ -264,12 +266,19 @@ impl<'a> SpectrogramView<'a> {
         }
 
         let hover = response.hover_pos().filter(|p| rect.contains(*p)).map(|pos| HoverInfo { pos, time_sec: geo.x_to_sec(pos.x), midi_float: geo.y_to_midi(pos.y) });
-        let hovered_note = hover.and_then(|h| hit_test(&geo, self.notes, times, h.pos));
+        let hover_key = response.id.with("hovered_note");
+        let previous: Option<u64> = ui.data(|d| d.get_temp(hover_key)).flatten();
+        let hovered_note = hover.and_then(|h| hit_test(&geo, self.notes, times, h.pos, previous));
+        let hovered_id = hovered_note.map(|(id, _)| id);
+        if hovered_id != previous {
+            ui.data_mut(|d| d.insert_temp(hover_key, hovered_id));
+            ui.ctx().request_repaint();
+        }
         let cursor_midi = hover.map(|h| h.midi_float.round() as i32);
         self.draw_guides(&painter, &geo, cursor_midi);
-        notes::draw_notes(&painter, &geo, self.notes, times, self.selected, self.note_opacity);
-        if let Some(ghost) = &self.ghost {
-            notes::draw_ghost(&painter, &geo, ghost, self.notes, times);
+        notes::draw_notes(&painter, &geo, self.notes, times, self.selected, self.note_opacity, hovered_id);
+        if let Some(ghost) = self.ghost {
+            notes::draw_ghost(&painter, &geo, ghost);
         }
         if let Some(sec) = self.playhead_sec {
             painter.vline(geo.sec_to_x(sec), rect.y_range(), Stroke::new(1.5_f32, PLAYHEAD));
@@ -280,7 +289,7 @@ impl<'a> SpectrogramView<'a> {
 
         let mut events = Vec::new();
         if response.clicked_by(PointerButton::Primary) {
-            if let Some(pos) = response.interact_pointer_pos().filter(|p| p.x >= pitch_ruler.right() && hit_test(&geo, self.notes, times, *p).is_none()) {
+            if let Some(pos) = response.interact_pointer_pos().filter(|p| p.x >= pitch_ruler.right() && hit_test(&geo, self.notes, times, *p, hovered_id).is_none()) {
                 let exact = geo.y_to_midi(pos.y);
                 events.push(SpectroEvent::AddNoteRequested { midi: exact.round().clamp(0.0, 127.0) as u8, time_sec: geo.x_to_sec(pos.x).max(0.0), exact_midi_float: exact });
             }
