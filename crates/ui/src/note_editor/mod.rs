@@ -1,10 +1,14 @@
 //! Note editing: pure planning of gestures and commands (no egui types) and the egui layer on top.
 
 mod action;
+mod buttons;
 mod clip;
 mod draw;
 mod editor;
+mod exact;
+mod input;
 mod modify;
+mod overlay;
 mod select;
 #[cfg(test)]
 mod editor_tests;
@@ -14,6 +18,10 @@ mod testkit;
 pub use action::{apply, ActionError, Applied, NoteAction};
 pub use clip::Clipboard;
 pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_legato, Creation, DrawFeedback, DrawPlan, LegatoPlan, NewNote, Pt, Ref, Sticky};
+pub use buttons::{action_buttons, default_shortcut, show_action_row, ActionButton, HINT};
+pub use exact::{apply_exact, fields_for, parse_pitch, ExactError, ExactFields};
+pub use input::{collect, Collected, SourcePointer};
+pub use overlay::paint as paint_overlay;
 pub use editor::{Button, Effect, Env, Input, Mods, NoteEditor, Sample};
 pub use modify::{apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, NoteChange};
 pub use select::{marquee_hits, time_order, Selection};

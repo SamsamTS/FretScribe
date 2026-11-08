@@ -8,7 +8,7 @@ use fretscribe_core::{audible_tracks, NoteTimes, Project};
 use super::events::TrackEvent;
 use crate::nav::maths::smooth;
 use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
-use super::lane::{LaneOptions, LaneShared, LaneSource, LaneState, TrackLane};
+use super::lane::{LaneOptions, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
 use crate::spectro::{white, GhostShape, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
@@ -101,6 +101,8 @@ pub struct TrackLanes<'a> {
 }
 
 pub struct TrackLanesOutput {
+    /// The source lane's geometry and hover, when its spectrogram is shown.
+    pub source_pointer: Option<LanePointer>,
     pub events: Vec<TrackEvent>,
     /// Note and seek requests from the spectrograms, with the lane they came from.
     pub spectro: Vec<(u64, SpectroEvent)>,
@@ -131,6 +133,7 @@ impl TrackLanes<'_> {
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));
         area.set_clip_rect(lanes.intersect(ui.clip_rect()));
         let (mut events, mut spectro) = (Vec::new(), Vec::new());
+        let mut source_pointer = None;
         let mut rects = Vec::new();
         let mut grip_drag: Option<(usize, egui::Response)> = None;
 
@@ -144,6 +147,7 @@ impl TrackLanes<'_> {
             let lane_state = state.lanes.entry(track.id).or_default();
             let out = TrackLane { shared: &shared, track, rect, shown_rows: strip.rows, configured_rows: configured }.show(&mut area, lane_state, &mut state.options);
             events.extend(out.events);
+            source_pointer = source_pointer.or(out.pointer);
             spectro.extend(out.spectro.into_iter().map(|e| (track.id, e)));
             if let Some((rows, smooth)) = out.resized_rows {
                 state.rows.insert(track.id, rows);
@@ -179,6 +183,6 @@ impl TrackLanes<'_> {
                 events.push(TrackEvent::ReorderRequested { id: self.project.tracks[index].id, new_index: target });
             }
         }
-        TrackLanesOutput { events, spectro }
+        TrackLanesOutput { source_pointer, events, spectro }
     }
 }

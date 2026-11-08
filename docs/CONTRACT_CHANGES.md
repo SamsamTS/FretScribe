@@ -45,10 +45,10 @@ No change in other crates. Modules are not re-exported at the crate root.
 
 - `fretscribe-ui` depends on `fretscribe-analysis` and `fretscribe-notation`.
 - `notation::tab::{lowest_fret_candidate, candidate_label}` are provisional ("E 10" format, string 0 = lowest, capo respected); replace with the real tab inference keeping the signatures.
-- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{AddNoteRequested, SeekRequested}`, `GhostShape`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
+- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{SeekRequested, DrawBegan, DrawMoved, DrawEnded, DrawCancelled}`, `GhostShape`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
 - Notes are `&[Note]` plus `NoteTimes`; a link is a Bend arrow when the start note's `technique` is Bend, otherwise a slide line; `Note.legato` draws an arc.
 - Texture cache key includes window, size, pitch range, A4, levels, gamma, LUT, data pointer and a caller `revision` (bump it when data changes in place).
-- `SpectroOutput::pitch_ruler` (`PITCH_RULER_WIDTH`) is the left label strip: used for the nav drag, clicks there add no note.
+- `SpectroOutput::pitch_ruler` (`PITCH_RULER_WIDTH`) is the left label strip: used for the nav drag, drags there do not draw.
 
 ## 2026-11-07 - ui: track lanes
 
@@ -57,7 +57,7 @@ No change in other crates. Modules are not re-exported at the crate root.
 - Timeline x = 0 is the right edge of the header column: ruler and grid start `LANE_HEADER_WIDTH` right of the lane area. `TimelineView` stays in project time; only a lane's spectrogram and waveform are shifted (`audio_offset`), notes never are.
 - `LaneSource` supplies spectrogram, peaks, duration, onsets and `snap_candidates` in the track's own audio time.
 - Offsets: `OffsetDragBegan(id)` / `OffsetDragEnded(id)` bracket the live `OffsetChanged` events of one drag (one undo step); typed, nudged and reset values send one event each. `OffsetChanged::move_notes` is true only for the source track with the menu option on; the app applies it with `core::shift_track`. Limit +-60 s; snap within 8 px, Alt disables, Shift drags 10x slower; the field commits on Enter, Esc reverts.
-- Clicks on a helper lane's spectrogram give `SpectroEvent::SeekRequested`, never `AddNoteRequested`.
+- Clicks on a helper lane's spectrogram give `SpectroEvent::SeekRequested`, never `Draw*` (only the source lane draws).
 - `LaneOutput::resized_rows` is `Option<(rows, animate)>`; `geometry::rows_shown` takes `rows: f32`.
 
 ## 2026-11-08 - ui: note glyphs
@@ -65,3 +65,9 @@ No change in other crates. Modules are not re-exported at the crate root.
 - Glyphs replace the connectors (`chains`, `chain_label`, `connector_path`, the old `LinkKind` and the rubber band are gone). `spectro::glyphs`: `note_glyphs`, `link_points`, `Glyph`, `LinkKind {Slide, Bend}`, `LinkPoint`, `Side`, `NoteMetrics` (height = pitch row, no minimum; names hide below 9 px).
 - `HitZone` adds `LinkLeft`, `LinkRight`, `Line`, `Arrow`, `Arc`; `hit_test(geo, notes, times, pos, hovered)` takes the hovered note (whose free link points are hit-testable), normally `SpectroOutput::hovered_note` of the previous frame.
 - `GhostNote` is replaced by `GhostShape { glyphs: Vec<GhostGlyph> }` (project time and pitch; links by index), passed by reference (`SpectrogramView::ghost`, `TrackLanes::ghost`).
+
+## 2026-11-08 - note editing
+
+- `SpectroEvent::AddNoteRequested` is replaced by `DrawBegan/DrawMoved/DrawEnded/DrawCancelled` (left drag from empty space, with `midi`, `exact_midi_float`, `time_sec`; a click is a `SeekRequested`). No note tools or context menus: everything is gestures plus `ui::note_editor::NoteAction` (`apply`) for keys and the track-head buttons.
+- `ui::note_editor`: `NoteEditor::handle(&mut Env, Input) -> Vec<Effect>` (pure; `collect` turns egui input into `Input`), `Effect::Edit { edit, merge, affected }` (the app pushes it with `UndoStack::push` / `push_merged` and re-runs the tab inference on `affected`), `action_buttons`, `ExactFields`/`apply_exact`. `TrackLanesOutput::source_pointer` exposes the source lane's geometry and hovered note.
+- `core`: `links` (invariants, `link_notes`, `unlink`, `cycle_link`, `link_selection`, bridging delete), `snap_note` (`snap_note`, `snap_resized`, `SnapOpts`), `TempoMap::{pos_to_beats, beats_to_pos}`, `Project::edit_notes`, `ProjectEdit::merge`, `UndoStack::push_merged`. `analysis::notes::refine_pitch`. Edge hit zones are no longer suppressed on linked sides.

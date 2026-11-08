@@ -11,7 +11,7 @@ use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::nav::{notches, ViewTuning};
-use crate::spectro::{place_readout, white, GhostShape, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
+use crate::spectro::{place_readout, HitZone, SpectroGeometry, white, GhostShape, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 const BORDER_COLOR: Color32 = Color32::from_gray(60);
@@ -81,7 +81,16 @@ pub struct TrackLane<'a> {
     pub configured_rows: u32,
 }
 
+/// What the note editor needs from the source lane's spectrogram.
+#[derive(Clone, Copy, Debug)]
+pub struct LanePointer {
+    pub geometry: SpectroGeometry,
+    pub hovered_note: Option<(u64, HitZone)>,
+    pub pitch_ruler: Rect,
+}
+
 pub struct LaneOutput {
+    pub pointer: Option<LanePointer>,
     pub events: Vec<TrackEvent>,
     /// Only the source lane can draw (`Draw*`); on the other lanes a click only seeks.
     pub spectro: Vec<SpectroEvent>,
@@ -164,6 +173,7 @@ impl TrackLane<'_> {
         let drag = ctx.data(|d| d.get_temp::<OffsetDrag>(drag_key(id)));
         let offset = drag.map_or(track.offset_sec, |d| d.shown);
         let mut spectro_events = Vec::new();
+        let mut pointer = None;
         let mut resized_rows = None;
 
         if self.shown_rows > 0 {
@@ -189,6 +199,9 @@ impl TrackLane<'_> {
                         widget = widget.note_opacity(FAINT_NOTES);
                     }
                     let out = widget.show(&mut sui, &view, &pitch, &mut state.cache);
+                    if is_source {
+                        pointer = Some(LanePointer { geometry: out.geometry, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
+                    }
                     spectro_events.extend(out.events.into_iter().filter(|e| is_source || matches!(e, SpectroEvent::SeekRequested(_))));
                 }
                 None => {
@@ -265,6 +278,6 @@ impl TrackLane<'_> {
         }
 
         let spectro_rect = (self.shown_rows > 0).then_some(spec_rect);
-        LaneOutput { events, spectro: spectro_events, grip: header.grip, spectro_rect, resized_rows }
+        LaneOutput { pointer, events, spectro: spectro_events, grip: header.grip, spectro_rect, resized_rows }
     }
 }

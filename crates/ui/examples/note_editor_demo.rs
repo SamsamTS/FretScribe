@@ -1,13 +1,16 @@
-//! Spectrogram widget over a synthetic spectrogram, with the three global display controls of the
-//! app toolbar: a two-handle levels slider, a logarithmic gamma slider and a LUT dropdown.
-//! Ctrl+wheel zooms, Shift+wheel scrolls, Alt+wheel zooms pitch, middle drag pans.
+//! Note editing over a synthetic spectrogram: draw, slide, chain (Shift), legato (right drag),
+//! marquee, move/resize, link (L), copy/paste, undo (Ctrl+Z / Ctrl+Y), double-click for exact edit.
+//! Display controls as in the app toolbar. Ctrl+wheel zooms, Shift+wheel scrolls, Alt+wheel zooms
+//! pitch, middle drag pans.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use eframe::egui::{self, pos2, vec2, Color32, Rect, Sense, Stroke};
 use fretscribe_analysis::{clamp_gamma, discover_luts, Levels, Lut, Spectrogram, SpectrogramParams, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
-use fretscribe_core::{generate_measures, Legato, LegatoLink, Note, NoteTimes, PitchRef, TempoMap, TimeSignature, Technique, Tuning};
+use fretscribe_analysis::notes::refine_pitch;
+use fretscribe_core::{Legato, LegatoLink, Note, NoteTimes, PitchRef, Project, SnapGrid, TempoMap, TimeSignature, Technique, Track, TrackRole, UndoStack};
+use fretscribe_ui::note_editor::{self as ne, Effect, Env, NoteEditor};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::spectro::show_time_ruler;
 use fretscribe_ui::{NavContext, NavRegions, PitchView, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, ViewController, ViewTuning, WaveformView};
@@ -112,15 +115,18 @@ fn scene(map: &TempoMap, t0: f64, squeeze: f64) -> Vec<Note> {
 
 struct Demo {
     ctl: ViewController,
-    map: TempoMap,
+    project: Project,
+    undo: UndoStack,
+    editor: NoteEditor,
+    grid: SnapGrid,
+    exact: Option<ne::ExactFields>,
+    exact_error: String,
+    revision: u64,
     spectrogram: Spectrogram,
     luts: Vec<Arc<Lut>>,
     style: SpectroStyle,
     cache: SpectroCache,
-    notes: Vec<Note>,
     times: NoteTimes,
-    selected: Vec<u64>,
-    tuning: Tuning,
     pitch_ref: PitchRef,
     a4_hz: f32,
     playhead: f64,
@@ -129,32 +135,57 @@ struct Demo {
 
 impl Demo {
     fn new() -> Self {
-        let mut next = 1;
-        let map = TempoMap::new(&generate_measures(0.0, AUDIO_LEN_SEC, 110.0, TimeSignature::COMMON, &mut next));
+        let mut project = Project::new(Track::new(1, "Guitar", TrackRole::Guitar), AUDIO_LEN_SEC, 110.0, TimeSignature::COMMON);
+        let map = TempoMap::new(&project.measures);
         let mut luts: Vec<Arc<Lut>> = discover_luts(Path::new("LUT")).into_iter().map(Arc::new).collect();
         if luts.is_empty() {
             luts.push(Arc::new(Lut::builtin()));
         }
         let spectrogram = synthetic();
-        let notes = scene(&map, 0.0, 1.0).into_iter().chain(scene(&map, 15.0, 0.12)).collect::<Vec<_>>();
-        let times = NoteTimes::build(&notes, &map);
+        project.notes = scene(&map, 0.0, 1.0).into_iter().chain(scene(&map, 15.0, 0.12)).collect();
+        let times = NoteTimes::build(&project.notes, &map);
         let style = SpectroStyle { levels: Levels::new(0.0, APP_WHITE), gamma: APP_GAMMA, lut: luts[0].clone() };
         let state = ViewState { scroll_sec: 0.0, scroll_y: 0.0, pixels_per_sec: 120.0 };
         Self {
             ctl: ViewController::new(state, &ViewTuning::DEFAULT, PitchRange { lo: 35.5, hi: 84.5 }),
-            map,
+            project,
+            undo: UndoStack::new(),
+            editor: NoteEditor::default(),
+            grid: SnapGrid::new(&[4, 3]),
+            exact: None,
+            exact_error: String::new(),
+            revision: 0,
             spectrogram,
             luts,
             style,
             cache: SpectroCache::default(),
-            notes,
             times,
-            selected: vec![5],
-            tuning: Tuning::standard(),
             pitch_ref: PitchRef::default(),
             a4_hz: 440.0,
             playhead: 2.5,
             last_event: String::new(),
+        }
+    }
+
+    fn changed(&mut self) {
+        self.times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        self.revision += 1;
+    }
+
+    fn run(&mut self, ctx: &egui::Context, inputs: Vec<ne::Input>, px_per_sec: f64, hovered: Option<u64>) {
+        for input in inputs {
+            let mut env = Env { project: &mut self.project, grid: &self.grid, px_per_sec, threshold_px: 12.0, onsets: None, now: ctx.input(|i| i.time), hovered };
+            for effect in self.editor.handle(&mut env, input.clone()) {
+                match effect {
+                    Effect::Seek(sec) => self.playhead = sec,
+                    Effect::Edit { edit, merge, .. } => {
+                        if merge { self.undo.push_merged(*edit) } else { self.undo.push(*edit) }
+                        self.changed();
+                    }
+                    Effect::Message(m) => self.last_event = m,
+                    Effect::OpenExact(id) => self.exact = ne::fields_for(&self.project, id),
+                }
+            }
         }
     }
 }
@@ -185,13 +216,30 @@ impl eframe::App for Demo {
                 ui.label(&self.last_event);
             });
         });
+        if !ctx.wants_keyboard_input() {
+            let (undo, redo) = ctx.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift, i.modifiers.command && (i.key_pressed(egui::Key::Y) || i.key_pressed(egui::Key::Z) && i.modifiers.shift)));
+            if undo { self.undo.undo(&mut self.project); } else if redo { self.undo.redo(&mut self.project); }
+            if undo || redo {
+                self.changed();
+                let alive = |id: &u64| self.project.note(*id).is_some();
+                let ids: Vec<u64> = self.editor.selection.ids.iter().copied().filter(alive).collect();
+                self.editor.selection.set(ids);
+            }
+        }
+        egui::TopBottomPanel::bottom("actions").show(ctx, |ui| {
+            let buttons = ne::action_buttons(&self.project, &self.editor.selection);
+            if let Some(action) = ne::show_action_row(ui, &buttons, &self.editor.selection) {
+                self.run(ctx, vec![ne::Input::Action(action)], self.ctl.current.pixels_per_sec, None);
+            }
+        });
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             let area = ui.available_rect_before_wrap();
             let ppp = ctx.pixels_per_point();
             let spec_h = (area.height() - RULER_H - WAVE_H).max(40.0);
+            let tempo = TempoMap::new(&self.project.measures);
             let nav = NavContext {
                 regions: NavRegions { grid: area, lanes: area },
-                map: &self.map,
+                map: &tempo,
                 audio_len_sec: AUDIO_LEN_SEC,
                 content_px: (area.height() * ppp) as u32,
                 strip_pitch_px: (WAVE_H * ppp) as u32,
@@ -201,12 +249,15 @@ impl eframe::App for Demo {
             let pitch = PitchView::from(self.ctl.pitch.current);
 
             let spectrogram = &self.spectrogram;
-            let out = ui
+            let tuning = self.project.tuning.clone();
+            let (spec_out, seek) = ui
                 .scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                     let seek = show_time_ruler(ui, &view, RULER_H, self.playhead);
-                    let out = SpectrogramView::new(spectrogram, &self.style, self.pitch_ref, &self.tuning)
-                        .notes(&self.notes, &self.times, &self.selected)
+                    let out = SpectrogramView::new(spectrogram, &self.style, self.pitch_ref, &tuning)
+                        .notes(&self.project.notes, &self.times, &self.editor.selection.ids)
+                        .ghost(self.editor.ghost.as_ref())
+                        .revision(self.revision)
                         .playhead(self.playhead)
                         .height(spec_h)
                         .show(ui, &view, &pitch, &mut self.cache);
@@ -220,25 +271,72 @@ impl eframe::App for Demo {
                             .collect()
                     };
                     WaveformView::new(WAVE_H).playhead(self.playhead).show(ui, &view, wave);
-                    out.events.into_iter().chain(seek).collect::<Vec<_>>()
+                    (out, seek)
                 })
                 .inner;
-            for event in out {
-                match event {
-                    SpectroEvent::SeekRequested(sec) => {
-                        self.playhead = sec;
-                        self.last_event = format!("seek {sec:.2}s");
-                    }
-                    other => self.last_event = format!("{other:?}"),
-                }
+            let events: Vec<SpectroEvent> = spec_out.events.iter().cloned().chain(seek).collect();
+            let refine = |sec: f64, midi: f32| refine_pitch(&self.spectrogram, &self.pitch_ref, sec, midi);
+            let source = ne::SourcePointer { geometry: spec_out.geometry, hovered_note: spec_out.hovered_note, pitch_ruler: spec_out.pitch_ruler, notes: &self.project.notes, times: &self.times };
+            let collected = ne::collect(ctx, &source, &events, &self.editor, &refine);
+            let hovered = spec_out.hovered_note.map(|h| h.0);
+            self.run(ctx, collected.inputs, view.pixels_per_sec, hovered);
+            if let Some(id) = collected.open_exact {
+                self.exact = ne::fields_for(&self.project, id);
             }
+            let painter = ui.painter_at(spec_out.geometry.rect);
+            ne::paint_overlay(&painter, &spec_out.geometry, &self.editor, ctx.input(|i| i.pointer.latest_pos()), None);
+            self.exact_window(ctx);
         });
+    }
+}
+
+impl Demo {
+    fn exact_window(&mut self, ctx: &egui::Context) {
+        let Some(mut f) = self.exact.take() else { return };
+        let (mut keep, mut apply) = (true, false);
+        egui::Window::new("Exact edit").collapsible(false).open(&mut keep).show(ctx, |ui| {
+            egui::Grid::new("exact").show(ui, |ui| {
+                for (label, (bar, beat)) in [("Start bar / beat", &mut f.start), ("End bar / beat", &mut f.end)] {
+                    ui.label(label);
+                    ui.add(egui::TextEdit::singleline(bar).desired_width(40.0));
+                    ui.add(egui::TextEdit::singleline(beat).desired_width(60.0));
+                    ui.end_row();
+                }
+                ui.label("Pitch");
+                ui.text_edit_singleline(&mut f.pitch);
+                ui.end_row();
+                ui.label("String");
+                let mut locked = f.string.is_some();
+                ui.checkbox(&mut locked, "lock");
+                f.string = locked.then(|| f.string.unwrap_or(0));
+                if let Some(s) = f.string.as_mut() {
+                    ui.add(egui::DragValue::new(s).range(0..=5));
+                }
+                ui.end_row();
+            });
+            apply = ui.button("Apply").clicked();
+            ui.colored_label(Color32::LIGHT_RED, &self.exact_error);
+        });
+        if apply {
+            match ne::apply_exact(&mut self.project, &f) {
+                Ok(edit) => {
+                    self.undo.push(edit);
+                    self.changed();
+                    self.exact_error.clear();
+                    return;
+                }
+                Err(e) => self.exact_error = e.to_string(),
+            }
+        }
+        if keep {
+            self.exact = Some(f);
+        }
     }
 }
 
 fn main() -> eframe::Result {
     eframe::run_native(
-        "FretScribe spectrogram demo",
+        "FretScribe note editor demo",
         eframe::NativeOptions::default(),
         Box::new(|cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
