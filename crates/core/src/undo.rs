@@ -42,6 +42,15 @@ impl UndoStack {
         }
     }
 
+    /// Like `push`, but folds the edit into the latest one so both undo as a single step.
+    pub fn push_merged(&mut self, edit: ProjectEdit) {
+        self.undone.clear();
+        match self.done.pop_back() {
+            Some(last) => self.done.push_back(last.merge(edit)),
+            None => self.done.push_back(edit),
+        }
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.done.is_empty()
     }

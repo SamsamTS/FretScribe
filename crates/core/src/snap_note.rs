@@ -170,7 +170,7 @@ fn choose(candidates: &[Candidate], sec: f64, sticky_sec: Option<f64>) -> Option
     }
 }
 
-fn snap_edge(pos: TimePos, edge: Edge, tempo: &TempoMap, others: &[Note], opts: &SnapOpts) -> TimePos {
+pub fn snap_edge(pos: TimePos, edge: Edge, tempo: &TempoMap, others: &[Note], opts: &SnapOpts) -> TimePos {
     let sec = tempo.pos_to_sec(pos);
     let pos = tempo.normalise(pos);
     if opts.disabled || tempo.is_empty() || !sec.is_finite() {
@@ -227,25 +227,77 @@ fn first_grid_at_or_after(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> T
         .map_or(from, |c| tempo.normalise(c.0))
 }
 
+fn last_grid_at_or_before(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> TimePos {
+    let sec = tempo.pos_to_sec(from) + SAME_SEC;
+    grid_candidates(tempo, &grid.sorted_divisions(), sec)
+        .into_iter()
+        .rev()
+        .find(|c| c.1 <= sec)
+        .map_or(from, |c| tempo.normalise(c.0))
+}
+
+/// The grid position `steps` positions after (or before, when negative) `pos`; a position off the
+/// grid first moves to the nearest grid position in that direction.
+pub fn step_on_grid(tempo: &TempoMap, grid: &SnapGrid, pos: TimePos, steps: i32) -> TimePos {
+    let mut pos = tempo.normalise(pos);
+    if tempo.is_empty() {
+        return pos;
+    }
+    for _ in 0..steps.unsigned_abs() {
+        let sec = tempo.pos_to_sec(pos);
+        let list = grid_candidates(tempo, &grid.sorted_divisions(), sec);
+        let next = if steps > 0 {
+            list.iter().find(|c| c.1 > sec + SAME_SEC)
+        } else {
+            list.iter().rev().find(|c| c.1 < sec - SAME_SEC)
+        };
+        match next {
+            Some(c) => pos = tempo.normalise(c.0),
+            None => break,
+        }
+    }
+    pos
+}
+
+/// Snaps the moving `edge` of a note whose opposite edge `fixed` stays put, keeping at least one
+/// minimal subdivision between them.
+pub fn snap_resized(edge: Edge, pos: TimePos, fixed: TimePos, tempo: &TempoMap, other_notes: &[Note], opts: &SnapOpts) -> TimePos {
+    let snapped = snap_edge(pos, edge, tempo, other_notes, opts);
+    if tempo.is_empty() {
+        return snapped;
+    }
+    let min = min_subdivision_beats(opts.grid);
+    let on_grid = opts.enable_grid_snap && !opts.disabled;
+    match edge {
+        Edge::End => {
+            let earliest = add_beats(tempo, fixed, min);
+            if tempo.pos_to_sec(snapped) >= tempo.pos_to_sec(earliest) - SAME_SEC {
+                snapped
+            } else if on_grid {
+                first_grid_at_or_after(tempo, opts.grid, earliest)
+            } else {
+                earliest
+            }
+        }
+        Edge::Start => {
+            let latest = add_beats(tempo, fixed, -min);
+            if tempo.pos_to_sec(snapped) <= tempo.pos_to_sec(latest) + SAME_SEC {
+                snapped
+            } else if on_grid {
+                last_grid_at_or_before(tempo, opts.grid, latest)
+            } else {
+                latest
+            }
+        }
+    }
+}
+
 /// Snaps both edges of a note given as raw pointer positions. Start snaps to grid or to the end of
 /// a neighbour (nearest wins, ties prefer the grid), then to onsets; the end likewise with the start
 /// of a neighbour. The result never shorter than one minimal subdivision.
 pub fn snap_note(start: TimePos, end: TimePos, tempo: &TempoMap, other_notes: &[Note], opts: &SnapOpts) -> (TimePos, TimePos) {
     let new_start = snap_edge(start, Edge::Start, tempo, other_notes, opts);
-    let mut new_end = snap_edge(end, Edge::End, tempo, other_notes, opts);
-    if tempo.is_empty() {
-        return (new_start, new_end);
-    }
-    let min = min_subdivision_beats(opts.grid);
-    let earliest = add_beats(tempo, new_start, min);
-    if tempo.pos_to_sec(new_end) < tempo.pos_to_sec(earliest) - SAME_SEC {
-        new_end = if opts.enable_grid_snap && !opts.disabled {
-            first_grid_at_or_after(tempo, opts.grid, earliest)
-        } else {
-            earliest
-        };
-    }
-    (new_start, new_end)
+    (new_start, snap_resized(Edge::End, end, new_start, tempo, other_notes, opts))
 }
 
 #[cfg(test)]
@@ -487,5 +539,26 @@ mod tests {
         let grid = g(&[4]);
         let p = start(&m, m.sec_to_pos(2.13), &[], &opts(&grid));
         close(p.beat, 4.25);
+    }
+
+    #[test]
+    fn stepping_follows_the_mixed_grid_in_both_directions() {
+        let (m, grid) = (map(), g(&[4, 3]));
+        assert_eq!(step_on_grid(&m, &grid, at(1, 0.0), 1), at(1, 0.25));
+        assert_eq!(step_on_grid(&m, &grid, at(1, 0.25), 1), at(1, 1.0 / 3.0));
+        assert_eq!(step_on_grid(&m, &grid, at(1, 0.25), 2), at(1, 0.5));
+        assert_eq!(step_on_grid(&m, &grid, at(1, 0.3), -1), at(1, 0.25));
+        assert_eq!(step_on_grid(&m, &grid, at(1, 0.3), 1), at(1, 1.0 / 3.0));
+        assert_eq!(step_on_grid(&m, &grid, at(2, 0.0), -1), at(1, 3.75));
+        assert_eq!(step_on_grid(&m, &grid, at(1, 3.75), 1), at(2, 0.0));
+    }
+
+    #[test]
+    fn resizing_keeps_the_minimal_length_from_either_side() {
+        let (m, grid) = (map(), g(&[4]));
+        let o = opts(&grid);
+        assert_eq!(snap_resized(Edge::End, at(1, 1.02), at(1, 1.0), &m, &[], &o), at(1, 1.25));
+        assert_eq!(snap_resized(Edge::Start, at(1, 2.01), at(1, 2.0), &m, &[], &o), at(1, 1.75));
+        assert_eq!(snap_resized(Edge::Start, at(1, 0.51), at(1, 2.0), &m, &[], &o), at(1, 0.5));
     }
 }

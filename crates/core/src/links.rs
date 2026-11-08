@@ -55,6 +55,15 @@ pub struct LinkReport {
     pub skipped: Vec<(u64, u64, LinkError)>,
 }
 
+/// Legato when a same-string placement exists, slide otherwise.
+pub fn infer_link(tuning: &Tuning, capo: u8, from_midi: u8, to_midi: u8) -> LinkType {
+    if from_midi != to_midi && same_string_fit(tuning, capo, &[from_midi, to_midi]) {
+        LinkType::Legato
+    } else {
+        LinkType::Slide
+    }
+}
+
 /// Whether one string holds every pitch between the capo and `MAX_FRET`.
 pub fn same_string_fit(tuning: &Tuning, capo: u8, midis: &[u8]) -> bool {
     tuning.open_strings.iter().any(|&open| {
@@ -118,12 +127,16 @@ impl Project {
         same_string_fit(&self.tuning, self.capo, &midis)
     }
 
-    /// Legato when a same-string placement exists, slide otherwise.
     pub fn infer_link_type(&self, from: u64, to: u64) -> LinkType {
         match (self.note(from), self.note(to)) {
-            (Some(a), Some(b)) if a.midi != b.midi && same_string_fit(&self.tuning, self.capo, &[a.midi, b.midi]) => LinkType::Legato,
+            (Some(a), Some(b)) => infer_link(&self.tuning, self.capo, a.midi, b.midi),
             _ => LinkType::Slide,
         }
+    }
+
+    pub fn can_link(&self, from: u64, to: u64, kind: LinkType) -> Result<(), LinkError> {
+        let tempo = TempoMap::new(&self.measures);
+        self.check_link(from, to, kind, &NoteTimes::build(&self.notes, &tempo), &tempo)
     }
 
     fn check_link(&self, from: u64, to: u64, kind: LinkType, times: &NoteTimes, tempo: &TempoMap) -> Result<(), LinkError> {

@@ -75,6 +75,15 @@ impl ProjectEdit {
         &self.label
     }
 
+    /// One edit that undoes `self` and `later` together.
+    pub fn merge(self, later: ProjectEdit) -> ProjectEdit {
+        ProjectEdit {
+            label: later.label,
+            before: self.before,
+            after: later.after,
+        }
+    }
+
     pub fn undo(&self, project: &mut Project) {
         self.before.restore(project);
     }
