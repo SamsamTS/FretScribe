@@ -29,3 +29,8 @@ pub fn with_ctx<R>(p: &Project, grid: &[u8], alt: bool, f: impl FnOnce(&EditCtx)
 pub fn sec(beat: f64) -> f64 {
     beat * 0.5
 }
+
+pub fn near(pos: TimePos, beat: f64) {
+    assert_eq!(pos.measure, 1);
+    assert!((pos.beat - beat).abs() < 1e-9, "{pos:?} vs {beat}");
+}

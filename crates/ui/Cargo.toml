@@ -9,6 +9,7 @@ fretscribe-core.workspace = true
 fretscribe-analysis.workspace = true
 fretscribe-notation.workspace = true
 egui.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 eframe.workspace = true

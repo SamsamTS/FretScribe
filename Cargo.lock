@@ -1471,6 +1471,7 @@ dependencies = [
  "fretscribe-core",
  "fretscribe-notation",
  "image",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

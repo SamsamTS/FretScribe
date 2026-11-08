@@ -8,11 +8,11 @@ mod select;
 #[cfg(test)]
 mod testkit;
 
-
-
+pub use action::{apply, ActionError, Applied, NoteAction};
+pub use clip::Clipboard;
 pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_legato, Creation, DrawFeedback, DrawPlan, LegatoPlan, NewNote, Pt, Ref, Sticky};
-
-
+pub use modify::{apply_changes, is_noop, plan_move, plan_resize, NoteChange};
+pub use select::{marquee_hits, time_order, Selection};
 
 use fretscribe_core::{Project, SnapGrid, SnapOpts, TempoMap};
 

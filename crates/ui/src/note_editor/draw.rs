@@ -184,11 +184,9 @@ pub fn plan_legato(src: u64, cur: Pt, released_on: Option<(u64, Side)>, sticky: 
 pub fn commit_creation(project: &mut Project, creation: &Creation, label: &str) -> Result<(ProjectEdit, Vec<u64>), EditError> {
     let mut ids = Vec::new();
     let edit = project.edit_notes(label, |p| {
-        let mut next = fretscribe_core::next_note_id(p);
-        for n in &creation.notes {
-            p.notes.push(Note::new(next, n.midi, n.start, n.end));
-            ids.push(next);
-            next += 1;
+        for (id, n) in (fretscribe_core::next_note_id(p)..).zip(&creation.notes) {
+            p.notes.push(Note::new(id, n.midi, n.start, n.end));
+            ids.push(id);
         }
         let resolve = |r: Ref| match r {
             Ref::New(i) => ids.get(i).copied(),
@@ -318,11 +316,6 @@ mod tests {
         assert_eq!(c.links, [(Ref::New(0), Ref::New(1), LinkType::Slide)]);
         let back = draw(&p, pt(3.0, 62.0), pt(1.0, 60.0), false, false).unwrap().creation;
         assert_eq!((back.notes[0].midi, back.notes[1].midi), (60, 62));
-    }
-
-    fn near(pos: TimePos, beat: f64) {
-        assert_eq!(pos.measure, 1);
-        assert!((pos.beat - beat).abs() < 1e-9, "{pos:?} vs {beat}");
     }
 
     #[test]
