@@ -19,6 +19,8 @@ pub const HINT: &str = "Select notes, or hover one and press L to link";
 pub fn default_shortcut(action: NoteAction) -> Option<&'static str> {
     match action {
         NoteAction::LinkSelection | NoteAction::LinkHover => Some("L"),
+        NoteAction::ForceLegato => Some("H"),
+        NoteAction::Grace => Some("G"),
         NoteAction::Delete { bridge: true } => Some("Shift+Delete"),
         NoteAction::Delete { .. } => Some("Delete"),
         NoteAction::Duplicate => Some("Ctrl+D"),
@@ -55,7 +57,8 @@ pub fn action_buttons(project: &Project, selection: &Selection) -> Vec<ActionBut
         button(NoteAction::LinkSelection, "Link", "Link the selected notes", selection.ids.len() >= 2),
         button(NoteAction::UnlinkSelection, "Unlink", "Remove the links that start at the selected notes", has_link),
         button(NoteAction::CycleLinkType, "Type", "Cycle the link type: slide, bend, legato", has_link),
-        button(NoteAction::Grace, "Grace", "Grace note (not available yet)", false),
+        button(NoteAction::ForceLegato, "H/P", "Hammer-on or pull-off into the selected note", !selection.ids.is_empty()),
+        button(NoteAction::Grace, "Grace", "Add a grace note, or change the kind of the selected ones", !selection.ids.is_empty()),
         button(string, "String", "Lock or unlock the string and fret", string_ok),
         button(NoteAction::Delete { bridge: true }, "Bridge", "Delete and reconnect the neighbours", middle),
     ]
@@ -94,7 +97,7 @@ mod tests {
     fn buttons_follow_what_the_selection_allows() {
         let mut p = project();
         let (a, b, c) = (add(&mut p, 64, 0.0, 1.0), add(&mut p, 66, 1.0, 2.0), add(&mut p, 67, 2.0, 3.0));
-        assert!(enabled(&p, &[a]).iter().all(|(l, on)| *on == (*l == "String")));
+        assert!(enabled(&p, &[a]).iter().all(|(l, on)| *on == matches!(*l, "String" | "H/P" | "Grace")));
         assert!(enabled(&p, &[a, b]).contains(&("Link", true)));
         p.link_notes(a, b, LinkType::Slide).unwrap();
         p.link_notes(b, c, LinkType::Slide).unwrap();
@@ -102,7 +105,7 @@ mod tests {
         assert!(e.contains(&("Unlink", true)) && e.contains(&("Type", true)) && e.contains(&("Bridge", false)));
         assert!(enabled(&p, &[b]).contains(&("Bridge", true)));
         assert!(enabled(&p, &[c]).contains(&("Unlink", false)));
-        assert!(enabled(&p, &[a]).contains(&("Grace", false)));
+        assert!(enabled(&p, &[]).iter().all(|(l, on)| !*on || *l == "String") && enabled(&p, &[a]).contains(&("Grace", true)));
     }
 
     #[test]
@@ -113,9 +116,10 @@ mod tests {
         s.set(vec![a]);
         let b = action_buttons(&p, &s);
         assert_eq!(b[0].tooltip, "Link the selected notes (L)");
-        assert_eq!(b[5].tooltip, "Delete and reconnect the neighbours (Shift+Delete)");
-        assert_eq!(b[4].action, NoteAction::SetString(Some(5)));
+        assert_eq!(b[6].tooltip, "Delete and reconnect the neighbours (Shift+Delete)");
+        assert_eq!((b[3].tooltip.ends_with("(H)"), b[4].tooltip.ends_with("(G)")), (true, true));
+        assert_eq!(b[5].action, NoteAction::SetString(Some(5)));
         p.notes[0].locked_fret = true;
-        assert_eq!(action_buttons(&p, &s)[4].action, NoteAction::SetString(None));
+        assert_eq!(action_buttons(&p, &s)[5].action, NoteAction::SetString(None));
     }
 }

@@ -26,11 +26,12 @@ pub struct GhostGlyph {
     pub end_sec: f64,
     pub link_to: Option<(usize, LinkKind)>,
     pub legato_from: Option<usize>,
+    pub grace: bool,
 }
 
 impl GhostShape {
     pub fn note(midi: u8, start_sec: f64, end_sec: f64) -> Self {
-        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None }] }
+        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false }] }
     }
 
     fn items(&self) -> Vec<GlyphItem> {
@@ -44,6 +45,7 @@ impl GhostShape {
                 end_sec: g.end_sec,
                 link: g.link_to.map(|(to, kind)| (to as u64, kind)),
                 legato_from: g.legato_from.map(|from| from as u64),
+                grace: g.grace,
             })
             .collect()
     }
@@ -114,7 +116,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         let color = color_of(*id);
         let radius = corner_radius(m, r.width());
         painter.rect_filled(*r, radius, faded(color, 0.25));
-        if look.dashed {
+        if look.dashed || items.iter().any(|it| it.id == *id && it.grace) {
             let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
             stroke_path(painter, corners.to_vec(), Stroke::new(1.0_f32, faded(color, 0.5)), true);
         } else {

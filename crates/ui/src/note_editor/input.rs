@@ -4,7 +4,7 @@ use egui::{Context, CursorIcon, Event, Id, Key, PointerButton, Pos2, Rect};
 use fretscribe_core::{Note, NoteTimes};
 
 use super::editor::{Button, Input, Mods, NoteEditor, Sample};
-use super::NoteAction;
+use super::{EntryKey, NoteAction};
 use crate::spectro::{hit_test, HitZone, SpectroEvent, SpectroGeometry};
 
 pub struct SourcePointer<'a> {
@@ -79,7 +79,18 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
         inputs.push(Input::Spectro(event, mods));
     }
 
-    if !ctx.wants_keyboard_input() {
+    if !ctx.wants_keyboard_input() && editor.in_entry() {
+        ctx.input(|i| {
+            if i.key_pressed(Key::Escape) && !cancelled {
+                inputs.push(Input::Escape);
+            }
+            let tone = i.modifiers.shift;
+            let keys = [(Key::ArrowUp, EntryKey::Pitch { up: true, tone }), (Key::ArrowDown, EntryKey::Pitch { up: false, tone }), (Key::ArrowLeft, EntryKey::String { up: false }), (Key::ArrowRight, EntryKey::String { up: true }), (Key::G, EntryKey::ToggleKind), (Key::H, EntryKey::ToggleHammer), (Key::Enter, EntryKey::Confirm)];
+            let digits = [Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
+            inputs.extend(keys.iter().filter(|(k, _)| i.key_pressed(*k)).map(|(_, e)| Input::Entry(*e)));
+            inputs.extend(digits.iter().enumerate().filter(|(_, k)| i.key_pressed(**k)).map(|(d, _)| Input::Entry(EntryKey::Digit(d as u8))));
+        });
+    } else if !ctx.wants_keyboard_input() {
         ctx.input(|i| {
             if i.key_pressed(Key::Escape) && !cancelled {
                 inputs.push(Input::Escape);
@@ -99,8 +110,10 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
                         inputs.push(Input::Action(NoteAction::Transpose(by)));
                     }
                 }
-                if i.key_pressed(Key::L) {
-                    inputs.push(Input::Action(NoteAction::LinkHover));
+                for (key, action) in [(Key::L, NoteAction::LinkHover), (Key::H, NoteAction::ForceLegato), (Key::G, NoteAction::Grace)] {
+                    if i.key_pressed(key) {
+                        inputs.push(Input::Action(action));
+                    }
                 }
             }
             for event in &i.events {

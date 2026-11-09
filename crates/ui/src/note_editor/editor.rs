@@ -6,6 +6,7 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
+use super::grace_entry::{EntryKey, EntryStep, GraceEntry};
 use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{NoteChange, apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
 use super::select::{marquee_hits, time_order, Selection};
@@ -50,6 +51,8 @@ pub enum Input {
     Spectro(SpectroEvent, Mods),
     Escape,
     Action(NoteAction),
+    /// A key of the grace entry (only meaningful while `in_entry`).
+    Entry(EntryKey),
     Copy,
     Paste,
 }
@@ -111,6 +114,7 @@ enum State {
     SlideEnd { creation: Creation, pressed: bool, sticky: Sticky },
     Marquee { from: Sample, add: bool },
     Paste { pressed: bool },
+    Grace(GraceEntry),
 }
 
 #[derive(Default)]
@@ -151,6 +155,11 @@ fn on_note(hit: Option<(u64, HitZone)>) -> Option<(u64, HitZone)> {
 impl NoteEditor {
     pub fn is_resizing(&self) -> bool {
         matches!(self.state, State::Resize { .. })
+    }
+
+    /// The grace entry is on and consumes the keys.
+    pub fn in_entry(&self) -> bool {
+        matches!(self.state, State::Grace(_))
     }
 
     pub fn is_busy(&self) -> bool {
@@ -205,6 +214,7 @@ impl NoteEditor {
                 Vec::new()
             }
             Input::Action(action) => self.action(env, action),
+            Input::Entry(key) => self.entry_key(env, key),
             Input::Copy => {
                 let tempo = TempoMap::new(&env.project.measures);
                 self.clipboard = Clipboard::copy(env.project, &tempo, &self.selection.ids);
@@ -354,7 +364,7 @@ impl NoteEditor {
             }
             State::Marquee { from, .. } => self.marquee = Some((from.pos, at.pos)),
             State::Paste { .. } => self.update_paste(env, at, mods.alt),
-            State::Idle | State::Pending { .. } => {}
+            State::Idle | State::Pending { .. } | State::Grace(_) => {}
         }
     }
 
@@ -399,6 +409,10 @@ impl NoteEditor {
             (State::Chain { last, sticky }, Button::Left) => {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
                 plan.map_or_else(Vec::new, |p| self.commit(env, &p.creation, "Extend chain", true))
+            }
+            (State::Grace(entry), _) => {
+                self.state = State::Grace(entry);
+                Vec::new()
             }
             (State::Link(l), _) => self.release_link(env, l, button, &at, mods),
             (State::Marquee { from, add }, Button::Right) => {
@@ -583,6 +597,33 @@ impl NoteEditor {
         }
     }
 
+    fn show_entry(&mut self, env: &Env, entry: &GraceEntry) {
+        (self.ghost, self.feedback) = match entry.preview(env.project) {
+            Some((ghost, feedback)) => (Some(ghost), Some(feedback)),
+            None => (None, Some(DrawFeedback { warning: Some("no room for a grace note".into()), ..DrawFeedback::default() })),
+        };
+    }
+
+    fn entry_key(&mut self, env: &mut Env, key: EntryKey) -> Vec<Effect> {
+        let State::Grace(mut entry) = std::mem::take(&mut self.state) else { return Vec::new() };
+        if entry.key(env.project, key) == EntryStep::Continue {
+            self.show_entry(env, &entry);
+            self.state = State::Grace(entry);
+            return Vec::new();
+        }
+        match entry.commit(env.project) {
+            Ok((edit, affected)) => {
+                self.reset();
+                self.selection.set(affected[..1].to_vec());
+                vec![Effect::Edit { edit: Box::new(edit), merge: false, affected }]
+            }
+            Err(message) => {
+                self.state = State::Grace(entry);
+                vec![Effect::Message(message)]
+            }
+        }
+    }
+
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
         if action == NoteAction::LinkHover && self.selection.ids.is_empty() {
             if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
@@ -605,6 +646,10 @@ impl NoteEditor {
                 }
                 out.extend(done.message.map(Effect::Message));
                 out.extend(done.open_exact.map(Effect::OpenExact));
+                if let Some(entry) = done.grace_entry.filter(|_| !self.is_busy()).and_then(|main| GraceEntry::new(env.project, main)) {
+                    self.show_entry(env, &entry);
+                    self.state = State::Grace(entry);
+                }
                 out
             }
             Err(ActionError::EmptySelection) => Vec::new(),

@@ -583,3 +583,76 @@ fn no_gesture_or_command_leaves_two_same_pitch_notes_overlapping() {
     h.send(Input::Action(NoteAction::Duplicate));
     assert!(!same_pitch_overlaps(&h.p));
 }
+
+#[test]
+fn force_legato_emits_one_edit_and_a_message() {
+    let mut h = H::new();
+    let (a, b) = (add(&mut h.p, 60, 0.0, 1.0), add(&mut h.p, 62, 1.0, 2.0));
+    h.ed.selection.set(vec![b]);
+    let out = h.send(Input::Action(NoteAction::ForceLegato));
+    assert_eq!(edits(&out), 1);
+    assert!(out.iter().any(|e| matches!(e, Effect::Message(m) if m == "1 linked")));
+    assert_eq!(h.p.outgoing(a), Some((b, LinkType::Legato)));
+    h.ed.selection.set(vec![a]);
+    let out = h.send(Input::Action(NoteAction::ForceLegato));
+    assert!(edits(&out) == 0 && out.iter().any(|e| matches!(e, Effect::Message(m) if m.contains("skipped"))));
+}
+
+#[test]
+fn grace_entry_is_modal_and_confirmed_as_one_edit() {
+    let mut h = H::new();
+    let main = add(&mut h.p, 64, 1.0, 2.0);
+    h.ed.selection.set(vec![main]);
+    assert!(h.send(Input::Action(NoteAction::Grace)).is_empty());
+    assert!(h.ed.in_entry() && h.ed.is_busy() && h.p.notes.len() == 1);
+    assert!(h.ed.ghost.as_ref().is_some_and(|g| g.glyphs.len() == 2 && g.glyphs[0].grace));
+    assert_eq!(h.ed.feedback.as_ref().map(|f| f.labels[0].2.as_str()), Some("B 3"));
+    h.send(Input::Entry(EntryKey::Pitch { up: false, tone: false }));
+    h.send(Input::Entry(EntryKey::ToggleKind));
+    h.send(Input::Entry(EntryKey::ToggleHammer));
+    assert_eq!(h.p.notes.len(), 1, "nothing changes before Enter");
+    let out = h.send(Input::Entry(EntryKey::Confirm));
+    assert_eq!(edits(&out), 1);
+    assert!(!h.ed.in_entry() && h.ed.ghost.is_none());
+    let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
+    assert_eq!((grace.midi, grace.grace_of.unwrap().kind), (61, fretscribe_core::GraceKind::Appoggiatura));
+    assert_eq!(h.p.note(main).unwrap().legato.map(|l| l.from), Some(grace.id));
+    assert_eq!(h.ed.selection.ids, [grace.id]);
+}
+
+#[test]
+fn escape_or_a_click_cancels_the_entry_and_a_failed_hammer_keeps_it_open() {
+    let mut h = H::new();
+    let main = add(&mut h.p, 64, 1.0, 2.0);
+    h.ed.selection.set(vec![main]);
+    h.send(Input::Action(NoteAction::Grace));
+    h.send(Input::Escape);
+    assert!(!h.ed.in_entry() && h.ed.ghost.is_none() && h.p.notes.len() == 1);
+    h.send(Input::Action(NoteAction::Grace));
+    h.click(Button::Left, s(3.0, 60.0, None), NONE);
+    assert!(!h.ed.in_entry() && h.p.notes.len() == 1);
+
+    h.ed.selection.set(vec![main]);
+    h.send(Input::Action(NoteAction::Grace));
+    for _ in 0..2 {
+        h.send(Input::Entry(EntryKey::Pitch { up: true, tone: false }));
+    }
+    h.send(Input::Entry(EntryKey::ToggleHammer));
+    let out = h.send(Input::Entry(EntryKey::Confirm));
+    assert!(edits(&out) == 0 && h.ed.in_entry() && out.iter().any(|e| matches!(e, Effect::Message(_))));
+    assert_eq!(h.p.notes.len(), 1);
+}
+
+#[test]
+fn grace_on_a_selected_grace_note_cycles_it_and_transposes_and_deletes() {
+    let mut h = H::new();
+    let main = add(&mut h.p, 64, 1.0, 2.0);
+    let grace = h.p.add_grace_note(main, None, fretscribe_core::GraceKind::Acciaccatura).unwrap();
+    h.ed.selection.set(vec![grace]);
+    assert_eq!(edits(&h.send(Input::Action(NoteAction::Grace))), 1);
+    assert!(!h.ed.in_entry());
+    h.send(Input::Action(NoteAction::Transpose(1)));
+    assert_eq!(h.p.note(grace).unwrap().midi, 63);
+    h.send(Input::Action(NoteAction::Delete { bridge: false }));
+    assert_eq!(h.p.notes.len(), 1);
+}

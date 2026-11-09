@@ -1,6 +1,6 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
-use fretscribe_core::{min_subdivision_beats, step_on_grid, EditError, LinkType, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use fretscribe_core::{min_subdivision_beats, GraceKind, LinkReport, step_on_grid, EditError, LinkType, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
 use thiserror::Error;
 
 use super::clip::Clipboard;
@@ -18,8 +18,9 @@ pub enum NoteAction {
     LinkSelection,
     UnlinkSelection,
     CycleLinkType,
-    /// Grace and forced legato belong to prompt 7b.
+    /// On a main note: starts the grace note quick entry; on grace notes: cycles their kind.
     Grace,
+    /// Links the selection as hammer-on / pull-off, moving and locking strings when needed.
     ForceLegato,
     SetString(Option<u8>),
     OpenExactEdit,
@@ -38,8 +39,6 @@ pub enum ActionError {
     OutOfRange,
     #[error("no placement on that string")]
     NoPlacement,
-    #[error("{0} is not available yet")]
-    Unavailable(&'static str),
     #[error(transparent)]
     Edit(#[from] EditError),
 }
@@ -51,6 +50,8 @@ pub struct Applied {
     pub message: Option<String>,
     pub open_exact: Option<u64>,
     pub link_hover: bool,
+    /// Main note whose grace entry should start.
+    pub grace_entry: Option<u64>,
     /// Notes whose links or pitches changed, for the tab solver to re-run on.
     pub affected: Vec<u64>,
 }
@@ -67,6 +68,24 @@ fn edited(edit: ProjectEdit, affected: Vec<u64>) -> Applied {
     Applied { edit: Some(edit), affected, ..Applied::default() }
 }
 
+/// Runs a linking operation as one undo step; nothing linked gives no edit, only the report.
+fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Project, &[u64]) -> LinkReport) -> Result<Applied, ActionError> {
+    let mut report = LinkReport::default();
+    let edit = project.edit_notes(label, |p| {
+        report = run(p, &ids);
+        Ok(())
+    })?;
+    let mut message = format!("{} linked", report.linked);
+    if let Some((_, _, why)) = report.skipped.first() {
+        message.push_str(&format!(", {} skipped: {why}", report.skipped.len()));
+    }
+    let linked = report.linked > 0;
+    if !linked {
+        edit.undo(project);
+    }
+    Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
+}
+
 pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &SnapGrid) -> Result<Applied, ActionError> {
     let tempo = TempoMap::new(&project.measures);
     let order = time_order(&project.notes, &tempo);
@@ -81,8 +100,6 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             return Ok(Applied { selection: Some(selection), ..Applied::default() });
         }
         NoteAction::LinkHover if sel.ids.is_empty() => return Ok(Applied { link_hover: true, ..Applied::default() }),
-        NoteAction::Grace => return Err(ActionError::Unavailable("grace notes")),
-        NoteAction::ForceLegato => return Err(ActionError::Unavailable("forced legato")),
         _ => {}
     }
     let ids: Vec<u64> = order.iter().copied().filter(|id| sel.contains(*id)).collect();
@@ -155,21 +172,21 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::LinkSelection => {
-            let mut report = Default::default();
-            let edit = project.edit_notes("Link notes", |p| {
-                report = p.link_selection(&ids);
+        NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
+        NoteAction::ForceLegato => link_edit(project, ids, "Force legato", Project::force_legato_selection),
+        NoteAction::Grace => {
+            let graces: Vec<(u64, GraceKind)> = project.notes.iter().filter(|n| ids.contains(&n.id)).filter_map(|n| n.grace_of.map(|g| (n.id, g.kind))).collect();
+            if graces.is_empty() {
+                return Ok(Applied { grace_entry: Some(anchor), ..Applied::default() });
+            }
+            let edit = project.edit_notes("Grace note kind", |p| {
+                for &(id, kind) in &graces {
+                    let next = if kind == GraceKind::Acciaccatura { GraceKind::Appoggiatura } else { GraceKind::Acciaccatura };
+                    let _ = p.set_grace_kind(id, next);
+                }
                 Ok(())
             })?;
-            let mut message = format!("{} linked", report.linked);
-            if let Some((_, _, why)) = report.skipped.first() {
-                message.push_str(&format!(", {} skipped: {why}", report.skipped.len()));
-            }
-            let linked = report.linked > 0;
-            if !linked {
-                edit.undo(project);
-            }
-            Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
+            Ok(edited(edit, graces.iter().map(|g| g.0).collect()))
         }
         NoteAction::UnlinkSelection => {
             let with_link: Vec<u64> = ids.iter().copied().filter(|&id| project.outgoing(id).is_some()).collect();
@@ -231,7 +248,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::Grace | NoteAction::ForceLegato => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } => Ok(Applied::default()),
     }
 }
 
@@ -369,6 +386,40 @@ mod tests {
         let next = run(&mut p, &[a], NoteAction::SelectNext { extend: true }).unwrap().selection.unwrap();
         assert_eq!(next.ids, [a, b]);
         assert_eq!(run(&mut p, &[b], NoteAction::OpenExactEdit).unwrap().open_exact, Some(b));
-        assert!(matches!(run(&mut p, &[a], NoteAction::Grace), Err(ActionError::Unavailable(_))));
+        assert_eq!(run(&mut p, &[a], NoteAction::Grace).unwrap().grace_entry, Some(a));
+    }
+
+    #[test]
+    fn force_legato_links_one_note_to_the_previous_and_reports_skips() {
+        let mut p = project();
+        let (a, b, c) = (add(&mut p, 60, 0.0, 0.5), add(&mut p, 62, 0.5, 1.0), add(&mut p, 62, 1.0, 1.5));
+        let one = run(&mut p, &[b], NoteAction::ForceLegato).unwrap();
+        assert_eq!((one.message.as_deref(), one.affected.clone()), (Some("1 linked"), vec![b]));
+        assert_eq!(p.outgoing(a), Some((b, LinkType::Legato)));
+        one.edit.unwrap().undo(&mut p);
+        assert_eq!(p.outgoing(a), None);
+        let none = run(&mut p, &[a], NoteAction::ForceLegato).unwrap();
+        assert!(none.edit.is_none());
+        assert_eq!(none.message.as_deref(), Some("0 linked, 1 skipped: there is no earlier note to link from"));
+        let same = run(&mut p, &[c], NoteAction::ForceLegato).unwrap();
+        assert_eq!(same.message.as_deref(), Some("0 linked, 1 skipped: both notes have the same pitch"));
+        let all = run(&mut p, &[a, b], NoteAction::ForceLegato).unwrap();
+        assert_eq!(all.message.as_deref(), Some("1 linked"));
+    }
+
+    #[test]
+    fn grace_on_a_grace_note_cycles_its_kind() {
+        let mut p = project();
+        let main = add(&mut p, 62, 1.0, 2.0);
+        let grace = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
+        let applied = run(&mut p, &[grace], NoteAction::Grace).unwrap();
+        assert_eq!((applied.grace_entry, note(&p, grace).grace_of.unwrap().kind), (None, GraceKind::Appoggiatura));
+        applied.edit.unwrap().undo(&mut p);
+        assert_eq!(note(&p, grace).grace_of.unwrap().kind, GraceKind::Acciaccatura);
+        let moved = run(&mut p, &[grace], NoteAction::Transpose(1)).unwrap();
+        assert_eq!(note(&p, grace).midi, 61);
+        assert_eq!(moved.affected, [grace]);
+        run(&mut p, &[grace], NoteAction::Delete { bridge: false }).unwrap();
+        assert!(p.note(grace).is_none() && p.note(main).is_some());
     }
 }

@@ -78,6 +78,7 @@ impl Clipboard {
                 end_sec: tempo.pos_to_sec(n.end),
                 link_to: n.link_to.and_then(|to| index.get(&to)).map(|&i| (i, if n.technique == Some(Technique::Bend) { LinkKind::Bend } else { LinkKind::Slide })),
                 legato_from: n.legato.and_then(|l| index.get(&l.from).copied()),
+                grace: n.grace_of.is_some(),
             })
             .collect();
         GhostShape { glyphs }

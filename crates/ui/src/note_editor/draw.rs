@@ -248,13 +248,13 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
     let mut glyphs: Vec<GhostGlyph> = creation
         .notes
         .iter()
-        .map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None })
+        .map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None, grace: false })
         .collect();
     let index_of = |r: Ref, glyphs: &mut Vec<GhostGlyph>| match r {
         Ref::New(i) => i,
         Ref::Existing(id) => {
             if let Some(n) = project.note(id) {
-                glyphs.push(GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None });
+                glyphs.push(GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None, grace: false });
             }
             glyphs.len() - 1
         }

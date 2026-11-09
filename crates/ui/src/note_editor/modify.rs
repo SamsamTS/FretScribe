@@ -100,6 +100,7 @@ pub fn ghost_of_changes(project: &Project, tempo: &fretscribe_core::TempoMap, ch
                 end_sec: tempo.pos_to_sec(c.end),
                 link_to: link.and_then(|(to, bend)| index(to).map(|i| (i, if bend { LinkKind::Bend } else { LinkKind::Slide }))),
                 legato_from: project.note(c.id).and_then(|n| n.legato).and_then(|l| index(l.from)),
+                grace: project.note(c.id).is_some_and(|n| n.grace_of.is_some()),
             }
         })
         .collect();

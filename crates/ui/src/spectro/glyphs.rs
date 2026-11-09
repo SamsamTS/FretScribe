@@ -9,6 +9,8 @@ use fretscribe_core::{Note, NoteTimes, Technique};
 use super::SpectroGeometry;
 
 pub const MIN_NOTE_PX: f32 = 3.0;
+/// Grace notes are short but must stay visible.
+pub const MIN_GRACE_PX: f32 = 6.0;
 pub const EDGE_PX: f32 = 8.0;
 /// How far past its ends a note can be grabbed to resize it.
 pub const EDGE_OVERSHOOT_PX: f32 = 4.0;
@@ -103,6 +105,7 @@ pub struct GlyphItem {
     pub end_sec: f64,
     pub link: Option<(u64, LinkKind)>,
     pub legato_from: Option<u64>,
+    pub grace: bool,
 }
 
 pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
@@ -117,6 +120,7 @@ pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
                 end_sec: times.end_sec(n.id)?,
                 link: n.link_to.map(|to| (to, kind)),
                 legato_from: n.legato.map(|l| l.from),
+                grace: n.grace_of.is_some(),
             })
         })
         .collect()
@@ -250,7 +254,7 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
         .iter()
         .map(|it| {
             let left = geo.sec_to_x(it.start_sec);
-            let right = geo.sec_to_x(it.end_sec).max(left + MIN_NOTE_PX);
+            let right = geo.sec_to_x(it.end_sec).max(left + if it.grace { MIN_GRACE_PX } else { MIN_NOTE_PX });
             (left, right - left, geo.midi_to_y(f32::from(it.midi)))
         })
         .collect();

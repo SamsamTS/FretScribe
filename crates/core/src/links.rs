@@ -47,6 +47,8 @@ pub enum LinkError {
     NoSameString,
     #[error("the notes are not adjacent")]
     NotAdjacent,
+    #[error("there is no earlier note to link from")]
+    NoPrevious,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -282,7 +284,7 @@ impl Project {
                     Ok(_) => report.linked = 1,
                     Err(e) => report.skipped.push((prev, *id, e.into())),
                 },
-                None => report.skipped.push((*id, *id, LinkError::UnknownNote(*id))),
+                None => report.skipped.push((*id, *id, LinkError::NoPrevious)),
             }
             return report;
         }
