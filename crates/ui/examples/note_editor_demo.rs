@@ -2,8 +2,8 @@
 //! marquee, move/resize, link (L), copy/paste, undo (Ctrl+Z / Ctrl+Y), double-click for exact edit.
 //! Display controls as in the app toolbar. Ctrl+wheel zooms, Shift+wheel scrolls, Alt+wheel zooms
 //! pitch, middle drag pans. `legato_demo` runs this file with the hammer-on / grace note cases
-//! (H forces a legato, G adds a grace note: move the mouse to place it, left click or Enter
-//! confirms; Up/Down, Left/Right, digits, G, H cycles the link, Esc cancels; right click on a grace
+//! (H forces a legato, G adds a grace note: move the mouse left of the note (before the beat)
+//! or right of its start (on the beat) to draw it, left click or Enter confirms; Up/Down, Left/Right, digits, G, H cycles the link, Esc cancels; right click on a grace
 //! note cycles legato / slide / dashed).
 
 use std::path::Path;

@@ -51,10 +51,12 @@ fn length_is_limited_by_half_the_gap_to_the_previous_note() {
     let mut p = project();
     add(&mut p, 55, 1.95, 2.0);
     let main = add(&mut p, 60, 2.0, 3.0);
-    let g = p.add_grace_note(main, None, GraceKind::Appoggiatura).unwrap();
+    let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
     let (s, e) = secs(&p, g);
     close(e - s, 0.025);
     assert!(s > 1.95);
+    let on_beat = p.add_grace_note(main, None, GraceKind::Appoggiatura).unwrap();
+    close(secs(&p, on_beat).1 - secs(&p, on_beat).0, APPOGGIATURA_SEC);
     let mut p = project();
     add(&mut p, 55, 1.9985, 2.0);
     let main = add(&mut p, 60, 2.0, 3.0);
@@ -72,32 +74,35 @@ fn several_graces_chain_backwards_without_overlap() {
 }
 
 #[test]
-fn kind_move_and_remove() {
+fn kinds_are_the_two_placements_around_the_beat() {
     let mut p = project();
     add(&mut p, 50, 1.0, 1.5);
     let main = add(&mut p, 60, 2.0, 3.0);
     let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
+    close(secs(&p, g).1, 2.0);
     p.set_grace_kind(g, GraceKind::Appoggiatura).unwrap();
     assert_eq!(p.note(g).unwrap().grace_of.unwrap().kind, GraceKind::Appoggiatura);
+    close(secs(&p, g).0, 2.0);
+    close(secs(&p, g).1 - secs(&p, g).0, ACCIACCATURA_SEC);
     assert_eq!(p.set_grace_kind(main, GraceKind::Acciaccatura), Err(GraceError::NotGrace(main)));
-
-    let len = secs(&p, g).1 - secs(&p, g).0;
-    p.move_grace(g, 5.0).unwrap();
+    p.set_grace_timing(g, GraceKind::Appoggiatura, 0.2).unwrap();
+    close(secs(&p, g).1, 2.2);
+    p.set_grace_timing(g, GraceKind::Appoggiatura, 50.0).unwrap();
+    close(secs(&p, g).1, 3.0);
+    p.set_grace_timing(g, GraceKind::Acciaccatura, 0.3).unwrap();
+    close(secs(&p, g).0, 1.7);
     close(secs(&p, g).1, 2.0);
-    p.move_grace(g, 0.0).unwrap();
-    assert!(secs(&p, g).0 > 1.0);
-    p.move_grace(g, 1.9).unwrap();
-    close(secs(&p, g).0, 1.9);
-    close(secs(&p, g).1 - secs(&p, g).0, len);
+    p.set_grace_timing(g, GraceKind::Acciaccatura, 50.0).unwrap();
+    assert!(secs(&p, g).0 > 1.0, "never reaches the start of the previous note");
+    assert_eq!(p.grace_link(g), GraceLink::Slide, "the link made while it was long is still valid and kept");
+    p.set_grace_timing(g, GraceKind::Acciaccatura, 0.04).unwrap();
 
-    p.move_grace(g, 2.0).unwrap();
     let h = add(&mut p, 59, 3.0, 3.5);
-    assert_eq!(p.grace_link(g), GraceLink::Slide, "moved far away, then kept");
-    p.set_grace_link(g, GraceLink::Legato).unwrap();
     p.link_legato(main, h, None).unwrap();
     p.remove_grace(g).unwrap();
     assert!(p.note(g).is_none() && p.note(main).unwrap().legato.is_none());
     assert_eq!(p.remove_grace(main), Err(GraceError::NotGrace(main)));
+    assert_eq!(p.set_grace_timing(main, GraceKind::Acciaccatura, 0.1), Err(GraceError::NotGrace(main)));
 }
 
 #[test]
@@ -199,13 +204,17 @@ fn grace_notes_are_always_linked_legato_when_close_slide_when_far_dashed_otherwi
     let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
     assert_eq!((p.grace_link(g), p.outgoing(g)), (GraceLink::Legato, Some((main, LinkType::Legato))));
     assert_eq!(p.note(main).unwrap().legato.map(|l| l.from), Some(g));
-    // Further away than a quarter beat: slide.
-    p.move_grace(g, 2.0).unwrap();
+    // On the beat and longer than a quarter beat: slide.
+    p.set_grace_timing(g, GraceKind::Appoggiatura, 0.3).unwrap();
     assert_eq!((p.grace_link(g), p.outgoing(g)), (GraceLink::Slide, Some((main, LinkType::Slide))));
     assert!(p.note(main).unwrap().legato.is_none());
-    // Back next to the main note: the slide is still valid and is kept.
-    p.move_grace(g, 3.0).unwrap();
+    // Shorter again (and before the beat): the slide is still valid and is kept.
+    p.set_grace_timing(g, GraceKind::Acciaccatura, 0.05).unwrap();
     assert_eq!(p.grace_link(g), GraceLink::Slide);
+    // An on-the-beat grace note of a quarter beat or less is legato by default.
+    let quick = add(&mut p, 66, 10.0, 11.0);
+    let q = p.add_grace_note(quick, Some(64), GraceKind::Appoggiatura).unwrap();
+    assert_eq!(p.grace_link(q), GraceLink::Legato);
     // Same pitch: neither is possible.
     let same = add(&mut p, 62, 6.0, 7.0);
     let g2 = p.add_grace_note(same, Some(62), GraceKind::Appoggiatura).unwrap();
@@ -246,8 +255,10 @@ fn several_graces_link_into_the_next_one_and_moves_stay_between_neighbours() {
     let second = p.add_grace_note(main, Some(55), GraceKind::Acciaccatura).unwrap();
     assert_eq!((p.grace_target(second), p.grace_target(first)), (Some(first), Some(main)));
     assert_eq!(p.outgoing(second).map(|o| o.0), Some(first));
-    p.move_grace(second, 5.0).unwrap();
-    assert!(secs(&p, second).1 <= secs(&p, first).0 + 1e-9);
-    p.move_grace(first, 0.0).unwrap();
-    assert!(secs(&p, first).0 >= secs(&p, second).1 - 1e-9);
+    p.set_grace_timing(second, GraceKind::Acciaccatura, 0.5).unwrap();
+    close(secs(&p, second).1, secs(&p, first).0);
+    p.set_grace_timing(first, GraceKind::Acciaccatura, 0.2).unwrap();
+    close(secs(&p, first).1, 3.0);
+    close(secs(&p, first).0, 2.8);
+    assert_eq!(p.grace_target(second), Some(first));
 }

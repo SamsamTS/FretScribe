@@ -377,7 +377,7 @@ impl NoteEditor {
             State::Paste { .. } => self.update_paste(env, at, mods.alt),
             State::Idle | State::Pending { .. } => {}
             State::Grace { mut entry, pressed } => {
-                entry.pointer(at.sec, at.refined);
+                entry.pointer(env.project, at.sec, at.refined);
                 self.show_entry(env, &entry);
                 self.state = State::Grace { entry, pressed };
             }

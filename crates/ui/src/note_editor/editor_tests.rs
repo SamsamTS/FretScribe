@@ -620,7 +620,7 @@ fn grace_entry_is_modal_and_enter_confirms_as_one_edit() {
 }
 
 #[test]
-fn the_pointer_places_the_grace_note_and_a_left_click_confirms() {
+fn the_pointer_left_of_the_note_draws_a_grace_note_before_the_beat_and_a_left_click_confirms() {
     let mut h = H::new();
     add(&mut h.p, 40, 0.0, 0.5);
     let main = add(&mut h.p, 64, 8.0, 9.0);
@@ -629,8 +629,8 @@ fn the_pointer_places_the_grace_note_and_a_left_click_confirms() {
     let at = s(5.0, 60.2, None);
     h.mv(at, NONE);
     let ghost = h.ed.ghost.as_ref().unwrap();
-    assert!((ghost.glyphs[0].start_sec - sec(5.0)).abs() < 1e-9 && ghost.glyphs[0].midi == 60);
-    assert!(ghost.glyphs[0].link_to.is_some(), "further than a quarter beat: a slide");
+    assert!((ghost.glyphs[0].start_sec - sec(5.0)).abs() < 1e-9 && (ghost.glyphs[0].end_sec - sec(8.0)).abs() < 1e-9);
+    assert_eq!((ghost.glyphs[0].midi, ghost.glyphs[1].legato_from), (60, Some(0)));
     assert!(h.ed.feedback.as_ref().is_some_and(|f| f.labels[0].0 == ghost.glyphs[0].start_sec));
     h.press(Button::Left, at, NONE);
     assert!(h.ed.in_entry(), "the press alone changes nothing");
@@ -638,11 +638,33 @@ fn the_pointer_places_the_grace_note_and_a_left_click_confirms() {
     assert_eq!(edits(&out), 1);
     assert!(!h.ed.in_entry());
     let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
-    assert_eq!(grace.midi, 60);
-    assert_eq!(h.p.grace_link(grace.id), GraceLink::Slide);
     let tempo = fretscribe_core::TempoMap::new(&h.p.measures);
+    assert_eq!((grace.midi, grace.grace_of.unwrap().kind), (60, fretscribe_core::GraceKind::Acciaccatura));
     assert!((tempo.pos_to_sec(grace.start) - sec(5.0)).abs() < 1e-9);
+    assert!((tempo.pos_to_sec(grace.end) - tempo.pos_to_sec(h.p.note(main).unwrap().start)).abs() < 1e-9, "the end is the start of the note");
+    assert_eq!(h.p.grace_link(grace.id), GraceLink::Legato);
     assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(1.0), NONE)).is_empty(), "the click does not seek");
+}
+
+#[test]
+fn the_pointer_right_of_the_note_draws_a_grace_note_on_the_beat() {
+    let mut h = H::new();
+    let main = add(&mut h.p, 64, 8.0, 10.0);
+    h.ed.selection.set(vec![main]);
+    h.send(Input::Action(NoteAction::Grace));
+    let at = s(8.5, 62.0, None);
+    h.mv(at, NONE);
+    let ghost = h.ed.ghost.as_ref().unwrap();
+    assert!((ghost.glyphs[0].start_sec - sec(8.0)).abs() < 1e-9 && (ghost.glyphs[0].end_sec - sec(8.5)).abs() < 1e-9);
+    assert!(ghost.glyphs[0].link_to.is_some(), "half a beat long: a slide");
+    h.press(Button::Left, at, NONE);
+    assert_eq!(edits(&h.rel(Button::Left, at, NONE)), 1);
+    let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
+    let tempo = fretscribe_core::TempoMap::new(&h.p.measures);
+    assert_eq!(grace.grace_of.unwrap().kind, fretscribe_core::GraceKind::Appoggiatura);
+    assert!((tempo.pos_to_sec(grace.start) - tempo.pos_to_sec(h.p.note(main).unwrap().start)).abs() < 1e-9, "the start is the start of the note");
+    assert!((tempo.pos_to_sec(grace.end) - sec(8.5)).abs() < 1e-9);
+    assert_eq!(h.p.grace_link(grace.id), GraceLink::Slide);
 }
 
 #[test]

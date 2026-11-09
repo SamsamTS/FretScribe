@@ -6,6 +6,9 @@ use fretscribe_notation::tab::{candidate_label, lowest_fret_candidate};
 use super::draw::DrawFeedback;
 use crate::spectro::{GhostGlyph, GhostShape, LinkKind};
 
+/// Closer to the start of the note than this, the pointer takes the default length.
+const DEAD_SEC: f64 = 0.01;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntryKey {
     /// Semitone, or a tone with `tone`.
@@ -33,15 +36,15 @@ pub struct GraceEntry {
     pub kind: GraceKind,
     /// `None` takes the default (legato when close, slide when further, dashed otherwise).
     pub link: Option<GraceLink>,
-    /// Start under the pointer; `None` puts the grace note right before its main note.
-    pub start_sec: Option<f64>,
+    /// Length drawn with the pointer; `None` takes the kind's default length.
+    pub len: Option<f64>,
     typed: Option<u8>,
 }
 
 impl GraceEntry {
     pub fn new(project: &Project, main: u64) -> Option<Self> {
         let midi = fretscribe_core::default_grace_midi(project.note(main)?.midi);
-        Some(Self { main, midi, string: None, kind: GraceKind::Acciaccatura, link: None, start_sec: None, typed: None })
+        Some(Self { main, midi, string: None, kind: GraceKind::Acciaccatura, link: None, len: None, typed: None })
     }
 
     fn fret_on(project: &Project, string: u8, midi: u8) -> Option<u8> {
@@ -94,19 +97,27 @@ impl GraceEntry {
         EntryStep::Continue
     }
 
-    /// The pointer sets the start and the pitch (and drops string and fret choices).
-    pub fn pointer(&mut self, sec: f64, midi: f32) {
-        self.start_sec = Some(sec);
+    /// The pointer draws the grace note from the start of its main note: to the left it is before
+    /// the beat (its end is the start of the note, its length the distance), to the right it is on
+    /// the beat (its start is the start of the note). Very close to the start the default length of
+    /// the current kind is used. It also sets the pitch and drops string and fret choices.
+    pub fn pointer(&mut self, project: &Project, sec: f64, midi: f32) {
+        let main_start = project.note(self.main).map(|n| fretscribe_core::TempoMap::new(&project.measures).pos_to_sec(n.start));
+        let d = main_start.map_or(0.0, |start| sec - start);
+        self.len = (d.abs() >= DEAD_SEC).then_some(d.abs());
+        if self.len.is_some() {
+            self.kind = if d > 0.0 { GraceKind::Appoggiatura } else { GraceKind::Acciaccatura };
+        }
         self.midi = midi.round().clamp(0.0, 127.0) as u8;
         (self.string, self.typed) = (None, None);
     }
 
-    /// Adds the grace note to `p` with the chosen start and link; an explicit link that is not
-    /// valid at that place is ignored.
+    /// Adds the grace note to `p` with the drawn length and the link; an explicit link that is not
+    /// valid is ignored.
     fn place(&self, p: &mut Project) -> Result<u64, String> {
         let id = p.add_grace_note(self.main, Some(self.midi), self.kind).map_err(|e| e.to_string())?;
-        if let Some(sec) = self.start_sec {
-            p.move_grace(id, sec).map_err(|e| e.to_string())?;
+        if let Some(len) = self.len {
+            p.set_grace_timing(id, self.kind, len).map_err(|e| e.to_string())?;
         }
         if let Some(link) = self.link {
             let _ = p.set_grace_link(id, link);
@@ -186,26 +197,45 @@ mod tests {
     }
 
     #[test]
-    fn the_link_defaults_by_distance_and_h_cycles_the_valid_ones() {
+    fn the_pointer_side_gives_before_or_on_the_beat_and_the_distance_the_length() {
         let mut p = project();
         add(&mut p, 40, 0.0, 0.5);
         let main = add(&mut p, 64, 3.0, 4.0);
         let mut e = entry(&p, main);
-        let link = |e: &GraceEntry, p: &Project| {
+        let placed = |e: &GraceEntry, p: &Project| {
             let mut s = p.clone();
             let id = e.place(&mut s).unwrap();
-            s.grace_link(id)
+            let times = fretscribe_core::NoteTimes::build(&s.notes, &fretscribe_core::TempoMap::new(&s.measures));
+            (times.start_sec(id).unwrap(), times.end_sec(id).unwrap(), s.grace_link(id))
         };
-        assert_eq!(link(&e, &p), GraceLink::Legato);
-        e.pointer(1.0, 62.2);
-        assert_eq!((e.start_sec, e.midi, link(&e, &p)), (Some(1.0), 62, GraceLink::Slide));
+        let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-9, "{a} != {b}");
+        let (start, end, link) = placed(&e, &p);
+        near(end, 1.5);
+        assert_eq!((e.kind, link), (GraceKind::Acciaccatura, GraceLink::Legato));
+        assert!(start < end);
+        e.pointer(&p, 1.0, 62.2);
+        assert_eq!((e.kind, e.midi), (GraceKind::Acciaccatura, 62));
+        let (start, end, link) = placed(&e, &p);
+        near(start, 1.0);
+        near(end, 1.5);
+        assert_eq!(link, GraceLink::Legato, "before the beat the end touches the note");
+        e.pointer(&p, 1.9, 62.0);
+        assert_eq!(e.kind, GraceKind::Appoggiatura);
+        let (start, end, link) = placed(&e, &p);
+        near(start, 1.5);
+        near(end, 1.9);
+        assert_eq!(link, GraceLink::Slide, "longer than a quarter beat");
         e.key(&p, EntryKey::CycleLink);
-        assert_eq!((e.link, link(&e, &p)), (Some(GraceLink::Dashed), GraceLink::Dashed));
+        assert_eq!((e.link, placed(&e, &p).2), (Some(GraceLink::Dashed), GraceLink::Dashed));
         e.key(&p, EntryKey::CycleLink);
         assert_eq!(e.link, Some(GraceLink::Slide));
-        e.pointer(1.49, 62.0);
         e.link = None;
-        assert_eq!(link(&e, &p), GraceLink::Legato);
+        e.pointer(&p, 1.55, 62.0);
+        assert_eq!(placed(&e, &p).2, GraceLink::Legato);
+        e.pointer(&p, 1.505, 63.0);
+        assert_eq!((e.len, e.kind, e.midi), (None, GraceKind::Appoggiatura, 63), "dead zone: default length, same kind");
+        e.key(&p, EntryKey::ToggleKind);
+        assert_eq!(e.kind, GraceKind::Acciaccatura);
     }
 
     #[test]
@@ -230,12 +260,12 @@ mod tests {
         let before = p.notes.clone();
         let mut e = entry(&p, main);
         e.key(&p, EntryKey::String { up: false });
-        e.pointer(0.2, 60.0);
+        e.pointer(&p, 0.65, 60.0);
         e.key(&p, EntryKey::String { up: false });
         let (edit, affected) = e.commit(&mut p).unwrap();
         let grace = p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
         assert_eq!((grace.midi, grace.string_fret, grace.locked_fret), (60, Some((3, 5)), true));
-        assert_eq!(p.grace_link(grace.id), GraceLink::Slide);
+        assert_eq!((grace.grace_of.unwrap().kind, p.grace_link(grace.id)), (GraceKind::Appoggiatura, GraceLink::Slide));
         assert_eq!(affected, [grace.id, main]);
         edit.undo(&mut p);
         assert_eq!(p.notes, before);

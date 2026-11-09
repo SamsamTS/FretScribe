@@ -1,7 +1,9 @@
 //! Grace notes (`Note.grace_of`) and forced hammer-ons / pull-offs, both added by hand.
 //!
-//! A grace note takes no rhythmic time: it sits just before its main note (several graces of one
-//! main note chain backwards, the last added being the earliest).
+//! A grace note takes no rhythmic time. Its kind is its placement: an Acciaccatura is before the
+//! beat (its end is where the note it leads into starts, several of them chain backwards, the last
+//! added being the earliest), an Appoggiatura is on the beat (its start is the start of the main
+//! note, over which it is drawn).
 
 use std::collections::HashSet;
 
@@ -25,7 +27,7 @@ pub enum GraceError {
     MainIsGrace,
     #[error("note {0} is not a grace note")]
     NotGrace(u64),
-    #[error("there is no room before the note")]
+    #[error("there is no room for the grace note")]
     NoRoom,
     #[error("the pitch is outside the MIDI range")]
     Pitch,
@@ -109,9 +111,50 @@ impl Project {
             .fold(f64::NEG_INFINITY, f64::max)
     }
 
-    /// Creates a grace note ending where the earliest existing grace of `main` starts (or at the
-    /// main note). Its length is the kind's default, at most half the distance to the start of the
-    /// previous note.
+    /// Where a grace note of `kind` is anchored (seconds) and how much room it has. Before the beat
+    /// the anchor is the start of the nearest later grace note of the group, else of the main note,
+    /// and the room runs back to the start of the previous note; on the beat the anchor is the start
+    /// of the main note and the room is its length. `after` ignores the grace notes starting before it.
+    fn grace_room(&self, times: &NoteTimes, main: u64, id: Option<u64>, kind: GraceKind, after: f64) -> Option<(f64, f64)> {
+        let main_start = times.start_sec(main)?;
+        if kind == GraceKind::Appoggiatura {
+            return Some((main_start, times.end_sec(main)? - main_start));
+        }
+        let end = self
+            .notes
+            .iter()
+            .filter(|n| Some(n.id) != id && n.grace_of.is_some_and(|g| g.main == main && g.kind == GraceKind::Acciaccatura))
+            .filter_map(|n| times.start_sec(n.id))
+            .filter(|&s| s > after + SAME_SEC)
+            .fold(main_start, f64::min);
+        Some((end, end - self.previous_start(times, main, end)))
+    }
+
+    /// Puts grace note `id` in place as `kind` with a length of at most `len_sec`, then re-checks
+    /// its link.
+    fn place_grace(&mut self, id: u64, kind: GraceKind, len_sec: f64, after: f64) -> Result<(), GraceError> {
+        let main = self.grace_mut(id)?.grace_of.map_or(0, |g| g.main);
+        let tempo = TempoMap::new(&self.measures);
+        let times = NoteTimes::build(&self.notes, &tempo);
+        let (anchor, room) = self.grace_room(&times, main, Some(id), kind, after).ok_or(GraceError::UnknownNote(main))?;
+        let len = len_sec.min(if kind == GraceKind::Acciaccatura { room - MIN_GRACE_SEC } else { room });
+        if len < MIN_GRACE_SEC {
+            return Err(GraceError::NoRoom);
+        }
+        let (start, end) = if kind == GraceKind::Acciaccatura { (anchor - len, anchor) } else { (anchor, anchor + len) };
+        let (start, end) = (tempo.sec_to_pos(start), tempo.sec_to_pos(end));
+        let note = self.grace_mut(id)?;
+        (note.start, note.end) = (start, end);
+        if let Some(g) = &mut note.grace_of {
+            g.kind = kind;
+        }
+        self.refresh_grace_link(id);
+        Ok(())
+    }
+
+    /// Creates a grace note with the kind's default length (at most half the room): before the beat
+    /// it ends where the earliest existing grace note of `main` starts (or at the main note), on the
+    /// beat it starts with the main note.
     pub fn add_grace_note(&mut self, main: u64, midi: Option<u8>, kind: GraceKind) -> Result<u64, GraceError> {
         let main_note = self.note(main).ok_or(GraceError::UnknownNote(main))?;
         if main_note.grace_of.is_some() {
@@ -121,26 +164,35 @@ impl Project {
         if midi > 127 {
             return Err(GraceError::Pitch);
         }
-        let tempo = TempoMap::new(&self.measures);
-        let times = NoteTimes::build(&self.notes, &tempo);
-        let end_pos = self
-            .notes
-            .iter()
-            .filter(|n| n.grace_of.is_some_and(|g| g.main == main))
-            .min_by(|a, b| times.start_sec(a.id).partial_cmp(&times.start_sec(b.id)).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(main_note.start, |n| n.start);
-        let end = tempo.pos_to_sec(end_pos);
-        let len = grace_default_sec(kind).min((end - self.previous_start(&times, main, end)) / 2.0);
-        if len < MIN_GRACE_SEC {
-            return Err(GraceError::NoRoom);
-        }
         let id = next_note_id(self);
-        let mut note = Note::new(id, midi, tempo.sec_to_pos(end - len), end_pos);
+        let mut note = Note::new(id, midi, main_note.start, main_note.end);
         note.grace_of = Some(GraceNote { main, kind });
         self.notes.push(note);
+        let times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
+        let room = self.grace_room(&times, main, Some(id), kind, f64::NEG_INFINITY).map_or(0.0, |r| r.1);
+        let placed = self.place_grace(id, kind, grace_default_sec(kind).min(room / 2.0), f64::NEG_INFINITY);
+        if let Err(e) = placed {
+            self.remove_note_set(&HashSet::from([id]));
+            return Err(e);
+        }
         let link = self.default_grace_link(id);
         let _ = self.set_grace_link(id, link);
         Ok(id)
+    }
+
+    /// Re-times a grace note: `kind` decides the side of the beat, `len_sec` its length (limited by
+    /// the room).
+    pub fn set_grace_timing(&mut self, id: u64, kind: GraceKind, len_sec: f64) -> Result<(), GraceError> {
+        let after = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)).start_sec(id).unwrap_or(f64::NEG_INFINITY);
+        self.place_grace(id, kind, len_sec, after)
+    }
+
+    /// Switches between before the beat and on the beat, keeping the length.
+    pub fn set_grace_kind(&mut self, id: u64, kind: GraceKind) -> Result<(), GraceError> {
+        let times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
+        let len = times.end_sec(id).zip(times.start_sec(id)).map_or(grace_default_sec(kind), |(e, s)| e - s);
+        self.grace_mut(id)?;
+        self.set_grace_timing(id, kind, len)
     }
 
     pub fn grace_target(&self, id: u64) -> Option<u64> {
@@ -219,43 +271,6 @@ impl Project {
             return Err(GraceError::NotGrace(id));
         }
         Ok(note)
-    }
-
-    pub fn set_grace_kind(&mut self, id: u64, kind: GraceKind) -> Result<(), GraceError> {
-        if let Some(g) = &mut self.grace_mut(id)?.grace_of {
-            g.kind = kind;
-        }
-        Ok(())
-    }
-
-    /// Moves a grace note (same length) to start at `start_sec`, kept between the end of the
-    /// grace notes before it (or the start of the previous note) and the start of the note it
-    /// leads into. The link is re-checked.
-    pub fn move_grace(&mut self, id: u64, start_sec: f64) -> Result<(), GraceError> {
-        let main = self.grace_mut(id)?.grace_of.map_or(0, |g| g.main);
-        let tempo = TempoMap::new(&self.measures);
-        let times = NoteTimes::build(&self.notes, &tempo);
-        let target = grace_target_of(&self.notes, &times, id).and_then(|t| times.start_sec(t));
-        let (Some(target_start), Some(start), Some(end), Some(main_start)) = (target, times.start_sec(id), times.end_sec(id), times.start_sec(main)) else {
-            return Err(GraceError::UnknownNote(main));
-        };
-        let before_siblings = self
-            .notes
-            .iter()
-            .filter(|n| n.id != id && n.grace_of.is_some_and(|g| g.main == main))
-            .filter_map(|n| times.start_sec(n.id).filter(|&s| s < start - SAME_SEC).and(times.end_sec(n.id)))
-            .fold(f64::NEG_INFINITY, f64::max);
-        let lowest = (self.previous_start(&times, main, main_start) + MIN_GRACE_SEC).max(before_siblings);
-        let highest = target_start - (end - start);
-        if highest < lowest {
-            return Err(GraceError::NoRoom);
-        }
-        let new_start = start_sec.clamp(lowest, highest);
-        let (s, e) = (tempo.sec_to_pos(new_start), tempo.sec_to_pos(new_start + (end - start)));
-        let note = self.grace_mut(id)?;
-        (note.start, note.end) = (s, e);
-        self.refresh_grace_link(id);
-        Ok(())
     }
 
     /// Removes a grace note and the legato links that point at it or start from it.
