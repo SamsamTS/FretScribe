@@ -92,7 +92,8 @@ fn kind_move_and_remove() {
 
     p.move_grace(g, 2.0).unwrap();
     let h = add(&mut p, 59, 3.0, 3.5);
-    p.link_legato(g, main, None).unwrap();
+    assert_eq!(p.grace_link(g), GraceLink::Slide, "moved far away, then kept");
+    p.set_grace_link(g, GraceLink::Legato).unwrap();
     p.link_legato(main, h, None).unwrap();
     p.remove_grace(g).unwrap();
     assert!(p.note(g).is_none() && p.note(main).unwrap().legato.is_none());
@@ -104,7 +105,7 @@ fn main_note_removal_takes_its_graces_and_clears_legato() {
     let mut p = project();
     let main = add(&mut p, 60, 2.0, 3.0);
     let g = p.add_grace_note(main, Some(57), GraceKind::Acciaccatura).unwrap();
-    p.link_legato(g, main, None).unwrap();
+    assert_eq!(p.grace_link(g), GraceLink::Legato);
     let next = add(&mut p, 64, 3.0, 3.5);
     p.link_legato(main, next, None).unwrap();
     p.delete_notes(&[main], false);
@@ -188,4 +189,65 @@ fn force_legato_selection_single_note_and_groups() {
     let report = p.force_legato_selection(&ids);
     assert_eq!((report.linked, report.skipped.len()), (0, 2));
     assert_eq!(p.force_legato_selection(&[ids[0]]).skipped.len(), 1);
+}
+
+#[test]
+fn grace_notes_are_always_linked_legato_when_close_slide_when_far_dashed_otherwise() {
+    let mut p = project();
+    add(&mut p, 40, 0.0, 0.5);
+    let main = add(&mut p, 60, 3.0, 4.0);
+    let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
+    assert_eq!((p.grace_link(g), p.outgoing(g)), (GraceLink::Legato, Some((main, LinkType::Legato))));
+    assert_eq!(p.note(main).unwrap().legato.map(|l| l.from), Some(g));
+    // Further away than a quarter beat: slide.
+    p.move_grace(g, 2.0).unwrap();
+    assert_eq!((p.grace_link(g), p.outgoing(g)), (GraceLink::Slide, Some((main, LinkType::Slide))));
+    assert!(p.note(main).unwrap().legato.is_none());
+    // Back next to the main note: the slide is still valid and is kept.
+    p.move_grace(g, 3.0).unwrap();
+    assert_eq!(p.grace_link(g), GraceLink::Slide);
+    // Same pitch: neither is possible.
+    let same = add(&mut p, 62, 6.0, 7.0);
+    let g2 = p.add_grace_note(same, Some(62), GraceKind::Appoggiatura).unwrap();
+    assert_eq!((p.grace_link(g2), p.valid_grace_links(g2)), (GraceLink::Dashed, vec![GraceLink::Dashed]));
+    // The main note already ends a link: only dashed.
+    let (a, b) = (add(&mut p, 50, 8.0, 8.5), add(&mut p, 52, 8.5, 9.0));
+    p.link_notes(a, b, LinkType::Slide).unwrap();
+    let g3 = p.add_grace_note(b, Some(55), GraceKind::Acciaccatura).unwrap();
+    assert_eq!(p.valid_grace_links(g3), vec![GraceLink::Dashed]);
+}
+
+#[test]
+fn cycling_walks_the_valid_states_in_one_edit() {
+    let mut p = project();
+    let main = add(&mut p, 60, 3.0, 4.0);
+    let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
+    let before = p.notes.clone();
+    let (edit, first) = p.try_edit("Grace link", |p| p.cycle_grace_link(g)).unwrap();
+    assert_eq!((first, p.grace_link(g)), (Some(GraceLink::Slide), GraceLink::Slide));
+    assert!(p.note(main).unwrap().legato.is_none());
+    assert_eq!(p.cycle_grace_link(g), Ok(Some(GraceLink::Dashed)));
+    assert!(p.outgoing(g).is_none());
+    assert_eq!(p.cycle_grace_link(g), Ok(Some(GraceLink::Legato)));
+    edit.undo(&mut p);
+    let _ = before;
+    assert_eq!(p.cycle_grace_link(main), Err(GraceError::NotGrace(main)));
+    let same = add(&mut p, 62, 6.0, 7.0);
+    let g2 = p.add_grace_note(same, Some(62), GraceKind::Acciaccatura).unwrap();
+    assert_eq!(p.cycle_grace_link(g2), Ok(None));
+    assert_eq!(p.set_grace_link(g2, GraceLink::Slide), Err(GraceError::LinkInvalid));
+}
+
+#[test]
+fn several_graces_link_into_the_next_one_and_moves_stay_between_neighbours() {
+    let mut p = project();
+    let main = add(&mut p, 60, 3.0, 4.0);
+    let first = p.add_grace_note(main, Some(57), GraceKind::Acciaccatura).unwrap();
+    let second = p.add_grace_note(main, Some(55), GraceKind::Acciaccatura).unwrap();
+    assert_eq!((p.grace_target(second), p.grace_target(first)), (Some(first), Some(main)));
+    assert_eq!(p.outgoing(second).map(|o| o.0), Some(first));
+    p.move_grace(second, 5.0).unwrap();
+    assert!(secs(&p, second).1 <= secs(&p, first).0 + 1e-9);
+    p.move_grace(first, 0.0).unwrap();
+    assert!(secs(&p, first).0 >= secs(&p, second).1 - 1e-9);
 }

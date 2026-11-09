@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use thiserror::Error;
 
-use crate::links::{legato_kind, strings_differ, LinkError, MAX_FRET};
+use crate::links::{legato_kind, strings_differ, LinkError, LinkType, MAX_FRET};
 use crate::model::{GraceKind, GraceNote, Legato, Note, Project};
 use crate::tempo::{NoteTimes, TempoMap};
 use crate::tracks::next_note_id;
@@ -29,6 +29,8 @@ pub enum GraceError {
     NoRoom,
     #[error("the pitch is outside the MIDI range")]
     Pitch,
+    #[error("that link is not possible here")]
+    LinkInvalid,
 }
 
 #[derive(Clone, Debug, Error, PartialEq)]
@@ -50,6 +52,33 @@ impl From<LegatoError> for LinkError {
             _ => LinkError::NoSameString,
         }
     }
+}
+
+/// How a grace note joins the note that follows it (the next grace note or its main note).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraceLink {
+    Legato,
+    Slide,
+    /// No technique: only drawn as a dashed connector.
+    Dashed,
+}
+
+impl GraceLink {
+    pub const ALL: [Self; 3] = [Self::Legato, Self::Slide, Self::Dashed];
+}
+
+/// The note a grace note leads into: the earliest group member (its main note or a sibling grace
+/// note) starting after it.
+pub fn grace_target_of(notes: &[Note], times: &NoteTimes, id: u64) -> Option<u64> {
+    let main = notes.iter().find(|n| n.id == id)?.grace_of?.main;
+    let start = times.start_sec(id)?;
+    notes
+        .iter()
+        .filter(|n| n.id == main || n.grace_of.is_some_and(|g| g.main == main))
+        .filter_map(|n| Some((n.id, times.start_sec(n.id)?)))
+        .filter(|&(other, s)| other != id && s > start - SAME_SEC)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(other, _)| other)
 }
 
 pub fn grace_default_sec(kind: GraceKind) -> f64 {
@@ -109,7 +138,79 @@ impl Project {
         let mut note = Note::new(id, midi, tempo.sec_to_pos(end - len), end_pos);
         note.grace_of = Some(GraceNote { main, kind });
         self.notes.push(note);
+        let link = self.default_grace_link(id);
+        let _ = self.set_grace_link(id, link);
         Ok(id)
+    }
+
+    pub fn grace_target(&self, id: u64) -> Option<u64> {
+        grace_target_of(&self.notes, &NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)), id)
+    }
+
+    pub fn grace_link(&self, id: u64) -> GraceLink {
+        match self.outgoing(id) {
+            Some((_, LinkType::Legato)) => GraceLink::Legato,
+            Some(_) => GraceLink::Slide,
+            None => GraceLink::Dashed,
+        }
+    }
+
+    /// The link kinds that can be set now (the current one included), in cycling order.
+    pub fn valid_grace_links(&self, id: u64) -> Vec<GraceLink> {
+        let Some(target) = self.grace_target(id) else { return Vec::new() };
+        let mut scratch = self.clone();
+        scratch.unlink(id);
+        GraceLink::ALL
+            .into_iter()
+            .filter(|&k| match k {
+                GraceLink::Dashed => true,
+                GraceLink::Slide => scratch.can_link(id, target, LinkType::Slide).is_ok(),
+                GraceLink::Legato => scratch.clone().link_legato(id, target, None).is_ok(),
+            })
+            .collect()
+    }
+
+    /// Replaces the grace note's link; refused when `link` is not valid.
+    pub fn set_grace_link(&mut self, id: u64, link: GraceLink) -> Result<(), GraceError> {
+        self.grace_mut(id)?;
+        if !self.valid_grace_links(id).contains(&link) {
+            return Err(GraceError::LinkInvalid);
+        }
+        self.unlink(id);
+        if let Some(target) = self.grace_target(id) {
+            match link {
+                GraceLink::Legato => drop(self.link_legato(id, target, None)),
+                GraceLink::Slide => drop(self.link_notes(id, target, LinkType::Slide)),
+                GraceLink::Dashed => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Legato when close, slide when further, dashed when neither is possible.
+    pub fn default_grace_link(&self, id: u64) -> GraceLink {
+        self.valid_grace_links(id).first().copied().unwrap_or(GraceLink::Dashed)
+    }
+
+    /// Keeps the current link while it stays valid, otherwise takes the default.
+    fn refresh_grace_link(&mut self, id: u64) {
+        let current = self.grace_link(id);
+        let valid = self.valid_grace_links(id);
+        if !valid.contains(&current) {
+            let _ = self.set_grace_link(id, valid.first().copied().unwrap_or(GraceLink::Dashed));
+        }
+    }
+
+    /// Next valid link kind after the current one; `None` when there is only one.
+    pub fn cycle_grace_link(&mut self, id: u64) -> Result<Option<GraceLink>, GraceError> {
+        self.grace_mut(id)?;
+        let valid = self.valid_grace_links(id);
+        let at = valid.iter().position(|&k| k == self.grace_link(id)).unwrap_or(valid.len().saturating_sub(1));
+        let next = valid[(at + 1) % valid.len().max(1)..].first().copied().filter(|_| valid.len() > 1);
+        if let Some(next) = next {
+            self.set_grace_link(id, next)?;
+        }
+        Ok(next)
     }
 
     fn grace_mut(&mut self, id: u64) -> Result<&mut Note, GraceError> {
@@ -127,16 +228,25 @@ impl Project {
         Ok(())
     }
 
-    /// Moves a grace note (same length) to start at `start_sec`, kept inside the gap between the
-    /// start of the previous note and its main note.
+    /// Moves a grace note (same length) to start at `start_sec`, kept between the end of the
+    /// grace notes before it (or the start of the previous note) and the start of the note it
+    /// leads into. The link is re-checked.
     pub fn move_grace(&mut self, id: u64, start_sec: f64) -> Result<(), GraceError> {
         let main = self.grace_mut(id)?.grace_of.map_or(0, |g| g.main);
         let tempo = TempoMap::new(&self.measures);
         let times = NoteTimes::build(&self.notes, &tempo);
-        let (Some(main_start), Some(start), Some(end)) = (self.note(main).and_then(|m| times.start_sec(m.id)), times.start_sec(id), times.end_sec(id)) else {
+        let target = grace_target_of(&self.notes, &times, id).and_then(|t| times.start_sec(t));
+        let (Some(target_start), Some(start), Some(end), Some(main_start)) = (target, times.start_sec(id), times.end_sec(id), times.start_sec(main)) else {
             return Err(GraceError::UnknownNote(main));
         };
-        let (lowest, highest) = (self.previous_start(&times, main, main_start) + MIN_GRACE_SEC, main_start - (end - start));
+        let before_siblings = self
+            .notes
+            .iter()
+            .filter(|n| n.id != id && n.grace_of.is_some_and(|g| g.main == main))
+            .filter_map(|n| times.start_sec(n.id).filter(|&s| s < start - SAME_SEC).and(times.end_sec(n.id)))
+            .fold(f64::NEG_INFINITY, f64::max);
+        let lowest = (self.previous_start(&times, main, main_start) + MIN_GRACE_SEC).max(before_siblings);
+        let highest = target_start - (end - start);
         if highest < lowest {
             return Err(GraceError::NoRoom);
         }
@@ -144,6 +254,7 @@ impl Project {
         let (s, e) = (tempo.sec_to_pos(new_start), tempo.sec_to_pos(new_start + (end - start)));
         let note = self.grace_mut(id)?;
         (note.start, note.end) = (s, e);
+        self.refresh_grace_link(id);
         Ok(())
     }
 
