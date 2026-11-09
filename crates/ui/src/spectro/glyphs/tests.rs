@@ -325,3 +325,18 @@ fn grace_notes_keep_a_minimum_width_and_the_legato_arc_to_their_main_note() {
     assert!((width(3) - MIN_NOTE_PX).abs() < 1e-3 || width(3) >= MIN_NOTE_PX);
     assert!(glyphs.iter().any(|g| matches!(g, Glyph::Arc { from: 1, to: 2, .. })));
 }
+
+#[test]
+fn an_unlinked_grace_note_is_joined_to_its_main_note_by_a_dashed_connector() {
+    let (mut notes, times) = setup(&[(1, 50, 1.0, 1.04, None, None), (2, 52, 1.5, 2.0, None, None)]);
+    notes[0].grace_of = Some(fretscribe_core::GraceNote { main: 2, kind: fretscribe_core::GraceKind::Acciaccatura });
+    let glyphs = note_glyphs(&geo(), &notes, &times, &metrics());
+    assert!(glyphs.iter().any(|g| matches!(g, Glyph::Link { kind: LinkKind::Dashed, from_note: 1, to_note: 2, .. })));
+    let Some(Glyph::Link { path, .. }) = glyphs.iter().find(|g| matches!(g, Glyph::Link { .. })) else { panic!("no connector") };
+    let mid = path[0] + (path[path.len() - 1] - path[0]) * 0.5;
+    assert_eq!(hit_test(&geo(), &notes, &times, mid, None), Some((1, HitZone::Line)));
+    notes[0].link_to = Some(2);
+    notes[0].technique = Some(Technique::Slide);
+    let slid = note_glyphs(&geo(), &notes, &times, &metrics());
+    assert!(slid.iter().any(|g| matches!(g, Glyph::Link { kind: LinkKind::Slide, .. })) && !slid.iter().any(|g| matches!(g, Glyph::Link { kind: LinkKind::Dashed, .. })));
+}

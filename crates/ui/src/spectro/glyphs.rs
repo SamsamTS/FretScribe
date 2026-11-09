@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use egui::{pos2, vec2, Pos2, Rect};
-use fretscribe_core::{Note, NoteTimes, Technique};
+use fretscribe_core::{grace_target_of, Note, NoteTimes, Technique};
 
 use super::SpectroGeometry;
 
@@ -61,6 +61,8 @@ impl NoteMetrics {
 pub enum LinkKind {
     Slide,
     Bend,
+    /// A grace note's plain connection to the note it leads into (no technique), drawn dashed.
+    Dashed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,16 +111,18 @@ pub struct GlyphItem {
 }
 
 pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
+    let legato_sources: Vec<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
     notes
         .iter()
         .filter_map(|n| {
             let kind = if matches!(n.technique, Some(Technique::Bend)) { LinkKind::Bend } else { LinkKind::Slide };
+            let dashed = (n.grace_of.is_some() && n.link_to.is_none() && !legato_sources.contains(&n.id)).then(|| grace_target_of(notes, times, n.id)).flatten();
             Some(GlyphItem {
                 id: n.id,
                 midi: n.midi,
                 start_sec: times.start_sec(n.id)?,
                 end_sec: times.end_sec(n.id)?,
-                link: n.link_to.map(|to| (to, kind)),
+                link: n.link_to.map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
                 legato_from: n.legato.map(|l| l.from),
                 grace: n.grace_of.is_some(),
             })
@@ -221,7 +225,7 @@ impl Scene {
             .glyphs
             .iter()
             .filter_map(|g| match g {
-                Glyph::Link { kind, from_note, path, .. } => Some((dist_to_path(pos, path), *from_note, if *kind == LinkKind::Slide { HitZone::Line } else { HitZone::Arrow })),
+                Glyph::Link { kind, from_note, path, .. } => Some((dist_to_path(pos, path), *from_note, if matches!(kind, LinkKind::Slide | LinkKind::Dashed) { HitZone::Line } else { HitZone::Arrow })),
                 Glyph::Arc { to, path, .. } => Some((dist_to_path(pos, path), *to, HitZone::Arc)),
                 Glyph::Note(..) => None,
             })
@@ -309,7 +313,7 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
         let start = pos2(src.right().min(dst.left()), src.center().y);
         dot(items[i].id, Side::Right, start);
         let (path, arrow_tip) = match kind {
-            LinkKind::Slide => {
+            LinkKind::Slide | LinkKind::Dashed => {
                 dot(items[j].id, Side::Left, dst.left_center());
                 (vec![start, dst.left_center()], None)
             }

@@ -2,7 +2,7 @@
 //! Edits are applied to the project right away and handed back as undo steps.
 
 use egui::Pos2;
-use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap};
+use fretscribe_core::{snap_edge, Edge, GraceLink, Project, ProjectEdit, SnapGrid, TempoMap};
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
@@ -114,7 +114,8 @@ enum State {
     SlideEnd { creation: Creation, pressed: bool, sticky: Sticky },
     Marquee { from: Sample, add: bool },
     Paste { pressed: bool },
-    Grace(GraceEntry),
+    /// The grace entry: the pointer places the note, a left click confirms.
+    Grace { entry: GraceEntry, pressed: bool },
 }
 
 #[derive(Default)]
@@ -148,6 +149,16 @@ fn target_of(hit: Option<(u64, HitZone)>) -> Option<u64> {
     hit.filter(|(_, z)| matches!(z, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::LinkLeft | HitZone::LinkRight)).map(|h| h.0)
 }
 
+/// The grace note a right click acts on: the one hit, or the source of the legato arc hit.
+fn grace_of_hit(project: &Project, id: u64, zone: HitZone) -> Option<u64> {
+    let grace = |id: u64| project.note(id).is_some_and(|n| n.grace_of.is_some()).then_some(id);
+    match zone {
+        HitZone::Arc => project.incoming(id).and_then(|(from, _)| grace(from)),
+        HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::Line => grace(id),
+        _ => None,
+    }
+}
+
 fn on_note(hit: Option<(u64, HitZone)>) -> Option<(u64, HitZone)> {
     hit.filter(|(_, z)| matches!(z, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge))
 }
@@ -159,7 +170,7 @@ impl NoteEditor {
 
     /// The grace entry is on and consumes the keys.
     pub fn in_entry(&self) -> bool {
-        matches!(self.state, State::Grace(_))
+        matches!(self.state, State::Grace { .. })
     }
 
     pub fn is_busy(&self) -> bool {
@@ -169,7 +180,7 @@ impl NoteEditor {
     /// Whether a mode that wants the next click (paste preview, link drawing) is on.
     pub fn in_mode(&self) -> bool {
         match &self.state {
-            State::Paste { .. } | State::SlideEnd { .. } => true,
+            State::Paste { .. } | State::SlideEnd { .. } | State::Grace { .. } => true,
             State::Link(l) => l.waiting(),
             _ => false,
         }
@@ -246,8 +257,8 @@ impl NoteEditor {
                     self.state = State::Pending { button, at, mods };
                 }
             }
-            (State::Paste { .. } | State::SlideEnd { .. }, Button::Right) => self.cancel(),
-            (State::Paste { pressed } | State::SlideEnd { pressed, .. }, Button::Left) => *pressed = true,
+            (State::Paste { .. } | State::SlideEnd { .. } | State::Grace { .. }, Button::Right) => self.cancel(),
+            (State::Paste { pressed } | State::SlideEnd { pressed, .. } | State::Grace { pressed, .. }, Button::Left) => *pressed = true,
             (State::Link(l), Button::Left) if l.waiting() => l.pressed = true,
             _ => self.cancel(),
         }
@@ -364,7 +375,12 @@ impl NoteEditor {
             }
             State::Marquee { from, .. } => self.marquee = Some((from.pos, at.pos)),
             State::Paste { .. } => self.update_paste(env, at, mods.alt),
-            State::Idle | State::Pending { .. } | State::Grace(_) => {}
+            State::Idle | State::Pending { .. } => {}
+            State::Grace { mut entry, pressed } => {
+                entry.pointer(at.sec, at.refined);
+                self.show_entry(env, &entry);
+                self.state = State::Grace { entry, pressed };
+            }
         }
     }
 
@@ -410,8 +426,12 @@ impl NoteEditor {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
                 plan.map_or_else(Vec::new, |p| self.commit(env, &p.creation, "Extend chain", true))
             }
-            (State::Grace(entry), _) => {
-                self.state = State::Grace(entry);
+            (State::Grace { entry, pressed: true }, Button::Left) => {
+                self.ignore_seek = true;
+                self.confirm_entry(env, entry)
+            }
+            (State::Grace { entry, .. }, _) => {
+                self.state = State::Grace { entry, pressed: false };
                 Vec::new()
             }
             (State::Link(l), _) => self.release_link(env, l, button, &at, mods),
@@ -531,6 +551,7 @@ impl NoteEditor {
                 self.selection.clear();
                 Vec::new()
             }
+            (Button::Right, Some((id, zone))) if grace_of_hit(env.project, id, zone).is_some() => self.cycle_grace(env, grace_of_hit(env.project, id, zone).unwrap_or(id)),
             (Button::Right, Some((id, HitZone::Line | HitZone::Arrow))) => self.remove_link(env, id, false),
             (Button::Right, Some((id, HitZone::Arc))) => self.remove_link(env, id, true),
             (Button::Right, Some((id, _))) if on_note(first.hit).is_some() => {
@@ -549,6 +570,27 @@ impl NoteEditor {
                 }
             }
             _ => Vec::new(),
+        }
+    }
+
+    /// Right click on a grace note or its connector: next valid link (legato, slide, dashed).
+    fn cycle_grace(&mut self, env: &mut Env, grace: u64) -> Vec<Effect> {
+        let merge = self.cycle.is_some_and(|(note, at)| note == grace && env.now - at <= CYCLE_WINDOW_SEC);
+        match env.project.try_edit("Grace note link", |p| p.cycle_grace_link(grace)) {
+            Ok((edit, Some(link))) => {
+                self.cycle = Some((grace, env.now));
+                let name = match link {
+                    GraceLink::Legato => "Legato",
+                    GraceLink::Slide => "Slide",
+                    GraceLink::Dashed => "No link",
+                };
+                vec![Effect::Edit { edit: Box::new(edit), merge, affected: vec![grace] }, Effect::Message(name.to_owned())]
+            }
+            Ok((edit, None)) => {
+                edit.undo(env.project);
+                vec![Effect::Message("no other link is possible".to_owned())]
+            }
+            Err(e) => vec![Effect::Message(e.to_string())],
         }
     }
 
@@ -605,12 +647,17 @@ impl NoteEditor {
     }
 
     fn entry_key(&mut self, env: &mut Env, key: EntryKey) -> Vec<Effect> {
-        let State::Grace(mut entry) = std::mem::take(&mut self.state) else { return Vec::new() };
+        let State::Grace { mut entry, pressed } = std::mem::take(&mut self.state) else { return Vec::new() };
         if entry.key(env.project, key) == EntryStep::Continue {
             self.show_entry(env, &entry);
-            self.state = State::Grace(entry);
+            self.state = State::Grace { entry, pressed };
             return Vec::new();
         }
+        self.confirm_entry(env, entry)
+    }
+
+    /// Adds the grace note; a failure keeps the entry open.
+    fn confirm_entry(&mut self, env: &mut Env, entry: GraceEntry) -> Vec<Effect> {
         match entry.commit(env.project) {
             Ok((edit, affected)) => {
                 self.reset();
@@ -618,7 +665,7 @@ impl NoteEditor {
                 vec![Effect::Edit { edit: Box::new(edit), merge: false, affected }]
             }
             Err(message) => {
-                self.state = State::Grace(entry);
+                self.state = State::Grace { entry, pressed: false };
                 vec![Effect::Message(message)]
             }
         }
@@ -648,7 +695,7 @@ impl NoteEditor {
                 out.extend(done.open_exact.map(Effect::OpenExact));
                 if let Some(entry) = done.grace_entry.filter(|_| !self.is_busy()).and_then(|main| GraceEntry::new(env.project, main)) {
                     self.show_entry(env, &entry);
-                    self.state = State::Grace(entry);
+                    self.state = State::Grace { entry, pressed: false };
                 }
                 out
             }

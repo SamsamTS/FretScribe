@@ -126,8 +126,8 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
 
     for g in &scene.glyphs {
         match g {
-            Glyph::Link { path, arrow_tip, .. } => {
-                stroke_path(painter, path.clone(), stroke, look.dashed);
+            Glyph::Link { kind, path, arrow_tip, .. } => {
+                stroke_path(painter, path.clone(), stroke, look.dashed || *kind == LinkKind::Dashed);
                 if let (Some(tip), [.., before, _]) = (arrow_tip, path.as_slice()) {
                     stroke_path(painter, chevron(*tip, tip.y < before.y, m).to_vec(), stroke, false);
                 }

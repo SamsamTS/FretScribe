@@ -85,7 +85,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
                 inputs.push(Input::Escape);
             }
             let tone = i.modifiers.shift;
-            let keys = [(Key::ArrowUp, EntryKey::Pitch { up: true, tone }), (Key::ArrowDown, EntryKey::Pitch { up: false, tone }), (Key::ArrowLeft, EntryKey::String { up: false }), (Key::ArrowRight, EntryKey::String { up: true }), (Key::G, EntryKey::ToggleKind), (Key::H, EntryKey::ToggleHammer), (Key::Enter, EntryKey::Confirm)];
+            let keys = [(Key::ArrowUp, EntryKey::Pitch { up: true, tone }), (Key::ArrowDown, EntryKey::Pitch { up: false, tone }), (Key::ArrowLeft, EntryKey::String { up: false }), (Key::ArrowRight, EntryKey::String { up: true }), (Key::G, EntryKey::ToggleKind), (Key::H, EntryKey::CycleLink), (Key::Enter, EntryKey::Confirm)];
             let digits = [Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
             inputs.extend(keys.iter().filter(|(k, _)| i.key_pressed(*k)).map(|(_, e)| Input::Entry(*e)));
             inputs.extend(digits.iter().enumerate().filter(|(_, k)| i.key_pressed(**k)).map(|(d, _)| Input::Entry(EntryKey::Digit(d as u8))));

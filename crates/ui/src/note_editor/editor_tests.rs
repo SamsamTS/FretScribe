@@ -1,5 +1,5 @@
 use egui::pos2;
-use fretscribe_core::{LinkType, Project, SnapGrid, TimePos};
+use fretscribe_core::{GraceLink, LinkType, Project, SnapGrid, TimePos};
 
 use super::testkit::*;
 use super::*;
@@ -599,48 +599,96 @@ fn force_legato_emits_one_edit_and_a_message() {
 }
 
 #[test]
-fn grace_entry_is_modal_and_confirmed_as_one_edit() {
+fn grace_entry_is_modal_and_enter_confirms_as_one_edit() {
     let mut h = H::new();
     let main = add(&mut h.p, 64, 1.0, 2.0);
     h.ed.selection.set(vec![main]);
     assert!(h.send(Input::Action(NoteAction::Grace)).is_empty());
-    assert!(h.ed.in_entry() && h.ed.is_busy() && h.p.notes.len() == 1);
+    assert!(h.ed.in_entry() && h.ed.is_busy() && h.ed.in_mode() && h.p.notes.len() == 1);
     assert!(h.ed.ghost.as_ref().is_some_and(|g| g.glyphs.len() == 2 && g.glyphs[0].grace));
     assert_eq!(h.ed.feedback.as_ref().map(|f| f.labels[0].2.as_str()), Some("B 3"));
     h.send(Input::Entry(EntryKey::Pitch { up: false, tone: false }));
     h.send(Input::Entry(EntryKey::ToggleKind));
-    h.send(Input::Entry(EntryKey::ToggleHammer));
-    assert_eq!(h.p.notes.len(), 1, "nothing changes before Enter");
+    assert_eq!(h.p.notes.len(), 1, "nothing changes before the confirmation");
     let out = h.send(Input::Entry(EntryKey::Confirm));
     assert_eq!(edits(&out), 1);
     assert!(!h.ed.in_entry() && h.ed.ghost.is_none());
     let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
     assert_eq!((grace.midi, grace.grace_of.unwrap().kind), (61, fretscribe_core::GraceKind::Appoggiatura));
-    assert_eq!(h.p.note(main).unwrap().legato.map(|l| l.from), Some(grace.id));
+    assert_eq!(h.p.grace_link(grace.id), GraceLink::Legato, "close to the main note: legato");
     assert_eq!(h.ed.selection.ids, [grace.id]);
 }
 
 #[test]
-fn escape_or_a_click_cancels_the_entry_and_a_failed_hammer_keeps_it_open() {
+fn the_pointer_places_the_grace_note_and_a_left_click_confirms() {
+    let mut h = H::new();
+    add(&mut h.p, 40, 0.0, 0.5);
+    let main = add(&mut h.p, 64, 8.0, 9.0);
+    h.ed.selection.set(vec![main]);
+    h.send(Input::Action(NoteAction::Grace));
+    let at = s(5.0, 60.2, None);
+    h.mv(at, NONE);
+    let ghost = h.ed.ghost.as_ref().unwrap();
+    assert!((ghost.glyphs[0].start_sec - sec(5.0)).abs() < 1e-9 && ghost.glyphs[0].midi == 60);
+    assert!(ghost.glyphs[0].link_to.is_some(), "further than a quarter beat: a slide");
+    assert!(h.ed.feedback.as_ref().is_some_and(|f| f.labels[0].0 == ghost.glyphs[0].start_sec));
+    h.press(Button::Left, at, NONE);
+    assert!(h.ed.in_entry(), "the press alone changes nothing");
+    let out = h.rel(Button::Left, at, NONE);
+    assert_eq!(edits(&out), 1);
+    assert!(!h.ed.in_entry());
+    let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
+    assert_eq!(grace.midi, 60);
+    assert_eq!(h.p.grace_link(grace.id), GraceLink::Slide);
+    let tempo = fretscribe_core::TempoMap::new(&h.p.measures);
+    assert!((tempo.pos_to_sec(grace.start) - sec(5.0)).abs() < 1e-9);
+    assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(1.0), NONE)).is_empty(), "the click does not seek");
+}
+
+#[test]
+fn h_cycles_the_link_in_the_entry_and_escape_or_the_right_button_cancels() {
     let mut h = H::new();
     let main = add(&mut h.p, 64, 1.0, 2.0);
+    h.ed.selection.set(vec![main]);
+    h.send(Input::Action(NoteAction::Grace));
+    h.send(Input::Entry(EntryKey::CycleLink));
+    h.send(Input::Entry(EntryKey::CycleLink));
+    h.send(Input::Entry(EntryKey::Confirm));
+    let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap().id;
+    assert_eq!(h.p.grace_link(grace), GraceLink::Dashed);
+    h.p.remove_grace(grace).unwrap();
+
     h.ed.selection.set(vec![main]);
     h.send(Input::Action(NoteAction::Grace));
     h.send(Input::Escape);
     assert!(!h.ed.in_entry() && h.ed.ghost.is_none() && h.p.notes.len() == 1);
     h.send(Input::Action(NoteAction::Grace));
-    h.click(Button::Left, s(3.0, 60.0, None), NONE);
+    h.click(Button::Right, s(3.0, 60.0, None), NONE);
     assert!(!h.ed.in_entry() && h.p.notes.len() == 1);
+}
 
-    h.ed.selection.set(vec![main]);
-    h.send(Input::Action(NoteAction::Grace));
-    for _ in 0..2 {
-        h.send(Input::Entry(EntryKey::Pitch { up: true, tone: false }));
-    }
-    h.send(Input::Entry(EntryKey::ToggleHammer));
-    let out = h.send(Input::Entry(EntryKey::Confirm));
-    assert!(edits(&out) == 0 && h.ed.in_entry() && out.iter().any(|e| matches!(e, Effect::Message(_))));
-    assert_eq!(h.p.notes.len(), 1);
+#[test]
+fn right_click_on_a_grace_note_or_its_connector_cycles_the_valid_links_in_one_step() {
+    let mut h = H::new();
+    let main = add(&mut h.p, 64, 3.0, 4.0);
+    let grace = h.p.add_grace_note(main, None, fretscribe_core::GraceKind::Acciaccatura).unwrap();
+    let kinds = |h: &H| h.p.grace_link(grace);
+    assert_eq!(kinds(&h), GraceLink::Legato);
+    let expect = |h: &mut H, hit: Hit, link: GraceLink| {
+        h.now += 5.0;
+        let out = h.click(Button::Right, s(3.0, 62.0, hit), NONE);
+        assert_eq!(edits(&out), 1);
+        assert_eq!(kinds(h), link);
+    };
+    expect(&mut h, body(grace), GraceLink::Slide);
+    expect(&mut h, Some((grace, HitZone::Line)), GraceLink::Dashed);
+    expect(&mut h, body(grace), GraceLink::Legato);
+    expect(&mut h, Some((main, HitZone::Arc)), GraceLink::Slide);
+    assert!(h.p.outgoing(grace).is_some(), "a grace note is never left unlinked by a click");
+    let same = add(&mut h.p, 62, 6.0, 7.0);
+    let lone = h.p.add_grace_note(same, Some(62), fretscribe_core::GraceKind::Acciaccatura).unwrap();
+    let out = h.click(Button::Right, s(6.0, 62.0, body(lone)), NONE);
+    assert!(edits(&out) == 0 && out.iter().any(|e| matches!(e, Effect::Message(_))));
 }
 
 #[test]

@@ -80,3 +80,9 @@ No change in other crates. Modules are not re-exported at the crate root.
 - `ui::note_editor`: `NoteAction::{Grace, ForceLegato}` work (default keys G, H; `ActionError::Unavailable` is gone); `Applied::grace_entry`; modal quick entry `GraceEntry` driven by `Input::Entry(EntryKey)` (`NoteEditor::in_entry`; the app's key collection must route keys to it while true, `collect` does); `Effect::Edit` of the entry affects `[grace, main]`.
 - `spectro`: `GlyphItem::grace`, `GhostGlyph::grace` (pub field, add it where ghosts are built), `MIN_GRACE_PX = 6`; grace notes draw with a dashed outline.
 - Not done yet: staff and tab drawing and pointer input of this prompt (`staff_view`, `tab_view` do not exist; prompts 9 and 10 must draw slurs/arcs and small grace notes from `Note.legato` / `Note.grace_of`).
+
+## 2026-11-09 - grace notes: always linked
+
+- A grace note always joins the note that follows it (`Project::grace_target`: the next grace note of the group, else the main note): `GraceLink::{Legato, Slide, Dashed}`; default legato when adjacent, slide when further, dashed when neither is valid (same pitch, main note already ends a link). `Project::{grace_link, valid_grace_links, set_grace_link, default_grace_link, cycle_grace_link}`; `move_grace` re-checks the link and stays between the previous grace note / note and its target; `grace_target_of(notes, times, id)`.
+- Dashed is stored as no link data (`grace_of` alone); renderers draw it from `grace_target_of`. `spectro::LinkKind::Dashed`, hit zone `Line`.
+- Note editor: right click on a grace note, its connector or its arc cycles the valid links (one undo step, merged while cycling); the entry follows the pointer (start time and pitch), a left click confirms (Enter too), H cycles the link instead of toggling a hammer-on (`EntryKey::CycleLink`), the entry is part of `NoteEditor::in_mode`.
