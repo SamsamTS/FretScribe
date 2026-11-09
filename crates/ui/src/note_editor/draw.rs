@@ -237,6 +237,7 @@ pub fn commit_creation(project: &mut Project, creation: &Creation, label: &str) 
             };
             p.link_notes(a, b, kind)?;
         }
+        p.resolve_overlaps(&ids);
         Ok(())
     })?;
     Ok((edit, ids))

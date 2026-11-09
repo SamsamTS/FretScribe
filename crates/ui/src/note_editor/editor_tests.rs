@@ -564,3 +564,22 @@ fn cancelling_at_any_point_cancels_the_whole_link() {
     h.rel(Button::Right, s(4.02, 62.0, None), NONE);
     assert_eq!((h.p.notes.len(), h.ed.is_busy()), (1, false));
 }
+
+fn same_pitch_overlaps(p: &Project) -> bool {
+    p.notes.iter().any(|a| p.notes.iter().any(|b| a.id < b.id && a.midi == b.midi && a.start.beat < b.end.beat && b.start.beat < a.end.beat))
+}
+
+#[test]
+fn no_gesture_or_command_leaves_two_same_pitch_notes_overlapping() {
+    let mut h = H::new();
+    add(&mut h.p, 60, 0.0, 3.0);
+    let other = add(&mut h.p, 62, 1.0, 2.0);
+    h.draw((1.0, 60.0), (2.0, 60.0), NONE);
+    assert_eq!(h.p.notes.len(), 4, "the long note was split around the drawn one");
+    assert!(!same_pitch_overlaps(&h.p));
+    h.ed.selection.set(vec![other]);
+    h.send(Input::Action(NoteAction::Transpose(-2)));
+    assert!(!same_pitch_overlaps(&h.p) && h.p.notes.len() == 3, "the transposed note replaced the drawn one");
+    h.send(Input::Action(NoteAction::Duplicate));
+    assert!(!same_pitch_overlaps(&h.p));
+}

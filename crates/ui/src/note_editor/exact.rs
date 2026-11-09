@@ -109,6 +109,7 @@ pub fn apply_exact(project: &mut Project, fields: &ExactFields) -> Result<Projec
             n.string_fret = lock;
             n.locked_fret = lock.is_some();
         }
+        p.resolve_overlaps(&[fields.id]);
         Ok(())
     })?)
 }

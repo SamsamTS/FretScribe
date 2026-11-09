@@ -114,6 +114,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
                 for n in p.notes.iter_mut().filter(|n| moved.contains(&n.id)) {
                     n.midi = (i32::from(n.midi) + by) as u8;
                 }
+                p.resolve_overlaps(&moved);
                 Ok(())
             })?;
             Ok(edited(edit, moved))
@@ -149,6 +150,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
                         n.end = *end;
                     }
                 }
+                p.resolve_overlaps(&ids);
                 Ok(())
             })?;
             Ok(edited(edit, ids))

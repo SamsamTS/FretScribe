@@ -90,6 +90,7 @@ impl Clipboard {
         let ids: Vec<u64> = notes.iter().map(|n| n.id).collect();
         let edit = project.edit_notes(label, |p| {
             p.notes.extend(notes);
+            p.resolve_overlaps(&ids);
             Ok(())
         })?;
         Ok((edit, ids))

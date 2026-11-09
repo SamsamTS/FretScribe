@@ -5,6 +5,7 @@ pub mod error;
 pub mod links;
 pub mod measures;
 pub mod model;
+mod overlap;
 pub mod persist;
 pub mod pitch;
 pub mod snap;
@@ -34,5 +35,6 @@ pub use pitch::{
 pub use snap::{SnapGrid, SnapPreset, SNAP_DIVISIONS};
 pub use snap_note::{add_beats, effective_divisions, min_subdivision_beats, snap_edge, snap_note, snap_resized, step_on_grid, Edge, SnapOpts};
 pub use tempo::{BeatKind, BeatLine, NoteTimes, TempoMap};
+pub use overlap::MIN_PIECE_BEATS;
 pub use tracks::{audible_tracks, next_note_id, project_end_sec, shift_track};
 pub use undo::{UndoStack, DEFAULT_UNDO_LIMIT};
