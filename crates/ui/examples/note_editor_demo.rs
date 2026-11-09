@@ -119,7 +119,8 @@ fn scene(map: &TempoMap, t0: f64, squeeze: f64) -> Vec<Note> {
 fn legato_scene(project: &mut Project) {
     let map = TempoMap::new(&project.measures);
     // (midi, start, end, string/fret)
-    let specs: [(u8, f64, f64, Option<(u8, u8)>); 13] = [
+    type Case = (u8, f64, f64, Option<(u8, u8)>);
+    let specs: [Case; 13] = [
         (52, 0.0, 0.5, None),
         (55, 0.5, 1.0, None),
         (57, 2.0, 2.5, None),
