@@ -313,3 +313,15 @@ fn edges_can_be_grabbed_a_few_pixels_past_the_ends_without_stealing_touching_not
     let r2 = rect_of(&glyph, 2);
     assert_eq!(at(r2.right_center() - vec2(2.0, 0.0)), Some((2, HitZone::RightEdge)));
 }
+
+#[test]
+fn grace_notes_keep_a_minimum_width_and_the_legato_arc_to_their_main_note() {
+    let (mut notes, times) = setup(&[(1, 50, 1.0, 1.0 + 0.04, None, None), (2, 52, 1.04, 2.0, None, None), (3, 50, 3.0, 3.04, None, None)]);
+    notes[0].grace_of = Some(fretscribe_core::GraceNote { main: 2, kind: fretscribe_core::GraceKind::Acciaccatura });
+    legato(&mut notes, 1, 1);
+    let glyphs = note_glyphs(&geo(), &notes, &times, &metrics());
+    let width = |id| glyphs.iter().find_map(|g| match g { Glyph::Note(r, i) if *i == id => Some(r.width()), _ => None }).unwrap();
+    assert!((width(1) - MIN_GRACE_PX).abs() < 1e-3, "a 4 px grace note is widened to the minimum");
+    assert!((width(3) - MIN_NOTE_PX).abs() < 1e-3 || width(3) >= MIN_NOTE_PX);
+    assert!(glyphs.iter().any(|g| matches!(g, Glyph::Arc { from: 1, to: 2, .. })));
+}

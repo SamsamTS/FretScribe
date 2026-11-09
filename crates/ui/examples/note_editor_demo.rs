@@ -1,7 +1,8 @@
 //! Note editing over a synthetic spectrogram: draw, slide, chain (Shift), legato (right drag),
 //! marquee, move/resize, link (L), copy/paste, undo (Ctrl+Z / Ctrl+Y), double-click for exact edit.
 //! Display controls as in the app toolbar. Ctrl+wheel zooms, Shift+wheel scrolls, Alt+wheel zooms
-//! pitch, middle drag pans.
+//! pitch, middle drag pans. `legato_demo` runs this file with the hammer-on / grace note cases
+//! (H forces a legato, G adds a grace note: Up/Down, Left/Right, digits, G, H, Enter, Esc).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -113,6 +114,38 @@ fn scene(map: &TempoMap, t0: f64, squeeze: f64) -> Vec<Note> {
         .collect()
 }
 
+/// Legato and grace cases: hammer-on, pull-off, different strings (forced move and lock), no
+/// placement (skipped), grace entry with room, with almost none, and an existing grace note.
+fn legato_scene(project: &mut Project) {
+    let map = TempoMap::new(&project.measures);
+    // (midi, start, end, string/fret)
+    let specs: [(u8, f64, f64, Option<(u8, u8)>); 13] = [
+        (52, 0.0, 0.5, None),
+        (55, 0.5, 1.0, None),
+        (57, 2.0, 2.5, None),
+        (55, 2.5, 3.0, None),
+        (55, 4.0, 4.5, Some((3, 0))),
+        (57, 4.5, 5.0, Some((2, 7))),
+        (64, 6.0, 6.5, Some((5, 0))),
+        (40, 6.5, 7.0, Some((0, 0))),
+        (62, 8.0, 9.0, None),
+        (50, 10.98, 11.0, None),
+        (60, 11.0, 11.5, None),
+        (64, 13.0, 14.0, None),
+        (60, 13.0, 13.5, None),
+    ];
+    project.notes = specs
+        .iter()
+        .enumerate()
+        .map(|(i, &(midi, start, end, string_fret))| {
+            let mut n = Note::new(i as u64 + 1, midi, map.sec_to_pos(start), map.sec_to_pos(end));
+            n.string_fret = string_fret;
+            n
+        })
+        .collect();
+    let _ = project.add_grace_note(12, None, fretscribe_core::GraceKind::Acciaccatura);
+}
+
 struct Demo {
     ctl: ViewController,
     project: Project,
@@ -134,7 +167,7 @@ struct Demo {
 }
 
 impl Demo {
-    fn new() -> Self {
+    fn new(legato: bool) -> Self {
         let mut project = Project::new(Track::new(1, "Guitar", TrackRole::Guitar), AUDIO_LEN_SEC, 110.0, TimeSignature::COMMON);
         let map = TempoMap::new(&project.measures);
         let mut luts: Vec<Arc<Lut>> = discover_luts(Path::new("LUT")).into_iter().map(Arc::new).collect();
@@ -143,6 +176,10 @@ impl Demo {
         }
         let spectrogram = synthetic();
         project.notes = scene(&map, 0.0, 1.0).into_iter().chain(scene(&map, 15.0, 0.12)).collect();
+        if legato {
+            legato_scene(&mut project);
+        }
+        let map = TempoMap::new(&project.measures);
         let times = NoteTimes::build(&project.notes, &map);
         let style = SpectroStyle { levels: Levels::new(0.0, APP_WHITE), gamma: APP_GAMMA, lut: luts[0].clone() };
         let state = ViewState { scroll_sec: 0.0, scroll_y: 0.0, pixels_per_sec: 120.0 };
@@ -334,14 +371,19 @@ impl Demo {
     }
 }
 
+#[allow(dead_code)]
 fn main() -> eframe::Result {
+    run(false)
+}
+
+pub fn run(legato: bool) -> eframe::Result {
     eframe::run_native(
         "FretScribe note editor demo",
         eframe::NativeOptions::default(),
         Box::new(|cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
             cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
-            Ok(Box::new(Demo::new()))
+            Ok(Box::new(Demo::new(legato)))
         }),
     )
 }
