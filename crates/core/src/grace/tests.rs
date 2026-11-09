@@ -90,7 +90,8 @@ fn kind_move_and_remove() {
     close(secs(&p, g).0, 1.9);
     close(secs(&p, g).1 - secs(&p, g).0, len);
 
-    let h = add(&mut p, 59, 3.5, 4.0);
+    p.move_grace(g, 2.0).unwrap();
+    let h = add(&mut p, 59, 3.0, 3.5);
     p.link_legato(g, main, None).unwrap();
     p.link_legato(main, h, None).unwrap();
     p.remove_grace(g).unwrap();
