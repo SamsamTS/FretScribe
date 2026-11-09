@@ -299,3 +299,17 @@ fn chevron_arms_point_back_from_the_tip() {
     assert!(a.y > tip.y && b.y > tip.y && (a.distance(tip) - 0.2 * H * 2f32.sqrt()).abs() < 1e-3);
     assert!(chevron(tip, false, &m)[0].y < tip.y);
 }
+
+#[test]
+fn edges_can_be_grabbed_a_few_pixels_past_the_ends_without_stealing_touching_notes() {
+    let (notes, times) = setup(&[(1, 50, 1.0, 2.0, None, None), (2, 55, 5.0, 6.0, None, None), (3, 55, 6.0, 7.0, None, None)]);
+    let g = geo();
+    let glyph = glyphs(&notes, &times);
+    let at = |p| hit_test(&g, &notes, &times, p, None);
+    let r1 = rect_of(&glyph, 1);
+    assert_eq!(at(r1.right_center() + vec2(3.0, 0.0)), Some((1, HitZone::RightEdge)));
+    assert_eq!(at(r1.left_center() - vec2(3.0, 0.0)), Some((1, HitZone::LeftEdge)));
+    assert_eq!(at(r1.right_center() + vec2(EDGE_OVERSHOOT_PX + 1.0, 0.0)), None);
+    let r2 = rect_of(&glyph, 2);
+    assert_eq!(at(r2.right_center() - vec2(2.0, 0.0)), Some((2, HitZone::RightEdge)));
+}

@@ -10,6 +10,8 @@ use super::SpectroGeometry;
 
 pub const MIN_NOTE_PX: f32 = 3.0;
 pub const EDGE_PX: f32 = 8.0;
+/// How far past its ends a note can be grabbed to resize it.
+pub const EDGE_OVERSHOOT_PX: f32 = 4.0;
 pub const DOT_HIT_PX: f32 = 7.0;
 pub const PATH_HIT_PX: f32 = 6.0;
 const MIN_NAME_HEIGHT_PX: f32 = 9.0;
@@ -224,18 +226,19 @@ impl Scene {
         if let Some((_, id, zone)) = path {
             return Some((id, zone));
         }
-        self.order.iter().rev().find_map(|&id| {
-            let r = *self.rects.get(&id).filter(|r| r.contains(pos))?;
+        let zone_of = |r: Rect| {
             let edge = EDGE_PX.min(r.width() / 3.0);
-            let zone = if pos.x < r.left() + edge {
+            if pos.x < r.left() + edge {
                 HitZone::LeftEdge
             } else if pos.x > r.right() - edge {
                 HitZone::RightEdge
             } else {
                 HitZone::Body
-            };
-            Some((id, zone))
-        })
+            }
+        };
+        let hit = |grow: f32| self.order.iter().rev().find_map(|&id| self.rects.get(&id).filter(|r| r.expand2(vec2(grow, 0.0)).contains(pos)).map(|r| (id, zone_of(*r))));
+        // The overshoot only counts outside every note, so touching notes keep their own pixels.
+        hit(0.0).or_else(|| hit(EDGE_OVERSHOOT_PX))
     }
 }
 

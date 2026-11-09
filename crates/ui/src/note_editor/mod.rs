@@ -23,7 +23,7 @@ pub use exact::{apply_exact, fields_for, parse_pitch, ExactError, ExactFields};
 pub use input::{collect, Collected, SourcePointer};
 pub use overlay::paint as paint_overlay;
 pub use editor::{Button, Effect, Env, Input, Mods, NoteEditor, Sample};
-pub use modify::{apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize, NoteChange};
+pub use modify::{apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize, NoteChange, Resize};
 pub use select::{marquee_hits, time_order, Selection};
 
 use fretscribe_core::{Project, SnapGrid, SnapOpts, TempoMap};

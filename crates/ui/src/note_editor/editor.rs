@@ -7,7 +7,7 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
 use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
-use super::modify::{apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize};
+use super::modify::{apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize, Resize};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
 use crate::spectro::{GhostShape, HitZone, SpectroEvent};
@@ -291,7 +291,7 @@ impl NoteEditor {
                 }
             }
             State::Resize { note, edge, sticky } => {
-                let planned = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|(c, s)| (ghost_of_changes(ctx.project, ctx.tempo, std::slice::from_ref(&c)), s)));
+                let planned = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|(r, s)| (ghost_of_changes(ctx.project, ctx.tempo, &r.changes()), s)));
                 if let Some((ghost, next)) = planned {
                     self.ghost = Some(ghost);
                     self.state = State::Resize { note, edge, sticky: next };
@@ -390,11 +390,11 @@ impl NoteEditor {
             (State::Pending { .. }, _) => Vec::new(),
             (State::Move { grab, offset_sec, sticky }, Button::Left) => {
                 let changes = with_ctx(env, mods.alt, |ctx| plan_move(grab, &self.selection.ids, Pt { sec: at.sec, midi: at.midi }, offset_sec, mods.shift, sticky, ctx).map(|p| p.0));
-                self.finish_changes(env, changes.unwrap_or_default(), "Move notes", None)
+                self.finish_changes(env, changes.unwrap_or_default(), "Move notes")
             }
             (State::Resize { note, edge, sticky }, Button::Left) => {
-                let change = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|p| p.0));
-                self.finish_changes(env, change.into_iter().collect(), "Resize note", Some(edge))
+                let resize = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|p| p.0));
+                resize.map_or_else(Vec::new, |r| self.finish_resize(env, &r, edge))
             }
             (State::Chain { last, sticky }, Button::Left) => {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
@@ -446,16 +446,23 @@ impl NoteEditor {
         self.marquee = None;
     }
 
-    fn finish_changes(&mut self, env: &mut Env, changes: Vec<super::modify::NoteChange>, label: &str, resized: Option<Edge>) -> Vec<Effect> {
+    fn finish_changes(&mut self, env: &mut Env, changes: Vec<super::modify::NoteChange>, label: &str) -> Vec<Effect> {
         if changes.is_empty() || is_noop(env.project, &changes) {
             return Vec::new();
         }
         let affected = changes.iter().map(|c| c.id).collect();
-        let applied = match resized {
-            Some(edge) => apply_resize(env.project, &changes[0], edge, label),
-            None => apply_changes(env.project, &changes, label),
-        };
-        match applied {
+        match apply_changes(env.project, &changes, label) {
+            Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected }],
+            Err(e) => vec![Effect::Message(e.to_string())],
+        }
+    }
+
+    fn finish_resize(&mut self, env: &mut Env, resize: &Resize, edge: Edge) -> Vec<Effect> {
+        if is_noop(env.project, &resize.changes()) {
+            return Vec::new();
+        }
+        let affected = resize.changes().iter().map(|c| c.id).collect();
+        match apply_resize(env.project, resize, edge, "Resize note") {
             Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected }],
             Err(e) => vec![Effect::Message(e.to_string())],
         }

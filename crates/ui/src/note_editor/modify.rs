@@ -1,6 +1,6 @@
 //! Move and resize of existing notes.
 
-use fretscribe_core::{snap_edge, snap_resized, EditError, Edge, LinkType, Note, Project, ProjectEdit, TempoMap, TimePos};
+use fretscribe_core::{min_subdivision_beats, snap_edge, snap_resized, EditError, Edge, LinkType, Note, Project, ProjectEdit, TempoMap, TimePos};
 
 use super::draw::{Pt, Sticky};
 use super::EditCtx;
@@ -13,6 +13,8 @@ pub struct NoteChange {
     pub start: TimePos,
     pub end: TimePos,
 }
+
+const EPS: f64 = 1e-9;
 
 fn beats(ctx: &EditCtx, pos: TimePos) -> f64 {
     ctx.tempo.pos_to_beats(pos).unwrap_or(0.0)
@@ -53,9 +55,25 @@ pub fn plan_move(grab: u64, selected: &[u64], pointer: Pt, grab_offset_sec: f64,
     Some((changes, (Some(start), None)))
 }
 
+/// A resize: the note, the neighbours whose facing edge it pushes, and those it pushes out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Resize {
+    pub change: NoteChange,
+    pub pushed: Vec<NoteChange>,
+    pub removed: Vec<u64>,
+}
+
+impl Resize {
+    /// Every note whose time changes.
+    pub fn changes(&self) -> Vec<NoteChange> {
+        std::iter::once(self.change.clone()).chain(self.pushed.iter().cloned()).collect()
+    }
+}
+
 /// Moves one edge of a note, never closer than a minimal subdivision to the other one and never
-/// past the note it is linked to (the start of the target, or the end of the source).
-pub fn plan_resize(note: u64, edge: Edge, pointer_sec: f64, sticky: Sticky, ctx: &EditCtx) -> Option<(NoteChange, Sticky)> {
+/// past the note it is linked to (the start of the target, or the end of the source). Notes that follow (End) or precede (Start)
+/// it in time are pushed by the edge, and removed when too little is left of them.
+pub fn plan_resize(note: u64, edge: Edge, pointer_sec: f64, sticky: Sticky, ctx: &EditCtx) -> Option<(Resize, Sticky)> {
     let n = ctx.project.note(note)?;
     let others: Vec<Note> = ctx.project.notes.iter().filter(|o| o.id != note).cloned().collect();
     let raw = ctx.tempo.sec_to_pos(pointer_sec);
@@ -83,7 +101,24 @@ pub fn plan_resize(note: u64, edge: Edge, pointer_sec: f64, sticky: Sticky, ctx:
             (Some(moved), None)
         }
     };
-    Some((change, kept))
+    let min = min_subdivision_beats(ctx.grid);
+    let (mut pushed, mut removed) = (Vec::new(), Vec::new());
+    for o in others.iter().filter(|o| o.grace_of.is_none()) {
+        let (crossed, left) = match edge {
+            Edge::End => (beats(ctx, o.start) >= beats(ctx, n.end) - EPS && beats(ctx, o.start) < beats(ctx, moved) - EPS, beats(ctx, o.end) - beats(ctx, moved)),
+            Edge::Start => (beats(ctx, o.end) <= beats(ctx, n.start) + EPS && beats(ctx, o.end) > beats(ctx, moved) + EPS, beats(ctx, moved) - beats(ctx, o.start)),
+        };
+        if !crossed {
+            continue;
+        }
+        if left < min - EPS {
+            removed.push(o.id);
+        } else {
+            let (start, end) = if edge == Edge::End { (moved, o.end) } else { (o.start, moved) };
+            pushed.push(NoteChange { id: o.id, midi: o.midi, start, end });
+        }
+    }
+    Some((Resize { change, pushed, removed }, kept))
 }
 
 /// Dashed preview of the changed notes, keeping the links between them.
@@ -119,11 +154,15 @@ pub fn apply_changes(project: &mut Project, changes: &[NoteChange], label: &str)
     })
 }
 
-/// Applies a resize. A slide whose notes now touch becomes a legato when one is valid.
-pub fn apply_resize(project: &mut Project, change: &NoteChange, edge: Edge, label: &str) -> Result<ProjectEdit, EditError> {
-    project.edit_notes(label, |p| {
-        let n = p.notes.iter_mut().find(|n| n.id == change.id).ok_or(EditError::UnknownNote(change.id))?;
-        (n.midi, n.start, n.end) = (change.midi, change.start, change.end);
+/// Applies a resize: pushed notes move, removed ones go (their chains split), and a slide whose
+/// notes now touch becomes a legato when one is valid. One undo step.
+pub fn apply_resize(project: &mut Project, resize: &Resize, edge: Edge, label: &str) -> Result<ProjectEdit, EditError> {
+    let change = &resize.change;
+    let moved = project.edit_notes(label, |p| {
+        for c in resize.changes() {
+            let n = p.notes.iter_mut().find(|n| n.id == c.id).ok_or(EditError::UnknownNote(c.id))?;
+            (n.midi, n.start, n.end) = (c.midi, c.start, c.end);
+        }
         let tempo = TempoMap::new(&p.measures);
         let touching = |end: TimePos, start: TimePos| (tempo.pos_to_beats(end).unwrap_or(0.0) - tempo.pos_to_beats(start).unwrap_or(1.0)).abs() < 1e-9;
         let link = match edge {
@@ -136,7 +175,11 @@ pub fn apply_resize(project: &mut Project, change: &NoteChange, edge: Edge, labe
             p.link_notes(from, to, kind)?;
         }
         Ok(())
-    })
+    })?;
+    if resize.removed.is_empty() {
+        return Ok(moved);
+    }
+    Ok(moved.merge(project.delete_notes(&resize.removed, false)))
 }
 
 #[cfg(test)]
@@ -219,8 +262,12 @@ mod tests {
         near(changes.iter().find(|c| c.id == grace).unwrap().start, 1.9);
     }
 
-    fn rs(p: &Project, n: u64, edge: Edge, beat: f64) -> NoteChange {
+    fn plan(p: &Project, n: u64, edge: Edge, beat: f64) -> Resize {
         with_ctx(p, &[4, 3], false, |ctx| plan_resize(n, edge, sec(beat), (None, None), ctx)).unwrap().0
+    }
+
+    fn rs(p: &Project, n: u64, edge: Edge, beat: f64) -> NoteChange {
+        plan(p, n, edge, beat).change
     }
 
     #[test]
@@ -231,20 +278,50 @@ mod tests {
         near(rs(&p, a, Edge::End, 3.6).end, 3.0);
         near(rs(&p, b, Edge::Start, 0.2).start, 2.0);
         near(rs(&p, a, Edge::End, 2.5).end, 2.5);
-        let change = rs(&p, a, Edge::End, 3.6);
+        let change = plan(&p, a, Edge::End, 3.6);
         let edit = apply_resize(&mut p, &change, Edge::End, "Resize").unwrap();
         assert_eq!(p.outgoing(a), Some((b, LinkType::Legato)));
         edit.undo(&mut p);
         assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
-        let change = rs(&p, a, Edge::End, 2.5);
+        let change = plan(&p, a, Edge::End, 2.5);
         apply_resize(&mut p, &change, Edge::End, "Resize").unwrap();
         assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)), "not touching");
         let c = add(&mut p, 30, 5.0, 6.0);
         let d = add(&mut p, 80, 7.0, 8.0);
         p.link_notes(c, d, LinkType::Slide).unwrap();
-        let change = rs(&p, c, Edge::End, 7.0);
+        let change = plan(&p, c, Edge::End, 7.0);
         apply_resize(&mut p, &change, Edge::End, "Resize").unwrap();
         assert_eq!(p.outgoing(c), Some((d, LinkType::Slide)), "no string fits");
+    }
+
+    #[test]
+    fn resizing_pushes_the_following_note_and_removes_it_when_nothing_is_left() {
+        let mut p = project();
+        let (a, b, c) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 64, 2.0, 3.0), add(&mut p, 67, 3.0, 4.0));
+        let r = plan(&p, a, Edge::End, 2.5);
+        assert_eq!((r.change.end, r.pushed.clone(), r.removed.clone()), (at(2.5), vec![NoteChange { id: b, midi: 64, start: at(2.5), end: at(3.0) }], vec![]));
+        let before = p.notes.clone();
+        let edit = apply_resize(&mut p, &r, Edge::End, "Resize").unwrap();
+        assert_eq!((p.note(b).unwrap().start, p.note(c).unwrap().start), (at(2.5), at(3.0)));
+        edit.undo(&mut p);
+        assert_eq!(p.notes, before);
+        let r = plan(&p, a, Edge::End, 3.5);
+        assert_eq!((r.removed.clone(), r.pushed.iter().map(|c| c.id).collect::<Vec<_>>()), (vec![b], vec![c]));
+        let edit = apply_resize(&mut p, &r, Edge::End, "Resize").unwrap();
+        assert!(p.note(b).is_none() && p.note(c).unwrap().start == at(3.5));
+        edit.undo(&mut p);
+        assert_eq!(p.notes, before);
+    }
+
+    #[test]
+    fn resizing_a_start_pushes_the_preceding_note_and_ignores_concurrent_ones() {
+        let mut p = project();
+        let (a, b) = (add(&mut p, 60, 2.0, 3.0), add(&mut p, 64, 0.0, 2.0));
+        let chord = add(&mut p, 70, 2.5, 4.0);
+        let r = plan(&p, a, Edge::Start, 1.0);
+        assert_eq!((r.change.start, r.pushed, r.removed), (at(1.0), vec![NoteChange { id: b, midi: 64, start: at(0.0), end: at(1.0) }], vec![]));
+        let r = plan(&p, a, Edge::End, 3.5);
+        assert!(r.pushed.is_empty() && r.removed.is_empty() && r.change.end == at(3.5), "{chord} overlaps already");
     }
 
     #[test]
