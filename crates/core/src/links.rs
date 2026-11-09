@@ -78,7 +78,12 @@ fn adjacent(tempo: &TempoMap, a: &Note, b: &Note) -> bool {
     gap.is_none_or(|g| g <= LEGATO_MAX_GAP_BEATS)
 }
 
-fn legato_kind(from: &Note, to: &Note) -> Legato {
+/// Both notes carry a string assignment and it differs.
+pub(crate) fn strings_differ(a: &Note, b: &Note) -> bool {
+    matches!((a.string_fret, b.string_fret), (Some((x, _)), Some((y, _))) if x != y)
+}
+
+pub(crate) fn legato_kind(from: &Note, to: &Note) -> Legato {
     if to.midi > from.midi {
         Legato::HammerOn
     } else {
@@ -132,11 +137,12 @@ impl Project {
         same_string_fit(&self.tuning, self.capo, &midis)
     }
 
-    /// Legato when the notes are adjacent and a same-string placement exists, slide otherwise.
+    /// Legato when the notes are adjacent, not assigned to different strings and a same-string
+    /// placement exists, slide otherwise.
     pub fn infer_link_type(&self, from: u64, to: u64) -> LinkType {
         let tempo = TempoMap::new(&self.measures);
         match (self.note(from), self.note(to)) {
-            (Some(a), Some(b)) if adjacent(&tempo, a, b) => infer_link(&self.tuning, self.capo, a.midi, b.midi),
+            (Some(a), Some(b)) if adjacent(&tempo, a, b) && !strings_differ(a, b) => infer_link(&self.tuning, self.capo, a.midi, b.midi),
             _ => LinkType::Slide,
         }
     }
@@ -184,7 +190,7 @@ impl Project {
         Ok(())
     }
 
-    fn write_link(&mut self, from: u64, to: u64, kind: LinkType) {
+    pub(crate) fn write_link(&mut self, from: u64, to: u64, kind: LinkType) {
         let Some(legato) = self.note(from).zip(self.note(to)).map(|(a, b)| legato_kind(a, b)) else {
             return;
         };
@@ -244,6 +250,42 @@ impl Project {
 
     /// Links consecutive groups of overlapping notes pair by pair in pitch order, inferring the type.
     pub fn link_selection(&mut self, ids: &[u64]) -> LinkReport {
+        self.link_pairs(ids, false)
+    }
+
+    /// Like `link_selection` but every pair becomes a legato (`force_legato`, no slide fallback);
+    /// a single note is linked from the note before it.
+    pub fn force_legato_selection(&mut self, ids: &[u64]) -> LinkReport {
+        self.link_pairs(ids, true)
+    }
+
+    /// The note starting latest before `id` (ties: the closest pitch).
+    pub fn previous_note(&self, id: u64) -> Option<u64> {
+        let tempo = TempoMap::new(&self.measures);
+        let times = NoteTimes::build(&self.notes, &tempo);
+        let (me, start) = (self.note(id)?, times.start_sec(id)?);
+        self.notes
+            .iter()
+            .filter(|n| times.start_sec(n.id).is_some_and(|s| s < start - SAME_SEC))
+            .max_by(|a, b| {
+                let key = |n: &Note| (times.start_sec(n.id).unwrap_or(f64::MIN), -i32::from(n.midi.abs_diff(me.midi)));
+                key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|n| n.id)
+    }
+
+    fn link_pairs(&mut self, ids: &[u64], forced: bool) -> LinkReport {
+        if let ([id], true) = (ids, forced) {
+            let mut report = LinkReport::default();
+            match self.previous_note(*id) {
+                Some(prev) => match self.force_legato(prev, *id) {
+                    Ok(_) => report.linked = 1,
+                    Err(e) => report.skipped.push((prev, *id, e.into())),
+                },
+                None => report.skipped.push((*id, *id, LinkError::UnknownNote(*id))),
+            }
+            return report;
+        }
         let tempo = TempoMap::new(&self.measures);
         let times = NoteTimes::build(&self.notes, &tempo);
         let mut notes: Vec<&Note> = ids.iter().filter_map(|&id| self.note(id)).collect();
@@ -271,13 +313,14 @@ impl Project {
         let mut report = LinkReport::default();
         for pair in groups.windows(2) {
             for (&from, &to) in pair[0].iter().zip(&pair[1]) {
-                let kind = self.infer_link_type(from, to);
-                let result = self.check_link(from, to, kind, &times, &tempo);
+                let result = if forced {
+                    self.force_legato(from, to).map(drop).map_err(LinkError::from)
+                } else {
+                    let kind = self.infer_link_type(from, to);
+                    self.check_link(from, to, kind, &times, &tempo).map(|()| self.write_link(from, to, kind))
+                };
                 match result {
-                    Ok(()) => {
-                        self.write_link(from, to, kind);
-                        report.linked += 1;
-                    }
+                    Ok(()) => report.linked += 1,
                     Err(e) => report.skipped.push((from, to, e)),
                 }
             }

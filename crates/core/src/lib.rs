@@ -2,6 +2,7 @@
 
 pub mod edit;
 pub mod error;
+pub mod grace;
 pub mod links;
 pub mod measures;
 pub mod model;
@@ -16,6 +17,7 @@ pub mod undo;
 
 pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
 pub use error::{CoreError, EditError};
+pub use grace::{default_grace_midi, grace_default_sec, GraceError, LegatoError, ACCIACCATURA_SEC, APPOGGIATURA_SEC};
 pub use links::{infer_link, same_string_fit, LinkError, LinkReport, LinkType, MAX_FRET};
 pub use measures::{
     generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped,

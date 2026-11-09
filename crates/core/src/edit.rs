@@ -123,6 +123,18 @@ impl Project {
         self.transact(label, f)
     }
 
+    /// Like `edit_notes` for operations with their own error and result types.
+    pub fn try_edit<T, E>(&mut self, label: &str, f: impl FnOnce(&mut Project) -> Result<T, E>) -> Result<(ProjectEdit, T), E> {
+        let before = Snapshot::capture(self);
+        match f(self) {
+            Ok(value) => Ok((ProjectEdit { label: label.to_owned(), before, after: Snapshot::capture(self) }, value)),
+            Err(e) => {
+                before.restore(self);
+                Err(e)
+            }
+        }
+    }
+
     pub(crate) fn transact<F>(&mut self, label: &str, f: F) -> Result<ProjectEdit, EditError>
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
