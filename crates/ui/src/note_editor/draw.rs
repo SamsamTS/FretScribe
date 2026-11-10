@@ -351,7 +351,7 @@ mod tests {
         let p = project();
         let plan = draw(&p, pt(1.0, 60.0), pt(3.0, 62.1), false, false).unwrap();
         let c = plan.creation;
-        assert_eq!(c.notes[0], NewNote { midi: 60, start: at(1.0), end: at(1.25) });
+        assert_eq!(c.notes[0], NewNote { midi: 60, start: at(1.0), end: at(3.0) });
         assert_eq!(c.notes[1], NewNote { midi: 62, start: at(3.0), end: at(3.25) });
         assert_eq!(c.links, [(Ref::New(0), Ref::New(1), LinkType::Slide)]);
         let back = draw(&p, pt(3.0, 62.0), pt(1.0, 60.0), false, false).unwrap().creation;
@@ -359,11 +359,12 @@ mod tests {
     }
 
     #[test]
-    fn the_slide_start_note_never_exceeds_forty_percent_of_the_span_and_stays_on_the_lattice() {
+    fn the_slide_source_ends_where_its_destination_starts() {
         let p = project();
-        near(draw(&p, pt(1.0, 60.0), pt(1.5, 62.0), false, false).unwrap().creation.notes[0].end, 1.0 + 2.0 / 12.0);
-        near(draw(&p, pt(1.0, 60.0), pt(1.0 + 1.0 / 3.0, 62.0), false, false).unwrap().creation.notes[0].end, 1.0 + 1.0 / 12.0);
-        near(draw(&p, pt(1.0, 60.0), pt(1.25, 62.0), false, false).unwrap().creation.notes[0].end, 1.0 + 1.0 / 12.0);
+        for end in [1.5, 1.0 + 1.0 / 3.0, 3.0] {
+            let c = draw(&p, pt(1.0, 60.0), pt(end, 62.0), false, false).unwrap().creation;
+            assert_eq!(c.notes[0].end, c.notes[1].start);
+        }
     }
 
     #[test]

@@ -117,7 +117,7 @@ mod tests {
         assert!(ids.iter().all(|id| ![a, b, outside].contains(id)));
         let (na, nb) = (p.note(ids[0]).unwrap(), p.note(ids[1]).unwrap());
         let beats = |p| tempo.pos_to_beats(p).unwrap();
-        assert_eq!((beats(na.start), beats(na.end)), (5.0, 6.0));
+        assert_eq!((beats(na.start), beats(na.end)), (5.0, 6.5));
         assert_eq!((beats(nb.start), beats(nb.end)), (6.5, 7.0));
         assert_eq!(p.outgoing(ids[0]), Some((ids[1], LinkType::Slide)));
         assert_eq!(p.outgoing(ids[1]), None);

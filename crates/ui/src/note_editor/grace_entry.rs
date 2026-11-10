@@ -266,7 +266,7 @@ mod tests {
         let (edit, affected) = e.commit(&mut p).unwrap();
         let grace = p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
         assert_eq!((grace.midi, grace.string_fret, grace.locked_fret), (60, Some((3, 5)), true));
-        assert_eq!((grace.grace_of.unwrap().kind, p.grace_link(grace.id)), (GraceKind::Appoggiatura, LinkType::Slide));
+        assert_eq!((grace.grace_of.unwrap().kind, p.grace_link(grace.id)), (GraceKind::Appoggiatura, LinkType::Legato));
         assert_eq!(affected, [grace.id, main]);
         edit.undo(&mut p);
         assert_eq!(p.notes, before);

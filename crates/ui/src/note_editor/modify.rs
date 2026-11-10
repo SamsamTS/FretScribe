@@ -186,7 +186,7 @@ pub fn apply_changes(project: &mut Project, changes: &[NoteChange], label: &str)
 mod tests {
     use super::super::testkit::*;
     use super::*;
-    use fretscribe_core::{GraceKind, GraceNote, LinkType};
+    use fretscribe_core::{GraceKind, GraceNote, LinkType, TempoMap};
 
     fn pt(beat: f64, midi: f32) -> Pt {
         Pt { sec: sec(beat), midi }
@@ -271,27 +271,44 @@ mod tests {
     }
 
     #[test]
-    fn a_linked_note_cannot_be_resized_past_its_link_and_touching_makes_a_legato_when_valid() {
+    fn resizing_a_link_end_drags_the_note_it_is_tied_to_and_stops_before_squashing_it() {
         let mut p = project();
         let (a, b) = (add(&mut p, 60, 1.0, 2.0), add(&mut p, 64, 3.0, 4.0));
         p.link_notes(a, b, LinkType::Slide).unwrap();
-        near(rs(&p, a, Edge::End, 3.6).end, 3.0);
-        near(rs(&p, b, Edge::Start, 0.2).start, 2.0);
+        assert_eq!(p.note(a).unwrap().end, at(3.0));
         near(rs(&p, a, Edge::End, 2.5).end, 2.5);
-        let change = rs(&p, a, Edge::End, 3.6);
-        let edit = apply_changes(&mut p, std::slice::from_ref(&change), "Resize").unwrap();
-        assert_eq!(p.outgoing(a), Some((b, LinkType::Legato)));
-        edit.undo(&mut p);
-        assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
+        assert!(beats_of(&p, rs(&p, a, Edge::End, 5.0).end) < 4.0, "b keeps a lattice unit");
+        near(rs(&p, b, Edge::Start, 0.2).start, 1.0 + 1.0 / 24.0);
         let change = rs(&p, a, Edge::End, 2.5);
-        apply_changes(&mut p, std::slice::from_ref(&change), "Resize").unwrap();
-        assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)), "not touching");
-        let c = add(&mut p, 30, 5.0, 6.0);
-        let d = add(&mut p, 80, 7.0, 8.0);
-        p.link_notes(c, d, LinkType::Slide).unwrap();
-        let change = rs(&p, c, Edge::End, 7.0);
-        apply_changes(&mut p, std::slice::from_ref(&change), "Resize").unwrap();
-        assert_eq!(p.outgoing(c), Some((d, LinkType::Slide)), "no string fits");
+        let edit = apply_changes(&mut p, std::slice::from_ref(&change), "Resize").unwrap();
+        assert_eq!((p.note(a).unwrap().end, p.note(b).unwrap().start), (at(2.5), at(2.5)));
+        assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
+        edit.undo(&mut p);
+        assert_eq!((p.note(a).unwrap().end, p.note(b).unwrap().start), (at(3.0), at(3.0)));
+    }
+
+    #[test]
+    fn the_locked_edges_of_grace_notes_do_not_move_and_a_grace_note_only_sits_on_or_before_the_beat() {
+        let mut p = project();
+        let main = add(&mut p, 60, 2.0, 3.0);
+        let before = p.add_grace_note(main, Some(62), GraceKind::Acciaccatura).unwrap();
+        let on = p.add_grace_note(main, Some(64), GraceKind::Appoggiatura).unwrap();
+        let none = |p: &Project, n, edge| with_ctx(p, &[4, 3], false, |ctx| plan_resize(n, edge, sec(2.5), (None, None), ctx));
+        assert!(none(&p, before, Edge::End).is_none() && none(&p, on, Edge::Start).is_none());
+        assert!(none(&p, before, Edge::Start).is_some() && none(&p, on, Edge::End).is_some());
+        let kind = |p: &Project, id| p.note(id).unwrap().grace_of.unwrap().kind;
+        let moved = mv(&p, before, &[], pt(2.4, 66.0), 0.0, false, false);
+        assert_eq!((moved.len(), moved[0].midi), (1, 66));
+        apply_changes(&mut p, &moved, "Move").unwrap();
+        assert_eq!((kind(&p, before), p.note(before).unwrap().start), (GraceKind::Appoggiatura, at(2.0)));
+        let moved = mv(&p, before, &[], pt(1.5, 66.0), 0.0, false, false);
+        apply_changes(&mut p, &moved, "Move").unwrap();
+        assert_eq!(kind(&p, before), GraceKind::Acciaccatura);
+        assert_eq!(p.note(before).unwrap().end, at(2.0));
+    }
+
+    fn beats_of(p: &Project, pos: TimePos) -> f64 {
+        TempoMap::new(&p.measures).pos_to_beats(pos).unwrap()
     }
 
     #[test]
@@ -334,7 +351,7 @@ mod tests {
         let c = rs(&p, a, Edge::End, 2.76);
         assert_eq!((c.start, c.end), (at(1.0), at(2.75)));
         apply_changes(&mut p, &[c], "Resize").unwrap();
-        assert_eq!(p.note(b).unwrap().start, at(3.0));
+        assert_eq!(p.note(b).unwrap().start, at(2.75), "the tied start follows");
         assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
         let c = rs(&p, a, Edge::Start, 0.51);
         assert_eq!((c.start, c.end), (at(0.5), at(2.75)));

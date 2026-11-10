@@ -209,8 +209,10 @@ fn shift_drag_from_the_last_note_extends_the_chain_and_moves_nothing_else() {
     assert_eq!(edits(&out), 1);
     assert_eq!(h.p.notes.len(), 3);
     let shape = |n: &fretscribe_core::Note| (n.id, n.midi, n.start, n.end);
-    assert_eq!(h.p.notes[..2].iter().map(shape).collect::<Vec<_>>(), before.iter().map(shape).collect::<Vec<_>>());
+    assert_eq!(shape(&h.p.notes[1]), shape(&before[1]));
+    assert_eq!((h.p.notes[0].midi, h.p.notes[0].start), (before[0].midi, before[0].start));
     let new = h.p.notes[2].id;
+    assert_eq!(h.p.notes[0].end, h.p.notes[2].start, "the source ends where the new note starts");
     assert_eq!(h.p.outgoing(a), Some((new, LinkType::Slide)));
     assert_eq!(h.p.outgoing(b), None);
     assert_eq!(h.ed.selection.ids, [new]);
@@ -235,13 +237,13 @@ fn right_click_cycles_the_outgoing_link_and_coalesces_within_a_second() {
     assert!(matches!(first[0], Effect::Edit { merge: false, .. }));
     h.now = 0.6;
     let second = h.click(Button::Right, s(0.5, 60.0, body(a)), NONE);
-    assert_eq!(message(&second), Some("Slide"), "legato is skipped: the notes are not adjacent");
+    assert_eq!(message(&second), Some("Legato"), "linking tied the notes: legato is valid");
     assert!(matches!(second[0], Effect::Edit { merge: true, .. }));
     h.now = 3.0;
     let third = h.click(Button::Right, s(0.5, 60.0, body(a)), NONE);
     assert!(matches!(third[0], Effect::Edit { merge: false, .. }));
-    assert_eq!(message(&third), Some("Bend"));
-    assert_eq!(h.p.outgoing(a), Some((b, LinkType::Bend)));
+    assert_eq!(message(&third), Some("Slide"));
+    assert_eq!(h.p.outgoing(a), Some((b, LinkType::Slide)));
 }
 
 #[test]
@@ -521,7 +523,7 @@ fn right_drag_before_the_note_aims_a_reverse_slide() {
     h.click(Button::Left, s(0.5, 58.0, None), NONE);
     let new = h.ed.selection.ids[0];
     let n = h.p.note(new).unwrap();
-    assert_eq!((n.midi, n.start.beat, n.end.beat), (58, 0.5, 1.0));
+    assert_eq!((n.midi, n.start.beat, n.end.beat), (58, 0.5, 2.0));
     assert_eq!(h.p.outgoing(new), Some((src, LinkType::Slide)));
 }
 
@@ -677,7 +679,7 @@ fn h_cycles_the_link_in_the_entry_and_escape_or_the_right_button_cancels() {
     h.send(Input::Entry(EntryKey::CycleLink));
     h.send(Input::Entry(EntryKey::Confirm));
     let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap().id;
-    assert_eq!(h.p.grace_link(grace), LinkType::Dashed);
+    assert_eq!(h.p.grace_link(grace), LinkType::Slide);
     h.p.remove_grace(grace).unwrap();
 
     h.ed.selection.set(vec![main]);
@@ -709,7 +711,7 @@ fn right_click_on_a_grace_note_or_its_connector_cycles_the_valid_links_in_one_st
     let same = add(&mut h.p, 62, 6.0, 7.0);
     let lone = h.p.add_grace_note(same, Some(62), fretscribe_core::GraceKind::Acciaccatura).unwrap();
     let out = h.click(Button::Right, s(6.0, 62.0, body(lone)), NONE);
-    assert!(edits(&out) == 0 && out.iter().any(|e| matches!(e, Effect::Message(_))));
+    assert_eq!(edits(&out), 0, "only the dashed link is possible");
 }
 
 #[test]

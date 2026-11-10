@@ -84,39 +84,39 @@ fn plain_note_keeps_its_borders_and_is_at_least_3px_wide() {
 }
 
 #[test]
-fn short_chain_note_is_a_square_to_the_right_and_its_left_edge_never_moves() {
+fn a_link_source_is_a_band_about_as_wide_as_tall_and_its_left_edge_never_moves() {
     let (notes, times) = setup(&[(1, 52, 1.0, 1.05, Some(2), None), (2, 52, 3.0, 3.05, None, None)]);
     let g = glyphs(&notes, &times);
-    for id in [1, 2] {
-        let r = rect_of(&g, id);
-        assert!((r.width() - H).abs() < 1e-3, "square when there is room: {r:?}");
-    }
+    assert!((rect_of(&g, 1).width() - (1.0 + BAND_PAD) * H).abs() < 1e-3, "height plus the room for the dots");
+    assert!(rect_of(&g, 2).width() < H, "the destination keeps its real width");
     assert!((rect_of(&g, 1).left() - 200.0).abs() < 1e-3 && (rect_of(&g, 2).left() - 400.0).abs() < 1e-3);
 }
 
 #[test]
-fn square_width_shrinks_with_a_close_next_note_or_a_big_jump_and_the_run_rule_holds() {
-    let run = |dest: f64, jump: u8| {
-        let (notes, times) = setup(&[(1, 52, 1.0, 1.05, Some(2), None), (2, 52 + jump, dest, dest + 1.0, None, None)]);
-        let g = glyphs(&notes, &times);
-        let (src, dst) = (rect_of(&g, 1), rect_of(&g, 2));
-        (src.width(), dst.left() - src.right(), (dst.center().y - src.center().y).abs())
+fn the_band_is_squished_to_half_the_way_to_the_destination_and_ignores_the_real_length() {
+    let width = |dest: f64, end: f64| {
+        let (notes, times) = setup(&[(1, 52, 1.0, end, Some(2), None), (2, 53, dest, dest + 1.0, None, None)]);
+        rect_of(&glyphs(&notes, &times), 1).width()
     };
-    let (w, rise, dy) = run(1.2, 1);
-    assert!((w - 16.0).abs() < 1e-3 && (rise - 0.2 * dy).abs() < 1e-3, "{w} {rise} {dy}");
-    let (w, ..) = run(1.1, 5);
-    assert!((w - 5.0).abs() < 1e-3, "the real width wins when the rule is already broken: {w}");
-    let (w, ..) = run(1.5, 0);
-    assert!((w - H).abs() < 1e-3);
-
-    let (notes, times) = setup(&[(1, 52, 1.0, 1.3, Some(2), None), (2, 53, 1.2, 2.0, None, None)]);
-    assert!((rect_of(&glyphs(&notes, &times), 1).width() - 30.0).abs() < 1e-3, "a wide real note is untouched");
+    let full = (1.0 + BAND_PAD) * H;
+    for (dest, expect) in [(1.2, 10.0), (1.1, 5.0), (1.5, 25.0), (3.0, full)] {
+        assert!((width(dest, 1.05) - expect).abs() < 1e-3, "{dest}");
+    }
+    assert!((width(1.2, 1.3) - 10.0).abs() < 1e-3 && (width(3.0, 2.9) - full).abs() < 1e-3, "a long real note is a band too");
 }
 
 #[test]
-fn last_chain_note_stops_before_the_next_note_in_its_pitch_row() {
-    let (notes, times) = setup(&[(1, 50, 0.0, 0.5, Some(2), None), (2, 52, 1.0, 1.02, None, None), (3, 52, 1.1, 2.0, None, None), (4, 53, 1.05, 2.0, None, None)]);
-    assert!((rect_of(&glyphs(&notes, &times), 2).width() - 10.0).abs() < 1e-3);
+fn an_on_the_beat_grace_note_links_forward_with_the_motion_and_never_vertically() {
+    use fretscribe_core::{GraceKind, GraceNote};
+    for (main_midi, up) in [(55, true), (45, false)] {
+        let (mut notes, times) = setup(&[(1, 50, 1.0, 1.5, Some(2), Some(Technique::Slide)), (2, main_midi, 1.0, 2.0, None, None)]);
+        notes[0].grace_of = Some(GraceNote { main: 2, kind: GraceKind::Appoggiatura });
+        let g = glyphs(&notes, &times);
+        let (path, _) = link_of(&g);
+        let (start, end) = (path[0], *path.last().unwrap());
+        assert!(end.x > start.x + 1.0 && end.x <= rect_of(&g, 2).right() + 1e-3, "not vertical, over the main note");
+        assert_eq!(end.y < start.y, up, "the angle follows the motion");
+    }
 }
 
 #[test]
@@ -169,11 +169,11 @@ fn bend_arrives_vertically_with_a_straight_section_and_the_specified_curve() {
 }
 
 #[test]
-fn source_overlapping_the_destination_gives_a_vertical_line() {
+fn a_source_overlapping_the_destination_is_still_a_band_with_the_link_reaching_the_destination() {
     let (notes, times) = setup(&[(1, 50, 1.0, 3.0, Some(2), Some(Technique::Slide)), (2, 53, 2.0, 3.0, None, None)]);
     let g = glyphs(&notes, &times);
     let (path, _) = link_of(&g);
-    assert!((path[0].x - path[1].x).abs() < 1e-3 && (path[1].x - rect_of(&g, 2).left()).abs() < 1e-3);
+    assert!((path[0].x - rect_of(&g, 1).right()).abs() < 1e-3 && (path.last().unwrap().x - rect_of(&g, 2).left()).abs() < 1e-3);
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn hit_priority_is_dot_then_path_then_edge_then_body() {
     assert_eq!(at(r1.center()), Some((1, HitZone::Body)));
     assert_eq!(at(r1.right_center() - vec2(9.0, 0.0)), Some((1, HitZone::Body)));
     let top_right = pos2(r1.right() - 2.0, r1.top() + 1.0);
-    assert_eq!(at(top_right), Some((1, HitZone::RightEdge)), "chain notes resize too");
+    assert_eq!(at(top_right), Some((1, HitZone::Body)), "the right edge of a link source is locked");
     let arc = arc_of(&glyph);
     let on_arc = arc[8] + vec2(0.0, -1.0);
     assert_eq!(at(on_arc), Some((4, HitZone::Arc)));
