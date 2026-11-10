@@ -226,17 +226,18 @@ pub fn plan_slide_target(base: &Creation, target: u64, ctx: &EditCtx) -> Option<
     Some(Creation { notes: vec![first.clone()], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)] })
 }
 
-/// A left drag from empty space released on an existing note: the new note, drawn from the press,
-/// links to it (it ends where the target starts), or follows it when the target is earlier.
+/// A left drag from empty space released on an existing note: the press is one end of the new
+/// note and the target gives the other, so the link completes it. Target later than the press: the
+/// new note runs from the press to the start of the target; target earlier: from the end of the
+/// target to the press.
 pub fn plan_draw_onto(press: Pt, target: u64, ctx: &EditCtx) -> Option<Creation> {
     let t = ctx.project.note(target)?;
-    let start = snap_edge(ctx.tempo.sec_to_pos(press.sec), Edge::Start, ctx.tempo, &ctx.project.notes, &ctx.opts((None, None)));
+    let at = snap_edge(ctx.tempo.sec_to_pos(press.sec), Edge::Start, ctx.tempo, &ctx.project.notes, &ctx.opts((None, None)));
     let midi = row(press.midi);
-    let creation = if beats(ctx, start) < beats(ctx, t.start) - EPS {
-        Creation { notes: vec![NewNote { midi, start, end: t.start }], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)] }
+    let creation = if beats(ctx, at) < beats(ctx, t.start) - EPS {
+        Creation { notes: vec![NewNote { midi, start: at, end: t.start }], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)] }
     } else {
-        let end = add_beats(ctx.tempo, start, step_beats(ctx));
-        Creation { notes: vec![NewNote { midi, start, end }], links: vec![(Ref::Existing(target), Ref::New(0), LinkType::Slide)] }
+        Creation { notes: vec![NewNote { midi, start: t.end, end: at }], links: vec![(Ref::Existing(target), Ref::New(0), LinkType::Slide)] }
     };
     commit_creation(&mut ctx.project.clone(), &creation, "").ok()?;
     Some(creation)

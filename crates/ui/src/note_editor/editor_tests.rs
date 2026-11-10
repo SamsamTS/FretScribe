@@ -123,10 +123,11 @@ fn releasing_a_drag_on_an_existing_note_links_the_new_note_to_it_and_completes_i
     assert_eq!((h.p.outgoing(new.id), new.end), (Some((target, LinkType::Slide)), h.p.note(target).unwrap().start));
     let mut h = H::new();
     let target = add(&mut h.p, 64, 1.0, 2.0);
-    h.draw_over((6.0, 60.0), s(1.5, 64.0, body(target)));
+    assert_eq!(edits(&h.draw_over((6.0, 60.0), s(1.5, 64.0, body(target)))), 1);
     let new = h.p.notes.iter().find(|n| n.id != target).unwrap();
     assert_eq!(h.p.outgoing(target), Some((new.id, LinkType::Slide)));
-    assert_eq!(fretscribe_core::TempoMap::new(&h.p.measures).pos_to_beats(new.start), Some(6.0));
+    let beats = |p| fretscribe_core::TempoMap::new(&h.p.measures).pos_to_beats(p);
+    assert_eq!((beats(new.start), beats(new.end), beats(h.p.note(target).unwrap().end)), (Some(2.0), Some(6.0), Some(2.0)), "from the end of the target to the press");
 }
 
 #[test]
