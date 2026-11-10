@@ -54,6 +54,7 @@ pub enum Input {
     /// A key of the grace entry (only meaningful while `in_entry`).
     Entry(EntryKey),
     Copy,
+    Cut,
     Paste,
 }
 
@@ -64,6 +65,8 @@ pub enum Effect {
     Edit { edit: Box<ProjectEdit>, merge: bool, affected: Vec<u64> },
     Message(String),
     OpenExact(u64),
+    /// The grid the keys selected; the app stores it.
+    SnapGrid(SnapGrid),
 }
 
 pub struct Env<'a> {
@@ -235,9 +238,12 @@ impl NoteEditor {
             Input::Action(action) => self.action(env, action),
             Input::Entry(key) => self.entry_key(env, key),
             Input::Copy => {
-                let tempo = TempoMap::new(&env.project.measures);
-                self.clipboard = Clipboard::copy(env.project, &tempo, &self.selection.ids);
+                self.copy(env);
                 Vec::new()
+            }
+            Input::Cut => {
+                self.copy(env);
+                self.action(env, NoteAction::Delete { bridge: false })
             }
             Input::Paste => {
                 if self.clipboard.is_some() && !self.is_busy() {
@@ -670,6 +676,11 @@ impl NoteEditor {
         }
     }
 
+    fn copy(&mut self, env: &Env) {
+        let tempo = TempoMap::new(&env.project.measures);
+        self.clipboard = Clipboard::copy(env.project, &tempo, &self.selection.ids);
+    }
+
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
         if action == NoteAction::LinkHover && self.selection.ids.is_empty() {
             if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
@@ -692,6 +703,7 @@ impl NoteEditor {
                 }
                 out.extend(done.message.map(Effect::Message));
                 out.extend(done.open_exact.map(Effect::OpenExact));
+                out.extend(done.snap_grid.map(Effect::SnapGrid));
                 if let Some(entry) = done.grace_entry.filter(|_| !self.is_busy()).and_then(|main| GraceEntry::new(env.project, main)) {
                     self.show_entry(env, &entry);
                     self.state = State::Grace { entry, pressed: false };
