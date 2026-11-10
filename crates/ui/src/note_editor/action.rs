@@ -25,6 +25,8 @@ pub enum NoteAction {
     /// Links the selection as hammer-on / pull-off, moving and locking strings when needed.
     ForceLegato,
     SetString(Option<u8>),
+    /// Locks on the string numbered from the highest one (1 = high e); fails past the tuning's size.
+    SetStringFromTop(u8),
     OpenExactEdit,
     SelectAll,
     SelectNext { extend: bool },
@@ -129,6 +131,10 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
     let ctx_grid = grid;
 
     match action {
+        NoteAction::SetStringFromTop(n) => {
+            let string = project.tuning.open_strings.len().checked_sub(usize::from(n)).filter(|_| n > 0).and_then(|s| u8::try_from(s).ok());
+            apply(project, sel, NoteAction::SetString(Some(string.ok_or(ActionError::NoPlacement)?)), grid)
+        }
         NoteAction::OpenExactEdit => Ok(Applied { open_exact: sel.anchor.filter(|a| sel.contains(*a)).or(Some(anchor)), ..Applied::default() }),
         NoteAction::LinkHover => apply(project, sel, NoteAction::LinkSelection, grid),
         NoteAction::Delete { bridge } => {
@@ -480,5 +486,21 @@ mod tests {
         assert_eq!(step(&grid(&[4, 6]), true), grid(&[1]));
         assert_eq!(step(&grid(&[1]), false), grid(&[4, 6]));
         assert_eq!(step(&grid(&[4, 8]), true), grid(&[1]));
+    }
+
+    #[test]
+    fn string_keys_count_from_the_highest_string() {
+        let mut p = project();
+        let a = add(&mut p, 64, 0.0, 1.0);
+        let string = |p: &Project| p.note(a).unwrap().string_fret.map(|s| s.0);
+        run(&mut p, &[a], NoteAction::SetStringFromTop(1)).unwrap();
+        assert_eq!(string(&p), Some(5));
+        run(&mut p, &[a], NoteAction::SetStringFromTop(2)).unwrap();
+        assert_eq!(string(&p), Some(4));
+        for n in [0, 7] {
+            assert_eq!(run(&mut p, &[a], NoteAction::SetStringFromTop(n)).unwrap_err(), ActionError::NoPlacement);
+        }
+        p.tuning.open_strings = vec![28, 33, 38, 43];
+        assert_eq!(run(&mut p, &[a], NoteAction::SetStringFromTop(5)).unwrap_err(), ActionError::NoPlacement);
     }
 }
