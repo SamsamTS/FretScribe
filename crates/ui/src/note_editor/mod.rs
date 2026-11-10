@@ -25,7 +25,7 @@ pub use grace_entry::{EntryKey, EntryStep, GraceEntry};
 pub use input::{collect, Collected, SourcePointer};
 pub use overlay::paint as paint_overlay;
 pub use editor::{Button, Effect, Env, Input, Mods, NoteEditor, Sample};
-pub use modify::{apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes, NoteChange};
+pub use modify::{apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes, NoteChange};
 pub use select::{marquee_hits, time_order, Selection};
 
 use fretscribe_core::{Project, SnapGrid, SnapOpts, TempoMap};

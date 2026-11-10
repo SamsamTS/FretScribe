@@ -6,7 +6,6 @@ use fretscribe_notation::tab::{candidate_label, lowest_fret_candidate};
 use super::EditCtx;
 use crate::spectro::{GhostGlyph, GhostShape, LinkKind};
 
-const SLIDE_START_SHARE: f64 = 0.4;
 const SLIDE_ENTER_SEMITONES: f32 = 0.75;
 const SLIDE_LEAVE_SEMITONES: f32 = 0.5;
 const SOFT_BEND_LIMIT: u8 = 4;
@@ -80,13 +79,10 @@ pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &Edit
     if beats(ctx, free_end) - beats(ctx, s) < min - EPS {
         return None;
     }
-    let span = beats(ctx, e) - beats(ctx, s);
     let creation = if slide {
-        let units = ((SLIDE_START_SHARE * span).min(step_beats(ctx)) / min + EPS).floor().max(1.0);
-        let start_len = (units * min).min(span);
         Creation {
             notes: vec![
-                NewNote { midi: p_first, start: s, end: add_beats(ctx.tempo, s, start_len) },
+                NewNote { midi: p_first, start: s, end: e },
                 NewNote { midi: p_second, start: e, end: add_beats(ctx.tempo, e, step_beats(ctx)) },
             ],
             links: vec![(Ref::New(0), Ref::New(1), LinkType::Slide)],
@@ -267,6 +263,7 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
             LinkType::Slide => glyphs[ia].link_to = Some((ib, LinkKind::Slide)),
             LinkType::Dashed => glyphs[ia].link_to = Some((ib, LinkKind::Dashed)),
         }
+        glyphs[ia].end_sec = glyphs[ib].start_sec;
     }
     GhostShape { glyphs }
 }

@@ -8,7 +8,7 @@ use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
 use super::grace_entry::{EntryKey, EntryStep, GraceEntry};
 use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
-use super::modify::{NoteChange, apply_changes, apply_resize, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
+use super::modify::{NoteChange, apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
 use crate::spectro::{GhostShape, HitZone, SpectroEvent};
@@ -420,7 +420,7 @@ impl NoteEditor {
             }
             (State::Resize { note, edge, sticky }, Button::Left) => {
                 let change = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|p| p.0));
-                change.map_or_else(Vec::new, |c| self.finish_resize(env, &c, edge))
+                change.map_or_else(Vec::new, |c| self.finish_resize(env, &c))
             }
             (State::Chain { last, sticky }, Button::Left) => {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
@@ -491,11 +491,11 @@ impl NoteEditor {
         }
     }
 
-    fn finish_resize(&mut self, env: &mut Env, change: &NoteChange, edge: Edge) -> Vec<Effect> {
+    fn finish_resize(&mut self, env: &mut Env, change: &NoteChange) -> Vec<Effect> {
         if is_noop(env.project, std::slice::from_ref(change)) {
             return Vec::new();
         }
-        match apply_resize(env.project, change, edge, "Resize note") {
+        match apply_changes(env.project, std::slice::from_ref(change), "Resize note") {
             Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected: vec![change.id] }],
             Err(e) => vec![Effect::Message(e.to_string())],
         }
