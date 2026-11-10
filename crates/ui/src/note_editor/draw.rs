@@ -215,6 +215,17 @@ pub fn plan_slide_end(base: &Creation, cur_sec: f64, sticky: Sticky, ctx: &EditC
     (creation, (None, Some(free)))
 }
 
+/// A drawn slide whose end is an existing note: the first new note links to it (when valid)
+/// instead of a second new note being made.
+pub fn plan_slide_target(base: &Creation, target: u64, ctx: &EditCtx) -> Option<Creation> {
+    let first = base.notes.first()?;
+    let mut scratch = ctx.project.clone();
+    let id = fretscribe_core::next_note_id(&scratch);
+    scratch.notes.push(Note::new(id, first.midi, first.start, first.end));
+    scratch.can_link(id, target, LinkType::Slide).ok()?;
+    Some(Creation { notes: vec![first.clone()], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)] })
+}
+
 /// Adds the notes and links of `creation` as one edit; returns the ids of the new notes.
 pub fn commit_creation(project: &mut Project, creation: &Creation, label: &str) -> Result<(ProjectEdit, Vec<u64>), EditError> {
     let mut ids = Vec::new();

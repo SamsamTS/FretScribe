@@ -103,6 +103,21 @@ fn drawing_left_to_right_and_right_to_left_gives_the_same_note_in_one_undo_step(
 }
 
 #[test]
+fn a_drawn_slide_can_end_on_an_existing_note_by_clicking_it() {
+    let mut h = H::new();
+    let target = add(&mut h.p, 64, 6.0, 7.0);
+    h.draw((1.0, 60.0), (3.0, 62.0), NONE);
+    let at = s(6.5, 64.0, body(target));
+    h.mv(at, NONE);
+    assert_eq!(h.ed.ghost.as_ref().map(|g| g.glyphs.len()), Some(2), "the new note and the existing one");
+    assert_eq!(edits(&h.click(Button::Left, at, NONE)), 1);
+    assert_eq!(h.p.notes.len(), 2);
+    let new = h.p.notes.iter().find(|n| n.id != target).unwrap();
+    assert_eq!(h.p.outgoing(new.id), Some((target, LinkType::Slide)));
+    assert_eq!(new.end, h.p.note(target).unwrap().start);
+}
+
+#[test]
 fn a_different_pitch_makes_two_linked_notes_and_a_tiny_span_nothing() {
     let mut h = H::new();
     assert_eq!(edits(&h.draw((1.0, 60.0), (3.0, 62.0), NONE)), 0);

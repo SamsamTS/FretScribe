@@ -148,26 +148,39 @@ pub fn is_noop(project: &Project, changes: &[NoteChange]) -> bool {
 /// `Project::resolve_overlaps`), for the preview. Removed notes are not listed.
 pub fn preview_changes(project: &Project, changes: &[NoteChange]) -> Vec<NoteChange> {
     let mut after = project.clone();
-    let ids: Vec<u64> = changes.iter().map(|c| c.id).collect();
-    set_times(&mut after, changes);
+    let own: Vec<u64> = changes.iter().map(|c| c.id).collect();
+    let mut ids = own.clone();
+    ids.extend(set_times(&mut after, changes));
     after.resolve_overlaps(&ids);
-    let cut = after.notes.iter().filter(|n| !ids.contains(&n.id) && project.note(n.id).is_none_or(|o| (o.midi, o.start, o.end) != (n.midi, n.start, n.end)));
+    let cut = after.notes.iter().filter(|n| !own.contains(&n.id) && project.note(n.id).is_none_or(|o| (o.midi, o.start, o.end) != (n.midi, n.start, n.end)));
     changes.iter().cloned().chain(cut.map(|n| NoteChange { id: n.id, midi: n.midi, start: n.start, end: n.end })).collect()
 }
 
-fn set_times(p: &mut Project, changes: &[NoteChange]) {
+/// Applies the changes; the grace notes of a note whose start moved follow it (both ends) unless
+/// they are changed too. Returns the ids of the grace notes that followed.
+fn set_times(p: &mut Project, changes: &[NoteChange]) -> Vec<u64> {
+    let tempo = fretscribe_core::TempoMap::new(&p.measures);
+    let beat = |pos| tempo.pos_to_beats(pos).unwrap_or(0.0);
+    let shifts: Vec<(u64, f64)> = changes.iter().filter_map(|c| p.note(c.id).map(|n| (c.id, beat(c.start) - beat(n.start)))).filter(|s| s.1.abs() > 1e-9).collect();
     for c in changes {
         if let Some(n) = p.notes.iter_mut().find(|n| n.id == c.id) {
             (n.midi, n.start, n.end) = (c.midi, c.start, c.end);
         }
     }
-    let tempo = fretscribe_core::TempoMap::new(&p.measures);
+    let mut followed = Vec::new();
+    for n in p.notes.iter_mut().filter(|n| !changes.iter().any(|c| c.id == n.id)) {
+        if let Some(&(_, by)) = n.grace_of.and_then(|g| shifts.iter().find(|s| s.0 == g.main)) {
+            (n.start, n.end) = (tempo.beats_to_pos(beat(n.start) + by), tempo.beats_to_pos(beat(n.end) + by));
+            followed.push(n.id);
+        }
+    }
     let main_starts: Vec<(u64, f64)> = p.notes.iter().filter_map(|n| n.grace_of.and_then(|g| p.note(g.main)).map(|m| (n.id, tempo.pos_to_beats(m.start).unwrap_or(0.0)))).collect();
     for (id, main) in main_starts {
         if let Some((n, g)) = p.notes.iter_mut().find(|n| n.id == id).and_then(|n| n.grace_of.as_mut().map(|g| (n.start, g))) {
             g.kind = if (tempo.pos_to_beats(n).unwrap_or(0.0) - main).abs() < 1e-9 { GraceKind::Appoggiatura } else { GraceKind::Acciaccatura };
         }
     }
+    followed
 }
 
 /// Applies the changes as one edit; same-pitch notes they land on are cut, split or removed.
@@ -176,8 +189,9 @@ pub fn apply_changes(project: &mut Project, changes: &[NoteChange], label: &str)
         if let Some(c) = changes.iter().find(|c| p.note(c.id).is_none()) {
             return Err(EditError::UnknownNote(c.id));
         }
-        set_times(p, changes);
-        p.resolve_overlaps(&changes.iter().map(|c| c.id).collect::<Vec<_>>());
+        let mut ids: Vec<u64> = changes.iter().map(|c| c.id).collect();
+        ids.extend(set_times(p, changes));
+        p.resolve_overlaps(&ids);
         Ok(())
     })
 }
@@ -305,6 +319,26 @@ mod tests {
         apply_changes(&mut p, &moved, "Move").unwrap();
         assert_eq!(kind(&p, before), GraceKind::Acciaccatura);
         assert_eq!(p.note(before).unwrap().end, at(2.0));
+    }
+
+    #[test]
+    fn resizing_the_start_of_a_note_moves_its_grace_notes_with_it() {
+        let mut p = project();
+        let main = add(&mut p, 60, 2.0, 4.0);
+        let before = p.add_grace_note(main, Some(62), GraceKind::Acciaccatura).unwrap();
+        let on = p.add_grace_note(main, Some(64), GraceKind::Appoggiatura).unwrap();
+        let old = [before, on].map(|id| (p.note(id).unwrap().start, p.note(id).unwrap().end));
+        let change = rs(&p, main, Edge::Start, 3.0);
+        let preview = preview_changes(&p, std::slice::from_ref(&change));
+        assert_eq!(preview.len(), 3, "the grace notes are part of the preview");
+        let edit = apply_changes(&mut p, std::slice::from_ref(&change), "Resize").unwrap();
+        for (id, (s, e)) in [before, on].into_iter().zip(old) {
+            let n = p.note(id).unwrap();
+            assert!((beats_of(&p, n.start) - beats_of(&p, s) - 1.0).abs() < 1e-9 && (beats_of(&p, n.end) - beats_of(&p, e) - 1.0).abs() < 1e-9);
+        }
+        assert_eq!(p.note(on).unwrap().grace_of.unwrap().kind, GraceKind::Appoggiatura);
+        edit.undo(&mut p);
+        assert_eq!(p.note(before).unwrap().start, old[0].0);
     }
 
     fn beats_of(p: &Project, pos: TimePos) -> f64 {

@@ -7,7 +7,7 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
 use super::grace_entry::{EntryKey, EntryStep, GraceEntry};
-use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{NoteChange, apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
@@ -157,6 +157,14 @@ fn grace_of_hit(project: &Project, id: u64, zone: HitZone) -> Option<u64> {
         HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::Line => grace(id),
         _ => None,
     }
+}
+
+/// Third step of a drawn slide: a valid existing note under the pointer is linked to, else the end follows the pointer.
+fn slide_end(env: &Env, creation: &Creation, at: &Sample, sticky: Sticky, alt: bool) -> (Creation, Sticky) {
+    with_ctx(env, alt, |ctx| match target_of(at.hit).and_then(|t| plan_slide_target(creation, t, ctx)) {
+        Some(c) => (c, NO_STICKY),
+        None => plan_slide_end(creation, at.sec, sticky, ctx),
+    })
 }
 
 fn on_note(hit: Option<(u64, HitZone)>) -> Option<(u64, HitZone)> {
@@ -366,7 +374,7 @@ impl NoteEditor {
                 }
             }
             State::SlideEnd { creation, sticky, .. } => {
-                let (c, next) = with_ctx(env, mods.alt, |ctx| plan_slide_end(&creation, at.sec, sticky, ctx));
+                let (c, next) = slide_end(env, &creation, at, sticky, mods.alt);
                 let shown = with_ctx(env, mods.alt, |ctx| (ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), next));
                 self.show_plan(Some(shown));
                 if let State::SlideEnd { sticky, .. } = &mut self.state {
@@ -446,7 +454,7 @@ impl NoteEditor {
             (State::Draw { press, was_slide, sticky }, Button::Left) => self.finish_draw(env, press, was_slide, sticky, pt(&at), mods),
             (State::SlideEnd { creation, pressed: true, sticky }, Button::Left) => {
                 self.ignore_seek = true;
-                let (c, _) = with_ctx(env, mods.alt, |ctx| plan_slide_end(&creation, at.sec, sticky, ctx));
+                let (c, _) = slide_end(env, &creation, &at, sticky, mods.alt);
                 self.commit(env, &c, "Draw slide", true)
             }
             (State::Paste { pressed: true }, Button::Left) => {
