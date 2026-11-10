@@ -77,7 +77,7 @@ mod tests {
     fn enabled(p: &Project, ids: &[u64]) -> Vec<(&'static str, bool)> {
         let mut s = Selection::default();
         s.set(ids.to_vec());
-        action_buttons(p, &s).iter().map(|b| (b.label, b.enabled)).collect()
+        action_buttons(p, &s, &Keymap::default()).iter().map(|b| (b.label, b.enabled)).collect()
     }
 
     #[test]

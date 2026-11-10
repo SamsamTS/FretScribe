@@ -471,7 +471,7 @@ mod tests {
         assert!(applied.edit.is_some());
         assert_eq!(p.note(a).unwrap().start, at(3.0));
         run(&mut p, &[a], NoteAction::NudgeBeat(-1)).unwrap();
-        assert_eq!(p.note(a).unwrap().start, TimePos::new(1, 2.0));
+        assert_eq!(p.note(a).unwrap().start, at(2.0));
 
         let grid = |d: &[u8]| SnapGrid::new(d);
         let step = |g: &SnapGrid, next| apply(&mut project(), &sel(&[]), NoteAction::SnapPreset { next }, g).unwrap().snap_grid.unwrap();

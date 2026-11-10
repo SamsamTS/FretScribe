@@ -771,3 +771,20 @@ fn grace_on_a_selected_grace_note_starts_an_entry_and_transposes_and_deletes() {
     h.send(Input::Action(NoteAction::Delete { bridge: false }));
     assert_eq!(h.p.notes.len(), 1);
 }
+
+#[test]
+fn keyboard_commands_each_give_one_undo_step_cut_pastes_back_and_snap_keys_report_the_grid() {
+    let mut h = H::new();
+    let a = add(&mut h.p, 60, 1.0, 2.0);
+    h.ed.selection.set(vec![a]);
+    for action in [NoteAction::Transpose(1), NoteAction::Nudge { steps: 1 }, NoteAction::NudgeBeat(1), NoteAction::Resize { steps: 1 }, NoteAction::SetString(Some(1))] {
+        let edits = h.send(Input::Action(action)).iter().filter(|e| matches!(e, Effect::Edit { .. })).count();
+        assert_eq!(edits, 1, "{action:?}");
+    }
+    h.send(Input::Cut);
+    assert!(h.p.notes.is_empty());
+    h.send(Input::Paste);
+    assert!(h.ed.in_mode());
+    let out = h.send(Input::Action(NoteAction::SnapPreset { next: true }));
+    assert!(matches!(out.as_slice(), [Effect::Message(_), Effect::SnapGrid(g)] if *g == SnapGrid::new(&[4, 6])));
+}

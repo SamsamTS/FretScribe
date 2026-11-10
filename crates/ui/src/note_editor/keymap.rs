@@ -203,7 +203,9 @@ impl Keymap {
         self.rows.iter().find(|(_, _, chords)| chords.iter().any(|c| c.matches(input))).map(|r| r.1)
     }
 
+    /// `LinkSelection` shares the link key (`LinkHover` acts on the selection when there is one).
     pub fn chords(&self, action: NoteAction) -> &[KeyChord] {
+        let action = if action == LinkSelection { LinkHover } else { action };
         self.rows.iter().find(|r| r.1 == action).map_or(&[], |r| &r.2)
     }
 
