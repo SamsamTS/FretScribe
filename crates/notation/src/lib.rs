@@ -1,4 +1,3 @@
-//! Tab inference and staff layout (pure logic, no drawing). Only the pieces other crates already
-//! need exist so far.
+//! Tab inference and staff layout (pure logic, no drawing). Staff layout is not written yet.
 
 pub mod tab;

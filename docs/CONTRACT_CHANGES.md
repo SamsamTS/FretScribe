@@ -109,3 +109,12 @@ No change in other crates. Modules are not re-exported at the crate root.
 - `collect(ctx, src, events, editor, keymap, refine)` and `action_buttons(project, selection, keymap)` take the keymap; `default_shortcut` is gone.
 - New `NoteAction::{NudgeBeat(i8), SnapPreset { next }}`; `Applied::snap_grid` and `Effect::SnapGrid(SnapGrid)` (the app stores the grid); `Input::Cut` (copy then delete).
 - Keys `1`-`9` are `NoteAction::SetStringFromTop(n)`: string 1 is the highest of the project's tuning (bass and 7+ strings work), `0` unlocks; a number past the tuning's size gives `ActionError::NoPlacement`.
+
+## 2026-11-10 - notation: tab inference
+
+- `notation::tab`: `TabOptions` (adds `grace_bonus`), `candidates`, `presets`, `LabelStyle`, `string_label[_styled]`, `candidate_label[_styled]`, `assign_tabs`, `assign_tabs_range`; `lowest_fret_candidate` kept. Labels return `Option<String>` (`None` for a missing string), so the existing callers are unchanged.
+- Labels follow the convention: top string lowercase, so standard tuning reads `E A D G B e` and the string-5 readout is now `e 0` (was `E 0`).
+- Both assign functions take `&NoteTimes` (the spec's signature had no time source): `assign_tabs(notes, times, tuning, capo, opts) -> Vec<u64>` (unplaceable ids), `assign_tabs_range(notes, times, tuning, capo, opts, edited_index, propagate_backwards) -> Vec<u64>` (changed ids). `edited_index` indexes the slice; notes need not be sorted.
+- The app calls `assign_tabs_range` after a lock/unlock (the note editor's `Effect::Edit { affected }`) and `assign_tabs` on open and on tuning/capo changes. Locked notes are never rewritten.
+- Notes linked by slide, bend or legato are one same-string group; overlap with notes of other items is checked against the neighbouring item only.
+- Open strings count at 0.75 of the fret distance for movement (spec: ignored), otherwise a melody near the 12th fret jumps to open strings.

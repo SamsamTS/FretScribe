@@ -574,7 +574,7 @@ mod tests {
         let ok = draw(&p, pt(2.0, 64.0), pt(3.0, 66.0), false, false).unwrap().creation;
         let tempo = TempoMap::new(&p.measures);
         let fb = feedback(&ok, &p, &tempo);
-        assert_eq!(fb.labels.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["E 0", "E 2"]);
+        assert_eq!(fb.labels.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["e 0", "e 2"]);
         assert_eq!(fb.interval.as_deref(), Some("+1 (full)"));
         assert_eq!(fb.warning, None);
         let bad = draw(&p, pt(2.0, 40.0), pt(3.0, 65.0), false, false).unwrap().creation;
