@@ -62,6 +62,15 @@ impl H {
         self.rel(button, at, mods)
     }
 
+    /// A left drag from empty space (spectrogram events) ending with the pointer over `to`.
+    fn draw_over(&mut self, press: (f64, f32), to: Sample) -> Vec<Effect> {
+        let ev = |f: fn(u8, f32, f64) -> SpectroEvent| Input::Spectro(f(to.midi.round() as u8, to.midi, to.sec), NONE);
+        self.send(Input::Spectro(SpectroEvent::DrawBegan { midi: press.1.round() as u8, exact_midi_float: press.1, time_sec: sec(press.0) }, NONE));
+        self.mv(to, NONE);
+        self.send(ev(|midi, exact_midi_float, time_sec| SpectroEvent::DrawMoved { midi, exact_midi_float, time_sec }));
+        self.send(ev(|midi, exact_midi_float, time_sec| SpectroEvent::DrawEnded { midi, exact_midi_float, time_sec }))
+    }
+
     fn draw(&mut self, press: (f64, f32), end: (f64, f32), mods: Mods) -> Vec<Effect> {
         let ev = |f: fn(u8, f32, f64) -> SpectroEvent, p: (f64, f32)| Input::Spectro(f(p.1.round() as u8, p.1, sec(p.0)), mods);
         self.send(ev(|midi, exact_midi_float, time_sec| SpectroEvent::DrawBegan { midi, exact_midi_float, time_sec }, press));
@@ -100,6 +109,24 @@ fn drawing_left_to_right_and_right_to_left_gives_the_same_note_in_one_undo_step(
     let Some(Effect::Edit { edit, .. }) = out.into_iter().next() else { panic!("edit") };
     edit.undo(&mut a.p);
     assert!(a.p.notes.is_empty());
+}
+
+#[test]
+fn releasing_a_drag_on_an_existing_note_links_the_new_note_to_it_and_completes_it() {
+    let mut h = H::new();
+    let target = add(&mut h.p, 64, 6.0, 7.0);
+    let out = h.draw_over((1.0, 60.0), s(6.5, 64.0, body(target)));
+    assert_eq!(edits(&out), 1);
+    assert!(!h.ed.in_mode(), "nothing is left to complete");
+    let new = h.p.notes.iter().find(|n| n.id != target).unwrap();
+    assert_eq!((new.midi, new.start), (60, at(1.0)));
+    assert_eq!((h.p.outgoing(new.id), new.end), (Some((target, LinkType::Slide)), h.p.note(target).unwrap().start));
+    let mut h = H::new();
+    let target = add(&mut h.p, 64, 1.0, 2.0);
+    h.draw_over((6.0, 60.0), s(1.5, 64.0, body(target)));
+    let new = h.p.notes.iter().find(|n| n.id != target).unwrap();
+    assert_eq!(h.p.outgoing(target), Some((new.id, LinkType::Slide)));
+    assert_eq!(fretscribe_core::TempoMap::new(&h.p.measures).pos_to_beats(new.start), Some(6.0));
 }
 
 #[test]

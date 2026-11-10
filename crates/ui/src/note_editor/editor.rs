@@ -7,7 +7,7 @@ use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap}
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
 use super::grace_entry::{EntryKey, EntryStep, GraceEntry};
-use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_draw_onto, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{NoteChange, apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
@@ -359,7 +359,11 @@ impl NoteEditor {
                 }
             }
             State::Draw { press, was_slide, sticky } => {
-                let planned = with_ctx(env, mods.alt, |ctx| plan_draw(press, pt(at), was_slide, sticky, ctx).map(|p| (ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped, p.slide)));
+                let planned = with_ctx(env, mods.alt, |ctx| {
+                    let onto = target_of(at.hit).and_then(|t| plan_draw_onto(press, t, ctx)).map(|c| (c, NO_STICKY, false));
+                    onto.or_else(|| plan_draw(press, pt(at), was_slide, sticky, ctx).map(|p| (p.creation, p.snapped, p.slide)))
+                        .map(|(c, snapped, slide)| (ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), snapped, slide))
+                });
                 match planned {
                     Some((ghost, fb, snapped, slide)) => {
                         self.ghost = Some(ghost);
@@ -451,7 +455,7 @@ impl NoteEditor {
                 self.selection.marquee(&hits, add);
                 Vec::new()
             }
-            (State::Draw { press, was_slide, sticky }, Button::Left) => self.finish_draw(env, press, was_slide, sticky, pt(&at), mods),
+            (State::Draw { press, was_slide, sticky }, Button::Left) => self.finish_draw(env, press, was_slide, sticky, &at, mods),
             (State::SlideEnd { creation, pressed: true, sticky }, Button::Left) => {
                 self.ignore_seek = true;
                 let (c, _) = slide_end(env, &creation, &at, sticky, mods.alt);
@@ -511,7 +515,11 @@ impl NoteEditor {
 
     /// End of a left drag from empty space: a note is created at once, a slide waits for the click
     /// that sets the end of its second note.
-    fn finish_draw(&mut self, env: &mut Env, press: Pt, was_slide: bool, sticky: Sticky, cur: Pt, mods: Mods) -> Vec<Effect> {
+    fn finish_draw(&mut self, env: &mut Env, press: Pt, was_slide: bool, sticky: Sticky, at: &Sample, mods: Mods) -> Vec<Effect> {
+        let cur = pt(at);
+        if let Some(c) = with_ctx(env, mods.alt, |ctx| target_of(at.hit).and_then(|t| plan_draw_onto(press, t, ctx))) {
+            return self.commit(env, &c, "Draw linked note", true);
+        }
         let Some(plan) = with_ctx(env, mods.alt, |ctx| plan_draw(press, cur, was_slide, sticky, ctx)) else { return Vec::new() };
         if !plan.slide {
             return self.commit(env, &plan.creation, "Draw note", true);
@@ -612,7 +620,7 @@ impl NoteEditor {
             }
             SpectroEvent::DrawMoved { exact_midi_float, time_sec, .. } => {
                 if matches!(self.state, State::Draw { .. }) {
-                    let at = Sample { pos: Pos2::ZERO, sec: time_sec, midi: exact_midi_float, refined: exact_midi_float, hit: None };
+                    let at = Sample { pos: Pos2::ZERO, sec: time_sec, midi: exact_midi_float, refined: exact_midi_float, hit: self.last.and_then(|l| l.hit) };
                     self.update(env, &at, mods);
                 }
                 Vec::new()
@@ -620,7 +628,8 @@ impl NoteEditor {
             SpectroEvent::DrawEnded { exact_midi_float, time_sec, .. } => {
                 let State::Draw { press, was_slide, sticky } = self.state.clone() else { return Vec::new() };
                 self.reset();
-                self.finish_draw(env, press, was_slide, sticky, Pt { sec: time_sec, midi: exact_midi_float }, mods)
+                let at = Sample { pos: Pos2::ZERO, sec: time_sec, midi: exact_midi_float, refined: exact_midi_float, hit: self.last.and_then(|l| l.hit) };
+                self.finish_draw(env, press, was_slide, sticky, &at, mods)
             }
             SpectroEvent::DrawCancelled => {
                 self.cancel();
