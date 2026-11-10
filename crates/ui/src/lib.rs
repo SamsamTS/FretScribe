@@ -2,6 +2,7 @@
 
 pub mod grid;
 pub mod nav;
+pub mod note_editor;
 pub mod overview;
 pub mod spectro;
 pub mod tracks;

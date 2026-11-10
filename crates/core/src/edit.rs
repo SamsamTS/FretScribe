@@ -75,6 +75,15 @@ impl ProjectEdit {
         &self.label
     }
 
+    /// One edit that undoes `self` and `later` together.
+    pub fn merge(self, later: ProjectEdit) -> ProjectEdit {
+        ProjectEdit {
+            label: later.label,
+            before: self.before,
+            after: later.after,
+        }
+    }
+
     pub fn undo(&self, project: &mut Project) {
         self.before.restore(project);
     }
@@ -106,6 +115,26 @@ fn resolve(map: &TempoMap, pos: TimePos, old_sec: f64, policy: NotePolicy) -> Ti
 }
 
 impl Project {
+    /// Runs `f` as one undoable edit; an error leaves the project untouched.
+    pub fn edit_notes<F>(&mut self, label: &str, f: F) -> Result<ProjectEdit, EditError>
+    where
+        F: FnOnce(&mut Project) -> Result<(), EditError>,
+    {
+        self.transact(label, f)
+    }
+
+    /// Like `edit_notes` for operations with their own error and result types.
+    pub fn try_edit<T, E>(&mut self, label: &str, f: impl FnOnce(&mut Project) -> Result<T, E>) -> Result<(ProjectEdit, T), E> {
+        let before = Snapshot::capture(self);
+        match f(self) {
+            Ok(value) => Ok((ProjectEdit { label: label.to_owned(), before, after: Snapshot::capture(self) }, value)),
+            Err(e) => {
+                before.restore(self);
+                Err(e)
+            }
+        }
+    }
+
     pub(crate) fn transact<F>(&mut self, label: &str, f: F) -> Result<ProjectEdit, EditError>
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
@@ -120,6 +149,16 @@ impl Project {
             before,
             after: Snapshot::capture(self),
         })
+    }
+
+    pub(crate) fn transact_infallible(&mut self, label: &str, f: impl FnOnce(&mut Project)) -> ProjectEdit {
+        let before = Snapshot::capture(self);
+        f(self);
+        ProjectEdit {
+            label: label.to_owned(),
+            before,
+            after: Snapshot::capture(self),
+        }
     }
 
     fn rebase_notes<F>(&mut self, policy: NotePolicy, f: F) -> Result<(), EditError>
@@ -442,7 +481,7 @@ impl Project {
         }
     }
 
-    fn with_grace_notes(&self, seeds: &[u64]) -> HashSet<u64> {
+    pub(crate) fn with_grace_notes(&self, seeds: &[u64]) -> HashSet<u64> {
         let mut doomed: HashSet<u64> = seeds.iter().copied().collect();
         loop {
             let before = doomed.len();
@@ -459,7 +498,7 @@ impl Project {
         }
     }
 
-    fn remove_note_set(&mut self, doomed: &HashSet<u64>) {
+    pub(crate) fn remove_note_set(&mut self, doomed: &HashSet<u64>) {
         self.notes.retain(|n| !doomed.contains(&n.id));
         for n in &mut self.notes {
             if n.link_to.is_some_and(|id| doomed.contains(&id)) {

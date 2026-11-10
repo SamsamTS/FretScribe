@@ -4,19 +4,27 @@
 use std::collections::HashMap;
 
 use egui::{pos2, vec2, Pos2, Rect};
-use fretscribe_core::{Note, NoteTimes, Technique};
+use fretscribe_core::{grace_target_of, Note, NoteTimes, Technique};
 
 use super::SpectroGeometry;
 
 pub const MIN_NOTE_PX: f32 = 3.0;
+/// Grace notes are short but must stay visible.
+pub const MIN_GRACE_PX: f32 = 6.0;
 pub const EDGE_PX: f32 = 8.0;
+/// How far past its ends a note can be grabbed to resize it.
+pub const EDGE_OVERSHOOT_PX: f32 = 4.0;
 pub const DOT_HIT_PX: f32 = 7.0;
 pub const PATH_HIT_PX: f32 = 6.0;
 const MIN_NAME_HEIGHT_PX: f32 = 9.0;
 const CURVE_SEGMENTS: usize = 16;
 const NAME_FIT: f32 = 0.9;
 const NAME_CHAR_WIDTH: f32 = 0.6;
-const RUN_PER_DY: f32 = 0.2;
+/// Padding of the band of a slide/bend source (room for the dots), beyond the square `h`.
+const BAND_PAD: f32 = 0.3;
+/// How far past the start of an on-the-beat grace note's right end its link meets the main note.
+const ON_BEAT_RUN: f32 = 0.6;
+const ON_BEAT_SEC: f64 = 1e-6;
 const HEAD: f32 = 0.2;
 const DOT_RADIUS: f32 = 0.1;
 const LEGATO_INSET: f32 = 0.4;
@@ -57,6 +65,8 @@ impl NoteMetrics {
 pub enum LinkKind {
     Slide,
     Bend,
+    /// A grace note's plain connection to the note it leads into (no technique), drawn dashed.
+    Dashed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,20 +111,24 @@ pub struct GlyphItem {
     pub end_sec: f64,
     pub link: Option<(u64, LinkKind)>,
     pub legato_from: Option<u64>,
+    pub grace: bool,
 }
 
 pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
+    let legato_sources: Vec<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
     notes
         .iter()
         .filter_map(|n| {
             let kind = if matches!(n.technique, Some(Technique::Bend)) { LinkKind::Bend } else { LinkKind::Slide };
+            let dashed = (n.grace_of.is_some() && n.link_to.is_none() && !legato_sources.contains(&n.id)).then(|| grace_target_of(notes, times, n.id)).flatten();
             Some(GlyphItem {
                 id: n.id,
                 midi: n.midi,
                 start_sec: times.start_sec(n.id)?,
                 end_sec: times.end_sec(n.id)?,
-                link: n.link_to.map(|to| (to, kind)),
+                link: n.link_to.map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
                 legato_from: n.legato.map(|l| l.from),
+                grace: n.grace_of.is_some(),
             })
         })
         .collect()
@@ -179,9 +193,19 @@ pub struct Scene {
     /// Dots of existing links (always visible).
     pub dots: Vec<LinkPoint>,
     attached: HashMap<u64, [bool; 2]>,
+    /// Edges that cannot be resized (left, right): the real end of a slide/bend source is the start
+    /// of its destination, a grace note is placed by its kind.
+    locked: HashMap<u64, [bool; 2]>,
+    /// Where the name of the destination of an on-the-beat grace note is centred: between the
+    /// arriving link dot and the end dot (or the end) of the note.
+    name_areas: HashMap<u64, Rect>,
 }
 
 impl Scene {
+    pub fn name_area(&self, id: u64) -> Option<Rect> {
+        self.name_areas.get(&id).or_else(|| self.rects.get(&id)).copied()
+    }
+
     pub fn side_attached(&self, id: u64, side: Side) -> bool {
         self.attached.get(&id).is_some_and(|a| a[side as usize])
     }
@@ -215,7 +239,7 @@ impl Scene {
             .glyphs
             .iter()
             .filter_map(|g| match g {
-                Glyph::Link { kind, from_note, path, .. } => Some((dist_to_path(pos, path), *from_note, if *kind == LinkKind::Slide { HitZone::Line } else { HitZone::Arrow })),
+                Glyph::Link { kind, from_note, path, .. } => Some((dist_to_path(pos, path), *from_note, if matches!(kind, LinkKind::Slide | LinkKind::Dashed) { HitZone::Line } else { HitZone::Arrow })),
                 Glyph::Arc { to, path, .. } => Some((dist_to_path(pos, path), *to, HitZone::Arc)),
                 Glyph::Note(..) => None,
             })
@@ -224,18 +248,21 @@ impl Scene {
         if let Some((_, id, zone)) = path {
             return Some((id, zone));
         }
-        self.order.iter().rev().find_map(|&id| {
-            let r = *self.rects.get(&id).filter(|r| r.contains(pos))?;
+        let zone_of = |id: u64, r: Rect| {
             let edge = EDGE_PX.min(r.width() / 3.0);
-            let zone = if pos.x < r.left() + edge && !self.side_attached(id, Side::Left) {
+            let locked = self.locked.get(&id).copied().unwrap_or_default();
+            if pos.x < r.left() + edge && !locked[0] {
                 HitZone::LeftEdge
-            } else if pos.x > r.right() - edge && !self.side_attached(id, Side::Right) {
+            } else if pos.x > r.right() - edge && !locked[1] {
                 HitZone::RightEdge
             } else {
                 HitZone::Body
-            };
-            Some((id, zone))
-        })
+            }
+        };
+        let hit = |grow: f32| self.order.iter().rev().find_map(|&id| self.rects.get(&id).filter(|r| r.expand2(vec2(grow, 0.0)).contains(pos)).map(|r| (id, zone_of(id, *r))));
+        // The overshoot only counts outside every note, so touching notes keep their own pixels; it
+        // only grabs an edge that can be resized.
+        hit(0.0).or_else(|| hit(EDGE_OVERSHOOT_PX).filter(|(_, z)| *z != HitZone::Body))
     }
 }
 
@@ -247,7 +274,7 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
         .iter()
         .map(|it| {
             let left = geo.sec_to_x(it.start_sec);
-            let right = geo.sec_to_x(it.end_sec).max(left + MIN_NOTE_PX);
+            let right = geo.sec_to_x(it.end_sec).max(left + if it.grace { MIN_GRACE_PX } else { MIN_NOTE_PX });
             (left, right - left, geo.midi_to_y(f32::from(it.midi)))
         })
         .collect();
@@ -261,29 +288,24 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
             (j != i).then_some((i, j, kind))
         })
         .collect();
-    let mut out_of = vec![None; n];
-    let mut in_chain = vec![false; n];
-    for &(i, j, _) in &links {
-        (out_of[i], in_chain[i], in_chain[j]) = (Some(j), true, true);
+    let legatos: Vec<(usize, usize)> = items.iter().enumerate().filter_map(|(j, it)| index.get(&it.legato_from?).map(|&i| (i, j)).filter(|&(i, _)| i != j)).collect();
+    let mut dest = vec![None; n];
+    for (i, j) in links.iter().map(|l| (l.0, l.1)).chain(legatos.iter().copied()) {
+        dest[i] = Some(j);
     }
-    let mut rows: HashMap<u8, Vec<f32>> = HashMap::new();
-    for (it, b) in items.iter().zip(&base) {
-        rows.entry(it.midi).or_default().push(b.0);
+    // A grace note on the beat starts with the note it leads into and keeps its own length.
+    let on_beat: Vec<bool> = (0..n).map(|i| items[i].grace && dest[i].is_some_and(|j| (items[i].start_sec - items[j].start_sec).abs() < ON_BEAT_SEC)).collect();
+    // The source of a slide or bend really lasts until its destination: it is drawn as a band, at
+    // most a square with padding, never more than half the way, and the link covers the rest.
+    let mut band_to = vec![None; n];
+    for &(i, j, _) in links.iter().filter(|l| !on_beat[l.0]) {
+        band_to[i] = Some(j);
     }
-    rows.values_mut().for_each(|v| v.sort_by(f32::total_cmp));
 
     let rects: Vec<Rect> = (0..n)
         .map(|i| {
             let (left, real, cy) = base[i];
-            let width = if in_chain[i] {
-                let allowed = match out_of[i] {
-                    Some(j) => (base[j].0 - left) - RUN_PER_DY * (base[j].2 - cy).abs(),
-                    None => rows[&items[i].midi].iter().find(|&&x| x > left + 1e-3).map_or(f32::INFINITY, |x| x - left),
-                };
-                real.max(h.min(allowed))
-            } else {
-                real
-            };
+            let width = band_to[i].map_or(real, |j| ((1.0 + BAND_PAD) * h).min((base[j].0 - left) / 2.0).max(0.0));
             Rect::from_min_size(pos2(left, cy - h / 2.0), vec2(width, h))
         })
         .collect();
@@ -299,17 +321,21 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
 
     for &(i, j, kind) in &links {
         let (src, dst) = (rects[i], rects[j]);
-        let start = pos2(src.right().min(dst.left()), src.center().y);
+        let start = src.right_center();
         dot(items[i].id, Side::Right, start);
+        // Where the link meets the destination: its left edge, or for an on-the-beat grace note a
+        // little to the right of the grace note, so that the angle follows the motion.
+        let meet = if on_beat[i] { (start.x + ON_BEAT_RUN * h).min(dst.right()).max(start.x + 1.0) } else { dst.left() };
         let (path, arrow_tip) = match kind {
-            LinkKind::Slide => {
-                dot(items[j].id, Side::Left, dst.left_center());
-                (vec![start, dst.left_center()], None)
+            LinkKind::Slide | LinkKind::Dashed => {
+                let end = pos2(meet, dst.center().y);
+                dot(items[j].id, Side::Left, end);
+                (vec![start, end], None)
             }
             LinkKind::Bend => {
                 attach_left.push(items[j].id);
                 let up = items[j].midi >= items[i].midi;
-                let tip = pos2(dst.left() + h.min(dst.width()) / 2.0, if up { dst.bottom() } else { dst.top() });
+                let tip = pos2(if on_beat[i] { meet } else { dst.left() + h.min(dst.width()) / 2.0 }, if up { dst.bottom() } else { dst.top() });
                 let end = pos2(tip.x, if up { tip.y + HEAD * h } else { tip.y - HEAD * h });
                 let (dx, dy) = (end.x - start.x, end.y - start.y);
                 let reach = h.min(BEND_CTRL_Y * dy.abs());
@@ -322,24 +348,37 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
         glyphs.push(Glyph::Link { kind, from_note: items[i].id, to_note: items[j].id, path, arrow_tip });
     }
 
-    for (j, it) in items.iter().enumerate() {
-        let Some(i) = it.legato_from.and_then(|id| index.get(&id).copied()).filter(|&i| i != j) else { continue };
+    for &(i, j) in &legatos {
         let inset = |r: Rect| (LEGATO_INSET * h).min(r.width() / 2.0);
         let from = pos2(rects[i].right() - inset(rects[i]), rects[i].center().y);
-        let to = pos2(rects[j].left() + inset(rects[j]), rects[j].center().y);
+        let mut to_x = rects[j].left() + inset(rects[j]);
+        if on_beat[i] {
+            to_x = to_x.max(from.x + ON_BEAT_RUN * h).min(rects[j].right());
+        }
+        let to = pos2(to_x, rects[j].center().y);
         dot(items[i].id, Side::Right, from);
-        dot(it.id, Side::Left, to);
-        let (low, high) = if items[i].midi <= it.midi { (from, to) } else { (to, from) };
+        dot(items[j].id, Side::Left, to);
+        let (low, high) = if items[i].midi <= items[j].midi { (from, to) } else { (to, from) };
         let d = high - low;
         let c1 = low + vec2(0.0, ARC_CTRL_LOW_Y * d.y);
         let c2 = high + vec2(-ARC_CTRL_HIGH_X * d.x, -ARC_CTRL_HIGH_Y * d.y);
-        glyphs.push(Glyph::Arc { from: items[i].id, to: it.id, path: cubic(low, c1, c2, high) });
+        glyphs.push(Glyph::Arc { from: items[i].id, to: items[j].id, path: cubic(low, c1, c2, high) });
     }
 
     for id in attach_left {
         attached.entry(id).or_default()[Side::Left as usize] = true;
     }
-    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached }
+    let dot_x = |id: u64, side: Side| dots.iter().find(|d| d.note_id == id && d.side == side).map(|d| d.pos.x);
+    let name_areas = (0..n)
+        .filter(|&i| on_beat[i])
+        .filter_map(|i| {
+            let j = dest[i]?;
+            let (from, to) = (dot_x(items[j].id, Side::Left)?, dot_x(items[j].id, Side::Right).unwrap_or(rects[j].right()));
+            (to > from).then(|| (items[j].id, Rect::from_x_y_ranges(from..=to, rects[j].y_range())))
+        })
+        .collect();
+    let locked = (0..n).map(|i| (items[i].id, [on_beat[i], !on_beat[i] && (band_to[i].is_some() || items[i].grace)])).collect();
+    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached, locked, name_areas }
 }
 
 pub fn note_glyphs(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, m: &NoteMetrics) -> Vec<Glyph> {

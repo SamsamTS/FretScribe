@@ -10,7 +10,7 @@ use crate::tempo::{TempoMap, BEAT_EPS};
 pub const SNAP_DIVISIONS: [u8; 7] = [1, 2, 3, 4, 6, 8, 12];
 
 /// Every allowed division divides 24, so all grid positions are integers in 1/24-beat units.
-const UNITS_PER_BEAT: u32 = 24;
+pub(crate) const UNITS_PER_BEAT: u32 = 24;
 const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,7 +87,7 @@ impl SnapGrid {
     }
 
     /// Supported divisions, coarsest first, without duplicates; never empty.
-    fn sorted_divisions(&self) -> Vec<u8> {
+    pub(crate) fn sorted_divisions(&self) -> Vec<u8> {
         let mut divisions: Vec<u8> = self
             .divisions
             .iter()

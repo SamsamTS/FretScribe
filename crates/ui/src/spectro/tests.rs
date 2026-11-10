@@ -69,11 +69,30 @@ impl Harness {
         out
     }
 
+    fn button(&mut self, pos: Pos2, button: PointerButton, pressed: bool) -> Vec<SpectroEvent> {
+        self.frame(vec![Event::PointerButton { pos, button, pressed, modifiers: Default::default() }])
+    }
+
     fn click(&mut self, pos: Pos2) -> Vec<SpectroEvent> {
-        let button = |pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
         self.frame(vec![Event::PointerMoved(pos)]);
-        self.frame(vec![button(true)]);
-        self.frame(vec![button(false)])
+        let mut all = self.button(pos, PointerButton::Primary, true);
+        all.extend(self.button(pos, PointerButton::Primary, false));
+        all
+    }
+
+    fn at(&self, sec: f64, midi: f32) -> Pos2 {
+        let geo = SpectroGeometry { rect: self.rect, view: self.view, pitch: PitchView { min_midi: 40.0, max_midi: 64.0 } };
+        pos2(geo.sec_to_x(sec), geo.midi_to_y(midi))
+    }
+
+    /// Press on `from`, then move through `via` (one frame each).
+    fn press_and_move(&mut self, from: Pos2, via: &[Pos2]) -> Vec<SpectroEvent> {
+        self.frame(vec![Event::PointerMoved(from)]);
+        let mut all = self.button(from, PointerButton::Primary, true);
+        for p in via {
+            all.extend(self.frame(vec![Event::PointerMoved(*p)]));
+        }
+        all
     }
 }
 
@@ -104,24 +123,77 @@ fn texture_is_rendered_once_and_reused_until_a_parameter_changes() {
 }
 
 #[test]
-fn click_on_empty_space_asks_for_a_note_at_the_clicked_pitch_and_time() {
+fn click_on_empty_space_seeks_and_never_draws() {
     let mut h = Harness::new();
-    let geo = SpectroGeometry { rect: h.rect, view: h.view, pitch: PitchView { min_midi: 40.0, max_midi: 64.0 } };
-    let pos = pos2(geo.sec_to_x(5.0), geo.midi_to_y(48.3));
+    let pos = h.at(5.0, 48.3);
     match h.click(pos).as_slice() {
-        [SpectroEvent::AddNoteRequested { midi, time_sec, exact_midi_float }] => {
-            assert_eq!(*midi, 48);
-            assert!((time_sec - 5.0).abs() < 0.02);
-            assert!((exact_midi_float - 48.3).abs() < 0.1);
-        }
+        [SpectroEvent::SeekRequested(sec)] => assert!((sec - 5.0).abs() < 0.02),
         other => panic!("{other:?}"),
     }
 }
 
 #[test]
-fn clicks_on_a_note_or_on_the_pitch_ruler_add_nothing() {
+fn clicks_on_a_note_or_on_the_pitch_ruler_report_nothing() {
     let mut h = Harness::new();
-    let geo = SpectroGeometry { rect: h.rect, view: h.view, pitch: PitchView { min_midi: 40.0, max_midi: 64.0 } };
-    assert!(h.click(pos2(geo.sec_to_x(1.5), geo.midi_to_y(52.0))).is_empty());
-    assert!(h.click(pos2(h.rect.left() + 10.0, geo.midi_to_y(60.0))).is_empty());
+    let on_note = h.at(1.5, 52.0);
+    assert!(h.click(on_note).is_empty());
+    let ruler = pos2(h.rect.left() + 10.0, h.at(5.0, 60.0).y);
+    assert!(h.click(ruler).is_empty());
+    let drag = h.press_and_move(on_note, &[pos2(on_note.x + 60.0, on_note.y)]);
+    assert!(drag.is_empty());
+    assert!(h.button(on_note, PointerButton::Primary, false).is_empty());
+}
+
+#[test]
+fn dragging_from_empty_space_draws_with_the_press_position_first() {
+    let mut h = Harness::new();
+    let (press, end) = (h.at(5.0, 48.0), h.at(6.0, 50.2));
+    let mid = pos2(press.x + 2.0, press.y);
+    assert!(h.press_and_move(press, &[mid]).is_empty(), "below the 4 px threshold nothing is sent");
+    let events = h.frame(vec![Event::PointerMoved(end)]);
+    match events.as_slice() {
+        [SpectroEvent::DrawBegan { midi, time_sec, .. }, SpectroEvent::DrawMoved { midi: m2, exact_midi_float, .. }] => {
+            assert_eq!(*midi, 48);
+            assert!((time_sec - 5.0).abs() < 0.02);
+            assert_eq!(*m2, 50);
+            assert!((exact_midi_float - 50.2).abs() < 0.1);
+        }
+        other => panic!("{other:?}"),
+    }
+    match h.button(end, PointerButton::Primary, false).as_slice() {
+        [SpectroEvent::DrawEnded { midi, time_sec, .. }] => {
+            assert_eq!(*midi, 50);
+            assert!((time_sec - 6.0).abs() < 0.02);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(h.frame(Vec::new()).is_empty());
+}
+
+#[test]
+fn the_other_button_or_escape_cancels_a_draw_and_swallows_the_release() {
+    for use_escape in [false, true] {
+        let mut h = Harness::new();
+        let (press, end) = (h.at(5.0, 48.0), h.at(6.0, 48.0));
+        let began = h.press_and_move(press, &[end]);
+        assert!(matches!(began.first(), Some(SpectroEvent::DrawBegan { .. })));
+        let cancel = if use_escape {
+            h.frame(vec![Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }])
+        } else {
+            h.button(end, PointerButton::Secondary, true)
+        };
+        assert_eq!(cancel, [SpectroEvent::DrawCancelled]);
+        assert!(h.frame(vec![Event::PointerMoved(h.at(7.0, 48.0))]).is_empty());
+        assert!(h.button(end, PointerButton::Primary, false).is_empty(), "no DrawEnded after a cancel");
+        assert!(h.click(h.at(8.0, 50.0)).iter().any(|e| matches!(e, SpectroEvent::SeekRequested(_))), "the next click works again");
+    }
+}
+
+#[test]
+fn cancelling_a_press_that_never_became_a_drag_swallows_the_click() {
+    let mut h = Harness::new();
+    let pos = h.at(5.0, 48.0);
+    h.press_and_move(pos, &[]);
+    assert!(h.button(pos, PointerButton::Secondary, true).is_empty());
+    assert!(h.button(pos, PointerButton::Primary, false).is_empty());
 }

@@ -45,10 +45,10 @@ No change in other crates. Modules are not re-exported at the crate root.
 
 - `fretscribe-ui` depends on `fretscribe-analysis` and `fretscribe-notation`.
 - `notation::tab::{lowest_fret_candidate, candidate_label}` are provisional ("E 10" format, string 0 = lowest, capo respected); replace with the real tab inference keeping the signatures.
-- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{AddNoteRequested, SeekRequested}`, `GhostShape`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
+- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{SeekRequested, DrawBegan, DrawMoved, DrawEnded, DrawCancelled}`, `GhostShape`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
 - Notes are `&[Note]` plus `NoteTimes`; a link is a Bend arrow when the start note's `technique` is Bend, otherwise a slide line; `Note.legato` draws an arc.
 - Texture cache key includes window, size, pitch range, A4, levels, gamma, LUT, data pointer and a caller `revision` (bump it when data changes in place).
-- `SpectroOutput::pitch_ruler` (`PITCH_RULER_WIDTH`) is the left label strip: used for the nav drag, clicks there add no note.
+- `SpectroOutput::pitch_ruler` (`PITCH_RULER_WIDTH`) is the left label strip: used for the nav drag, drags there do not draw.
 
 ## 2026-11-07 - ui: track lanes
 
@@ -57,7 +57,7 @@ No change in other crates. Modules are not re-exported at the crate root.
 - Timeline x = 0 is the right edge of the header column: ruler and grid start `LANE_HEADER_WIDTH` right of the lane area. `TimelineView` stays in project time; only a lane's spectrogram and waveform are shifted (`audio_offset`), notes never are.
 - `LaneSource` supplies spectrogram, peaks, duration, onsets and `snap_candidates` in the track's own audio time.
 - Offsets: `OffsetDragBegan(id)` / `OffsetDragEnded(id)` bracket the live `OffsetChanged` events of one drag (one undo step); typed, nudged and reset values send one event each. `OffsetChanged::move_notes` is true only for the source track with the menu option on; the app applies it with `core::shift_track`. Limit +-60 s; snap within 8 px, Alt disables, Shift drags 10x slower; the field commits on Enter, Esc reverts.
-- Clicks on a helper lane's spectrogram give `SpectroEvent::SeekRequested`, never `AddNoteRequested`.
+- Clicks on a helper lane's spectrogram give `SpectroEvent::SeekRequested`, never `Draw*` (only the source lane draws).
 - `LaneOutput::resized_rows` is `Option<(rows, animate)>`; `geometry::rows_shown` takes `rows: f32`.
 
 ## 2026-11-08 - ui: note glyphs
@@ -65,3 +65,40 @@ No change in other crates. Modules are not re-exported at the crate root.
 - Glyphs replace the connectors (`chains`, `chain_label`, `connector_path`, the old `LinkKind` and the rubber band are gone). `spectro::glyphs`: `note_glyphs`, `link_points`, `Glyph`, `LinkKind {Slide, Bend}`, `LinkPoint`, `Side`, `NoteMetrics` (height = pitch row, no minimum; names hide below 9 px).
 - `HitZone` adds `LinkLeft`, `LinkRight`, `Line`, `Arrow`, `Arc`; `hit_test(geo, notes, times, pos, hovered)` takes the hovered note (whose free link points are hit-testable), normally `SpectroOutput::hovered_note` of the previous frame.
 - `GhostNote` is replaced by `GhostShape { glyphs: Vec<GhostGlyph> }` (project time and pitch; links by index), passed by reference (`SpectrogramView::ghost`, `TrackLanes::ghost`).
+
+## 2026-11-08 - note editing
+
+- `SpectroEvent::AddNoteRequested` is replaced by `DrawBegan/DrawMoved/DrawEnded/DrawCancelled` (left drag from empty space, with `midi`, `exact_midi_float`, `time_sec`; a click is a `SeekRequested`). No note tools or context menus: everything is gestures plus `ui::note_editor::NoteAction` (`apply`) for keys and the track-head buttons.
+- `ui::note_editor`: `NoteEditor::handle(&mut Env, Input) -> Vec<Effect>` (pure; `collect` turns egui input into `Input`), `Effect::Edit { edit, merge, affected }` (the app pushes it with `UndoStack::push` / `push_merged` and re-runs the tab inference on `affected`), `action_buttons`, `ExactFields`/`apply_exact`. `TrackLanesOutput::source_pointer` exposes the source lane's geometry and hovered note.
+- `core`: `links` (invariants, `link_notes`, `unlink`, `cycle_link`, `link_selection`, bridging delete), `snap_note` (`snap_note`, `snap_resized`, `SnapOpts`), `TempoMap::{pos_to_beats, beats_to_pos}`, `Project::edit_notes`, `ProjectEdit::merge`, `UndoStack::push_merged`. `analysis::notes::refine_pitch`. Edge hit zones are no longer suppressed on linked sides.
+- `core`: `Project::resolve_overlaps(placed)` keeps same-pitch notes from overlapping: the placed notes win, the others are cut, split (the tail is a new note that takes over the outgoing links) or removed when under `MIN_PIECE_BEATS`. Every note editor edit (draw, move, resize, paste/duplicate, transpose, exact edit) calls it inside its undo step; other code that places notes must do the same.
+
+## 2026-11-09 - legato and grace notes
+
+- `core::grace`: `Project::{link_legato(from, to, Option<Legato>), force_legato, unlink_legato, add_grace_note(main, Option<midi>, GraceKind), set_grace_kind, move_grace, remove_grace, force_legato_selection, previous_note, try_edit}`; `GraceError`, `LegatoError` (`NeedsSameString { candidates }`), `LinkError::NoPrevious`, `ACCIACCATURA_SEC` (40 ms), `APPOGGIATURA_SEC` (100 ms), `default_grace_midi`. Grace notes use the same one-link rule as every link.
+- `infer_link_type` (hence `link_selection`) gives a slide when both notes have string assignments that differ; `ForceLegato` instead moves and locks the destination.
+- `ui::note_editor`: `NoteAction::{Grace, ForceLegato}` work (default keys G, H; `ActionError::Unavailable` is gone); `Applied::grace_entry`; modal quick entry `GraceEntry` driven by `Input::Entry(EntryKey)` (`NoteEditor::in_entry`; the app's key collection must route keys to it while true, `collect` does); `Effect::Edit` of the entry affects `[grace, main]`.
+- `spectro`: `GlyphItem::grace`, `GhostGlyph::grace` (pub field, add it where ghosts are built), `MIN_GRACE_PX = 6`; grace notes draw with a dashed outline.
+- Not done yet: staff and tab drawing and pointer input of this prompt (`staff_view`, `tab_view` do not exist; prompts 9 and 10 must draw slurs/arcs and small grace notes from `Note.legato` / `Note.grace_of`).
+
+## 2026-11-09 - grace notes: always linked
+
+- A grace note always joins the note that follows it (`Project::grace_target`: the next grace note of the group, else the main note): (superseded 2026-11-10: `GraceLink`, `valid_grace_links` and `cycle_grace_link` are gone, see `LinkType::Dashed`/`valid_links`) default legato, else slide, else dashed. `Project::{grace_link, set_grace_link, default_grace_link}`; `move_grace` re-checks the link and stays between the previous grace note / note and its target; `grace_target_of(notes, times, id)`.
+- Dashed is stored as no link data (`grace_of` alone); renderers draw it from `grace_target_of`. `spectro::LinkKind::Dashed`, hit zone `Line`.
+- Note editor: right click on a grace note, its connector or its arc cycles the valid links (one undo step, merged while cycling); the entry follows the pointer (start time and pitch), a left click confirms (Enter too), `EntryKey::CycleLink` cycles the link in the entry (the H/P action itself is a toggle since 2026-11-10), the entry is part of `NoteEditor::in_mode`.
+
+## 2026-11-09 - grace notes: before the beat / on the beat
+
+- The kind is the placement: `GraceKind::Acciaccatura` = before the beat (the end is the start of the note it leads into), `GraceKind::Appoggiatura` = on the beat (the start is the start of the main note, drawn over it). `Project::set_grace_timing(id, kind, len_sec)` places a grace note (length limited by the room: back to the previous note's start before the beat, the main note's length on the beat) and re-checks the link; `set_grace_kind` switches side keeping the length; `move_grace` is gone. A link is kept while valid; the default is legato, whatever the length (corrected 2026-11-10).
+- Grace entry: the pointer draws the note from the start of the main note: to the left = before the beat, to the right = on the beat, the distance is the length (within 10 ms of the start: the default length of the current kind); `GraceEntry::pointer(project, sec, midi)`; G (toggle kind) switches side keeping the drawn length. Several on-the-beat grace notes all lead into the main note, so only the first can keep a legato or slide.
+
+## 2026-11-10 - tied links, link bands, consolidated grace links
+
+- Tie rule: when A links to B, `A.end == B.start`. `link_notes` sets `A.end` to `B.start` (it can cut or extend A; `LinkError::NotInOrder` when A would be left under `MIN_TIED_SEC`). `Project::tie_links(touched) -> Vec<u64>` re-ties after any edit (the end that was not touched follows; a link that would leave under `MIN_PIECE_BEATS` is dropped) and runs first in `resolve_overlaps`, so moves, resizes, paste and Bridge are tied with no per-path code. Exception: an on-the-beat grace note (`ties_end` false) keeps its own length.
+- Overlap cuts now also unlink the cut side, and a grace note overlapped by another note is removed (grace notes follow the no-overlap rule).
+- Dashed is a link type: `LinkType::Dashed` (valid for grace sources only, `LinkError::DashedNeedsGrace`), implicit (no stored data) via `Project::link_of(id)` (real link, else the dashed link of a grace note). `LinkType::CYCLE = [Slide, Bend, Legato, Dashed]`; `Project::valid_links(id)`; `cycle_link_type` serves grace notes too (bends included), so the Type button and right click are the same action. Removed: `GraceLink`, `valid_grace_links`, `cycle_grace_link`; `grace_link`/`set_grace_link` now use `LinkType`. On the beat has the same validity as before the beat.
+- Note editor: a link source is drawn as a band (about `h` wide plus dot room, at most half the way to its destination, no minimum, right edge locked); `Scene::locked` gives the locked edges (also the end of a before-the-beat grace note and the start of an on-the-beat one, which `plan_resize` refuses). Resizing a link end drags the tied edge (stops one lattice unit before squashing the partner). `apply_resize` is gone (use `apply_changes`); a drawn slide is A[s,e], B[e,e+step]. A grace note dragged alone has two positions (on or before the beat, `set_grace_timing`); grace notes whose main is not moved are left out of multi-moves.
+- Actions: Grace on a grace note starts an entry on its main (no kind toggle); H/P toggles (removes the legato when all targets already have it); Type is enabled for grace notes (`link_of`).
+- On-the-beat grace links are drawn from the grace note's right edge towards the main note (a short run, never vertical, angle follows the motion).
+- (2026-11-10, later) Resizing the start of a note moves its grace notes (both ends) with it (`apply_changes`/`preview_changes`; the followers are listed in the preview). Drawing: releasing a left drag from empty space on an existing note links the new note to it (`draw::plan_draw_onto`; the press is one end of the new note and the target gives the other: it ends where a later target starts, or runs from the end of an earlier target to the press; the drag preview shows it), which completes the drawing. While a drawn slide waits for its end, a left click on an existing note does the same (`plan_slide_target`). The `Draw*` spectro events carry no hit: the editor uses the hit of the last pointer sample.
+- `Scene::name_area(id)`: the name of the destination of an on-the-beat grace note is centred between its arriving link dot and its end dot (or its end).
