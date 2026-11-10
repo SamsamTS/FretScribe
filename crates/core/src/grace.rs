@@ -56,18 +56,8 @@ impl From<LegatoError> for LinkError {
     }
 }
 
-/// How a grace note joins the note that follows it (the next grace note or its main note).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GraceLink {
-    Legato,
-    Slide,
-    /// No technique: only drawn as a dashed connector.
-    Dashed,
-}
-
-impl GraceLink {
-    pub const ALL: [Self; 3] = [Self::Legato, Self::Slide, Self::Dashed];
-}
+/// Link kinds tried, in this order, when a grace note gets its first link.
+const DEFAULT_LINKS: [LinkType; 3] = [LinkType::Legato, LinkType::Slide, LinkType::Dashed];
 
 /// The note a grace note leads into: the earliest group member (its main note or a sibling grace
 /// note) starting after it.
@@ -149,6 +139,7 @@ impl Project {
             g.kind = kind;
         }
         self.refresh_grace_link(id);
+        self.resolve_overlaps(&[id]);
         Ok(())
     }
 
@@ -199,70 +190,36 @@ impl Project {
         grace_target_of(&self.notes, &NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)), id)
     }
 
-    pub fn grace_link(&self, id: u64) -> GraceLink {
-        match self.outgoing(id) {
-            Some((_, LinkType::Legato)) => GraceLink::Legato,
-            Some(_) => GraceLink::Slide,
-            None => GraceLink::Dashed,
-        }
-    }
-
-    /// The link kinds that can be set now (the current one included), in cycling order.
-    pub fn valid_grace_links(&self, id: u64) -> Vec<GraceLink> {
-        let Some(target) = self.grace_target(id) else { return Vec::new() };
-        let mut scratch = self.clone();
-        scratch.unlink(id);
-        GraceLink::ALL
-            .into_iter()
-            .filter(|&k| match k {
-                GraceLink::Dashed => true,
-                GraceLink::Slide => scratch.can_link(id, target, LinkType::Slide).is_ok(),
-                GraceLink::Legato => scratch.clone().link_legato(id, target, None).is_ok(),
-            })
-            .collect()
+    pub fn grace_link(&self, id: u64) -> LinkType {
+        self.link_of(id).map_or(LinkType::Dashed, |l| l.1)
     }
 
     /// Replaces the grace note's link; refused when `link` is not valid.
-    pub fn set_grace_link(&mut self, id: u64, link: GraceLink) -> Result<(), GraceError> {
+    pub fn set_grace_link(&mut self, id: u64, link: LinkType) -> Result<(), GraceError> {
         self.grace_mut(id)?;
-        if !self.valid_grace_links(id).contains(&link) {
+        if !self.valid_links(id).contains(&link) {
             return Err(GraceError::LinkInvalid);
         }
-        self.unlink(id);
-        if let Some(target) = self.grace_target(id) {
-            match link {
-                GraceLink::Legato => drop(self.link_legato(id, target, None)),
-                GraceLink::Slide => drop(self.link_notes(id, target, LinkType::Slide)),
-                GraceLink::Dashed => {}
-            }
-        }
+        self.set_link(id, link);
         Ok(())
     }
 
-    /// Legato when close, slide when further, dashed when neither is possible.
-    pub fn default_grace_link(&self, id: u64) -> GraceLink {
-        self.valid_grace_links(id).first().copied().unwrap_or(GraceLink::Dashed)
+    /// Legato when possible, else slide, else dashed.
+    pub fn default_grace_link(&self, id: u64) -> LinkType {
+        let valid = self.valid_links(id);
+        DEFAULT_LINKS.into_iter().find(|k| valid.contains(k)).unwrap_or(LinkType::Dashed)
     }
 
-    /// Keeps the current link while it stays valid, otherwise takes the default.
+    /// Keeps the current link while it stays valid and still leads into the right note, otherwise
+    /// takes the default.
     fn refresh_grace_link(&mut self, id: u64) {
-        let current = self.grace_link(id);
-        let valid = self.valid_grace_links(id);
-        if !valid.contains(&current) {
-            let _ = self.set_grace_link(id, valid.first().copied().unwrap_or(GraceLink::Dashed));
+        let stale = self.outgoing(id).is_some_and(|(to, _)| Some(to) != self.grace_target(id));
+        if stale {
+            self.unlink(id);
         }
-    }
-
-    /// Next valid link kind after the current one; `None` when there is only one.
-    pub fn cycle_grace_link(&mut self, id: u64) -> Result<Option<GraceLink>, GraceError> {
-        self.grace_mut(id)?;
-        let valid = self.valid_grace_links(id);
-        let at = valid.iter().position(|&k| k == self.grace_link(id)).unwrap_or(valid.len().saturating_sub(1));
-        let next = valid[(at + 1) % valid.len().max(1)..].first().copied().filter(|_| valid.len() > 1);
-        if let Some(next) = next {
-            self.set_grace_link(id, next)?;
+        if stale || !self.valid_links(id).contains(&self.grace_link(id)) {
+            let _ = self.set_grace_link(id, self.default_grace_link(id));
         }
-        Ok(next)
     }
 
     fn grace_mut(&mut self, id: u64) -> Result<&mut Note, GraceError> {

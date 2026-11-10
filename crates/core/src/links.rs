@@ -1,28 +1,36 @@
 //! Links between notes: slide and bend live on the start note (`link_to` + `technique`), legato on
 //! the end note (`legato.from`). A chain is a simple linked list in time order.
+//!
+//! A linked note A always ends where its destination B starts (`write_link` ties it, `tie_links`
+//! keeps it so after edits); on-the-beat grace notes keep their own length. A grace note that has no
+//! other link is joined to the note it leads into by the implicit `Dashed` link.
 
 use std::collections::HashSet;
 
 use thiserror::Error;
 
 use crate::edit::ProjectEdit;
-use crate::model::{Legato, LegatoLink, Note, Project, Technique, Tuning};
+use crate::model::{GraceKind, Legato, LegatoLink, Note, Project, Technique, Tuning};
+use crate::overlap::MIN_PIECE_BEATS;
 use crate::tempo::{NoteTimes, TempoMap};
 
 pub const MAX_FRET: u8 = 24;
 const BEND_MAX_SEMITONES: u8 = 4;
 const LEGATO_MAX_GAP_BEATS: f64 = 0.25;
 const SAME_SEC: f64 = 1e-9;
+const MIN_TIED_SEC: f64 = 1e-3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkType {
     Slide,
     Bend,
     Legato,
+    /// Grace notes only: no technique, a dashed connector. Stored as no link data.
+    Dashed,
 }
 
 impl LinkType {
-    const CYCLE: [Self; 3] = [Self::Slide, Self::Bend, Self::Legato];
+    pub const CYCLE: [Self; 4] = [Self::Slide, Self::Bend, Self::Legato, Self::Dashed];
 }
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
@@ -49,6 +57,8 @@ pub enum LinkError {
     NotAdjacent,
     #[error("there is no earlier note to link from")]
     NoPrevious,
+    #[error("only grace notes can have a dashed link")]
+    DashedNeedsGrace,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -73,6 +83,11 @@ pub fn same_string_fit(tuning: &Tuning, capo: u8, midis: &[u8]) -> bool {
             .iter()
             .all(|&m| m.checked_sub(open).is_some_and(|fret| (capo..=MAX_FRET).contains(&fret)))
     })
+}
+
+/// Whether the end of `a` is tied to the start of its destination (not for on-the-beat grace notes).
+pub(crate) fn ties_end(a: &Note) -> bool {
+    !matches!(a.grace_of, Some(g) if g.kind == GraceKind::Appoggiatura)
 }
 
 fn adjacent(tempo: &TempoMap, a: &Note, b: &Note) -> bool {
@@ -104,6 +119,12 @@ impl Project {
             .iter()
             .find(|n| n.legato.is_some_and(|l| l.from == id))
             .map(|n| (n.id, LinkType::Legato))
+    }
+
+    /// The link that starts at `id`: a real one, or for a grace note the implicit dashed connector
+    /// to the note it leads into.
+    pub fn link_of(&self, id: u64) -> Option<(u64, LinkType)> {
+        self.outgoing(id).or_else(|| self.note(id)?.grace_of.and(self.grace_target(id)).map(|to| (to, LinkType::Dashed)))
     }
 
     pub fn incoming(&self, id: u64) -> Option<(u64, LinkType)> {
@@ -159,8 +180,11 @@ impl Project {
         if from == to {
             return Err(LinkError::SameNote);
         }
+        if kind == LinkType::Dashed {
+            return if a.grace_of.is_some() { Ok(()) } else { Err(LinkError::DashedNeedsGrace) };
+        }
         let (sa, sb) = (times.start_sec(from).unwrap_or(0.0), times.start_sec(to).unwrap_or(0.0));
-        if sb < sa - SAME_SEC {
+        if sb < sa - SAME_SEC || (ties_end(a) && sb < sa + MIN_TIED_SEC) {
             return Err(LinkError::NotInOrder);
         }
         if self.outgoing(from).is_some() {
@@ -177,14 +201,14 @@ impl Project {
             return Err(LinkError::SamePitch);
         }
         match kind {
-            LinkType::Slide => {}
+            LinkType::Slide | LinkType::Dashed => {}
             LinkType::Bend if !(1..=BEND_MAX_SEMITONES).contains(&interval) => return Err(LinkError::BendInterval),
             LinkType::Bend => {}
             LinkType::Legato => {
                 if !same_string_fit(&self.tuning, self.capo, &[a.midi, b.midi]) {
                     return Err(LinkError::NoSameString);
                 }
-                if !adjacent(tempo, a, b) {
+                if ties_end(a) && !adjacent(tempo, a, b) {
                     return Err(LinkError::NotAdjacent);
                 }
             }
@@ -192,18 +216,60 @@ impl Project {
         Ok(())
     }
 
+    /// Writes the link and ties the end of `from` to the start of `to`.
     pub(crate) fn write_link(&mut self, from: u64, to: u64, kind: LinkType) {
-        let Some(legato) = self.note(from).zip(self.note(to)).map(|(a, b)| legato_kind(a, b)) else {
+        let Some((legato, start)) = self.note(from).zip(self.note(to)).map(|(a, b)| (legato_kind(a, b), b.start)) else {
             return;
         };
+        if kind == LinkType::Dashed {
+            return;
+        }
         for n in &mut self.notes {
-            if n.id == from && kind != LinkType::Legato {
-                n.link_to = Some(to);
-                n.technique = Some(if kind == LinkType::Bend { Technique::Bend } else { Technique::Slide });
+            if n.id == from {
+                if kind != LinkType::Legato {
+                    n.link_to = Some(to);
+                    n.technique = Some(if kind == LinkType::Bend { Technique::Bend } else { Technique::Slide });
+                }
+                if ties_end(n) {
+                    n.end = start;
+                }
             } else if n.id == to && kind == LinkType::Legato {
                 n.legato = Some(LegatoLink { kind: legato, from });
             }
         }
+    }
+
+    /// Re-ties the links of the `touched` notes after an edit: the end that was not touched follows
+    /// (both touched: the source's end follows the destination's start). A link that cannot hold
+    /// any more (a note would shrink below one lattice unit) is dropped. Returns the notes whose
+    /// edge moved.
+    pub fn tie_links(&mut self, touched: &[u64]) -> Vec<u64> {
+        let tempo = TempoMap::new(&self.measures);
+        let at = |p| tempo.pos_to_beats(p).unwrap_or(0.0);
+        let links: Vec<(u64, u64)> = self.notes.iter().filter_map(|n| self.outgoing(n.id).map(|(to, _)| (n.id, to))).collect();
+        let mut moved = Vec::new();
+        for (from, to) in links {
+            let (Some(a), Some(b)) = (self.note(from).cloned(), self.note(to).cloned()) else { continue };
+            if !ties_end(&a) || !(touched.contains(&from) || touched.contains(&to)) || (at(a.end) - at(b.start)).abs() < SAME_SEC {
+                continue;
+            }
+            let end_follows = touched.contains(&to);
+            let room = if end_follows { at(b.start) - at(a.start) } else { at(b.end) - at(a.end) };
+            if room < MIN_PIECE_BEATS {
+                self.unlink(from);
+                continue;
+            }
+            let id = if end_follows { from } else { to };
+            if let Some(n) = self.notes.iter_mut().find(|n| n.id == id) {
+                if end_follows {
+                    n.end = b.start;
+                } else {
+                    n.start = a.end;
+                }
+            }
+            moved.push(id);
+        }
+        moved
     }
 
     pub fn link_notes(&mut self, from: u64, to: u64, kind: LinkType) -> Result<(), LinkError> {
@@ -235,19 +301,34 @@ impl Project {
         self.incoming(id).is_some_and(|(prev, _)| self.unlink(prev))
     }
 
-    /// Next valid type of the outgoing link of `id` in the order slide, bend, legato; `None` when
-    /// there is no link or no other type is valid.
+    /// The kinds the link that starts at `id` could take now (its current one included), in
+    /// cycling order. Empty when there is no link.
+    pub fn valid_links(&self, id: u64) -> Vec<LinkType> {
+        let Some((to, _)) = self.link_of(id) else { return Vec::new() };
+        let mut scratch = self.clone();
+        scratch.unlink(id);
+        let tempo = TempoMap::new(&scratch.measures);
+        let times = NoteTimes::build(&scratch.notes, &tempo);
+        LinkType::CYCLE.into_iter().filter(|&k| scratch.check_link(id, to, k, &times, &tempo).is_ok()).collect()
+    }
+
+    /// Replaces the link that starts at `id` by another kind (not checked).
+    pub(crate) fn set_link(&mut self, id: u64, kind: LinkType) {
+        if let Some((to, _)) = self.link_of(id) {
+            self.unlink(id);
+            self.write_link(id, to, kind);
+        }
+    }
+
+    /// Next valid kind of the link of `id` in the order slide, bend, legato, dashed (grace notes
+    /// only); `None` when there is no link or no other kind is valid.
     pub fn cycle_link_type(&mut self, id: u64) -> Option<LinkType> {
-        let (to, current) = self.outgoing(id)?;
-        let tempo = TempoMap::new(&self.measures);
-        let times = NoteTimes::build(&self.notes, &tempo);
+        let (_, current) = self.link_of(id)?;
+        let valid = self.valid_links(id);
         let at = LinkType::CYCLE.iter().position(|&k| k == current)?;
-        self.unlink(id);
-        let next = (1..LinkType::CYCLE.len())
-            .map(|step| LinkType::CYCLE[(at + step) % LinkType::CYCLE.len()])
-            .find(|&k| self.check_link(id, to, k, &times, &tempo).is_ok());
-        self.write_link(id, to, next.unwrap_or(current));
-        next
+        let next = (1..LinkType::CYCLE.len()).map(|step| LinkType::CYCLE[(at + step) % LinkType::CYCLE.len()]).find(|k| valid.contains(k))?;
+        self.set_link(id, next);
+        Some(next)
     }
 
     /// Links consecutive groups of overlapping notes pair by pair in pitch order, inferring the type.
@@ -351,12 +432,17 @@ impl Project {
                 Vec::new()
             };
             p.remove_note_set(&doomed);
+            let mut sources = Vec::new();
             for (from, to, kind) in bridges {
-                if p.link_notes(from, to, kind).is_err() {
+                let linked = p.link_notes(from, to, kind).is_ok() || {
                     let inferred = p.infer_link_type(from, to);
-                    let _ = p.link_notes(from, to, inferred);
+                    p.link_notes(from, to, inferred).is_ok()
+                };
+                if linked {
+                    sources.push(from);
                 }
             }
+            p.resolve_overlaps(&sources);
         })
     }
 }
@@ -364,7 +450,7 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{TimePos, TimeSignature, Track, TrackRole};
+    use crate::model::{GraceKind, GraceNote, TimePos, TimeSignature, Track, TrackRole};
     use crate::tracks::next_note_id;
 
     fn project() -> Project {
@@ -426,12 +512,44 @@ mod tests {
     }
 
     #[test]
-    fn cycles_are_rejected() {
+    fn cycles_are_rejected_between_on_the_beat_grace_notes() {
         let mut p = project();
-        let a = add(&mut p, 60, 0.0, 1.0);
-        let b = add(&mut p, 62, 0.0, 1.0);
+        let main = add(&mut p, 64, 0.0, 2.0);
+        let (a, b) = (add(&mut p, 60, 0.0, 0.5), add(&mut p, 62, 0.0, 0.5));
+        for n in p.notes.iter_mut().filter(|n| n.id != main) {
+            n.grace_of = Some(GraceNote { main, kind: GraceKind::Appoggiatura });
+        }
         p.link_notes(a, b, LinkType::Slide).unwrap();
+        assert_eq!(p.note(a).unwrap().end, TimePos::new(1, 0.5), "on-the-beat grace notes keep their length");
         assert_eq!(p.link_notes(b, a, LinkType::Slide), Err(LinkError::Cycle));
+    }
+
+    #[test]
+    fn linking_ties_the_end_of_the_source_to_the_start_of_the_destination() {
+        let mut p = project();
+        let (a, b, c) = (add(&mut p, 60, 0.0, 3.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 64, 5.0, 6.0));
+        p.link_notes(a, b, LinkType::Slide).unwrap();
+        assert_eq!(p.note(a).unwrap().end, TimePos::new(1, 1.0), "a long source is cut");
+        p.link_notes(b, c, LinkType::Slide).unwrap();
+        assert_eq!(p.note(b).unwrap().end, TimePos::new(1, 5.0), "a short source is extended");
+        let d = add(&mut p, 65, 5.0, 6.0);
+        assert_eq!(p.link_notes(c, d, LinkType::Slide), Err(LinkError::NotInOrder), "the source would vanish");
+    }
+
+    #[test]
+    fn tie_links_follows_the_end_that_was_not_touched_and_drops_links_that_cannot_hold() {
+        let mut p = project();
+        let [a, b, c] = chain3(&mut p);
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().start = TimePos::new(1, 1.5);
+        assert_eq!(p.tie_links(&[b]), [a]);
+        assert_eq!(p.note(a).unwrap().end, TimePos::new(1, 1.5));
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::new(1, 2.5);
+        assert_eq!(p.tie_links(&[b]), [c]);
+        assert_eq!(p.note(c).unwrap().start, TimePos::new(1, 2.5));
+        p.notes.iter_mut().find(|n| n.id == c).unwrap().end = TimePos::new(1, 2.51);
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::new(1, 2.6);
+        assert!(p.tie_links(&[b]).is_empty());
+        assert_eq!(p.outgoing(b), None, "c would be left under a lattice unit");
     }
 
     #[test]
@@ -519,6 +637,7 @@ mod tests {
         let edit = p.delete_notes(&[b], true);
         assert_eq!(p.chain_of(a), [a, c]);
         assert_eq!(p.outgoing(a), Some((c, LinkType::Slide)));
+        assert_eq!(p.note(a).unwrap().end, p.note(c).unwrap().start, "the bridged note is tied to its new destination");
         edit.undo(&mut p);
         assert_eq!(p.notes, before);
         edit.redo(&mut p);

@@ -12,23 +12,34 @@ pub const MIN_PIECE_BEATS: f64 = 1.0 / 24.0;
 const EPS: f64 = 1e-9;
 
 impl Project {
-    /// Makes room for the `placed` notes: any other note of the same pitch they overlap is cut
-    /// back (the cut edge moves to the placed note), split in two when the placed note lies in
-    /// its middle, or removed when no piece of at least [`MIN_PIECE_BEATS`] is left. Notes of other
-    /// pitches, grace notes and the placed notes themselves are never touched. Call it inside the
-    /// edit that placed the notes.
+    /// First re-ties the links of the `placed` notes (`tie_links`; the notes they link to count as
+    /// placed too). Then makes room for them: any other note of the same pitch they overlap is cut
+    /// back (the cut edge moves to the placed note, and the link on that side is dropped), split in
+    /// two when the placed note lies in its middle (the tail takes over the outgoing links), or
+    /// removed when no piece of at least [`MIN_PIECE_BEATS`] is left; an overlapped grace note is
+    /// removed. Notes of other pitches and the placed notes themselves are never touched. Call it
+    /// inside the edit that placed the notes.
     pub fn resolve_overlaps(&mut self, placed: &[u64]) {
+        let mut placed = placed.to_vec();
+        let moved = self.tie_links(&placed);
+        for id in placed.clone() {
+            let partners = [self.outgoing(id), self.incoming(id)].into_iter().flatten().map(|(p, _)| p);
+            placed.extend(partners);
+        }
+        placed.extend(moved);
+        placed.sort_unstable();
+        placed.dedup();
         let tempo = TempoMap::new(&self.measures);
         let beats = |p| tempo.pos_to_beats(p).unwrap_or(0.0);
         let keep: HashSet<u64> = placed.iter().copied().collect();
         let mut doomed = HashSet::new();
-        for &pid in placed {
+        for &pid in &placed {
             let Some(p) = self.note(pid).cloned() else { continue };
             let (ps, pe) = (beats(p.start), beats(p.end));
             let hits: Vec<Note> = self
                 .notes
                 .iter()
-                .filter(|o| o.midi == p.midi && o.grace_of.is_none() && !keep.contains(&o.id) && !doomed.contains(&o.id))
+                .filter(|o| o.midi == p.midi && !keep.contains(&o.id) && !doomed.contains(&o.id))
                 .filter(|o| beats(o.start) < pe - EPS && beats(o.end) > ps + EPS)
                 .cloned()
                 .collect();
@@ -39,8 +50,17 @@ impl Project {
                     (false, false) => {
                         doomed.insert(o.id);
                     }
-                    (true, false) => self.edit_note(o.id, |n| n.end = p.start),
-                    (false, true) => self.edit_note(o.id, |n| n.start = p.end),
+                    _ if o.grace_of.is_some() => {
+                        doomed.insert(o.id);
+                    }
+                    (true, false) => {
+                        self.unlink(o.id);
+                        self.edit_note(o.id, |n| n.end = p.start);
+                    }
+                    (false, true) => {
+                        self.split_chain(o.id);
+                        self.edit_note(o.id, |n| n.start = p.end);
+                    }
                     (true, true) => self.split(&o, &p),
                 }
             }

@@ -94,7 +94,7 @@ fn kinds_are_the_two_placements_around_the_beat() {
     close(secs(&p, g).1, 2.0);
     p.set_grace_timing(g, GraceKind::Acciaccatura, 50.0).unwrap();
     assert!(secs(&p, g).0 > 1.0, "never reaches the start of the previous note");
-    assert_eq!(p.grace_link(g), GraceLink::Slide, "the link made while it was long is still valid and kept");
+    assert_eq!(p.grace_link(g), LinkType::Legato, "on the beat or before it, the same links are valid");
     p.set_grace_timing(g, GraceKind::Acciaccatura, 0.04).unwrap();
 
     let h = add(&mut p, 59, 3.0, 3.5);
@@ -110,7 +110,7 @@ fn main_note_removal_takes_its_graces_and_clears_legato() {
     let mut p = project();
     let main = add(&mut p, 60, 2.0, 3.0);
     let g = p.add_grace_note(main, Some(57), GraceKind::Acciaccatura).unwrap();
-    assert_eq!(p.grace_link(g), GraceLink::Legato);
+    assert_eq!(p.grace_link(g), LinkType::Legato);
     let next = add(&mut p, 64, 3.0, 3.5);
     p.link_legato(main, next, None).unwrap();
     p.delete_notes(&[main], false);
@@ -197,54 +197,67 @@ fn force_legato_selection_single_note_and_groups() {
 }
 
 #[test]
-fn grace_notes_are_always_linked_legato_when_close_slide_when_far_dashed_otherwise() {
+fn grace_notes_are_always_linked_legato_first_dashed_when_nothing_else_is_valid() {
     let mut p = project();
     add(&mut p, 40, 0.0, 0.5);
     let main = add(&mut p, 60, 3.0, 4.0);
     let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
-    assert_eq!((p.grace_link(g), p.outgoing(g)), (GraceLink::Legato, Some((main, LinkType::Legato))));
+    assert_eq!((p.grace_link(g), p.outgoing(g)), (LinkType::Legato, Some((main, LinkType::Legato))));
     assert_eq!(p.note(main).unwrap().legato.map(|l| l.from), Some(g));
-    // On the beat and longer than a quarter beat: slide.
+    // On the beat, however long: the same kinds are valid and the link is kept.
     p.set_grace_timing(g, GraceKind::Appoggiatura, 0.3).unwrap();
-    assert_eq!((p.grace_link(g), p.outgoing(g)), (GraceLink::Slide, Some((main, LinkType::Slide))));
-    assert!(p.note(main).unwrap().legato.is_none());
-    // Shorter again (and before the beat): the slide is still valid and is kept.
-    p.set_grace_timing(g, GraceKind::Acciaccatura, 0.05).unwrap();
-    assert_eq!(p.grace_link(g), GraceLink::Slide);
-    // An on-the-beat grace note of a quarter beat or less is legato by default.
+    assert_eq!(p.grace_link(g), LinkType::Legato);
+    assert_eq!(p.valid_links(g), [LinkType::Slide, LinkType::Bend, LinkType::Legato, LinkType::Dashed]);
     let quick = add(&mut p, 66, 10.0, 11.0);
     let q = p.add_grace_note(quick, Some(64), GraceKind::Appoggiatura).unwrap();
-    assert_eq!(p.grace_link(q), GraceLink::Legato);
+    assert_eq!(p.grace_link(q), LinkType::Legato);
     // Same pitch: neither is possible.
     let same = add(&mut p, 62, 6.0, 7.0);
     let g2 = p.add_grace_note(same, Some(62), GraceKind::Appoggiatura).unwrap();
-    assert_eq!((p.grace_link(g2), p.valid_grace_links(g2)), (GraceLink::Dashed, vec![GraceLink::Dashed]));
+    assert_eq!((p.grace_link(g2), p.valid_links(g2)), (LinkType::Dashed, vec![LinkType::Dashed]));
     // The main note already ends a link: only dashed.
     let (a, b) = (add(&mut p, 50, 8.0, 8.5), add(&mut p, 52, 8.5, 9.0));
     p.link_notes(a, b, LinkType::Slide).unwrap();
     let g3 = p.add_grace_note(b, Some(55), GraceKind::Acciaccatura).unwrap();
-    assert_eq!(p.valid_grace_links(g3), vec![GraceLink::Dashed]);
+    assert_eq!(p.valid_links(g3), vec![LinkType::Dashed]);
+    // Dashed is for grace notes only.
+    assert_eq!(p.can_link(a, b, LinkType::Dashed), Err(LinkError::DashedNeedsGrace));
 }
 
 #[test]
-fn cycling_walks_the_valid_states_in_one_edit() {
+fn cycling_walks_the_valid_kinds_in_one_edit_for_grace_notes_too() {
     let mut p = project();
     let main = add(&mut p, 60, 3.0, 4.0);
     let g = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
     let before = p.notes.clone();
-    let (edit, first) = p.try_edit("Grace link", |p| p.cycle_grace_link(g)).unwrap();
-    assert_eq!((first, p.grace_link(g)), (Some(GraceLink::Slide), GraceLink::Slide));
-    assert!(p.note(main).unwrap().legato.is_none());
-    assert_eq!(p.cycle_grace_link(g), Ok(Some(GraceLink::Dashed)));
-    assert!(p.outgoing(g).is_none());
-    assert_eq!(p.cycle_grace_link(g), Ok(Some(GraceLink::Legato)));
+    let (edit, first) = p.try_edit("Grace link", |p| p.cycle_link_type(g).ok_or(())).unwrap();
+    assert_eq!((first, p.grace_link(g)), (LinkType::Dashed, LinkType::Dashed));
+    assert!(p.note(main).unwrap().legato.is_none() && p.outgoing(g).is_none());
+    assert_eq!(p.cycle_link_type(g), Some(LinkType::Slide));
+    assert_eq!(p.cycle_link_type(g), Some(LinkType::Bend));
+    assert_eq!(p.note(g).unwrap().technique, Some(crate::model::Technique::Bend));
+    assert_eq!(p.cycle_link_type(g), Some(LinkType::Legato));
     edit.undo(&mut p);
-    let _ = before;
-    assert_eq!(p.cycle_grace_link(main), Err(GraceError::NotGrace(main)));
+    assert_eq!(p.notes, before);
+    assert_eq!(p.cycle_link_type(main), None);
     let same = add(&mut p, 62, 6.0, 7.0);
     let g2 = p.add_grace_note(same, Some(62), GraceKind::Acciaccatura).unwrap();
-    assert_eq!(p.cycle_grace_link(g2), Ok(None));
-    assert_eq!(p.set_grace_link(g2, GraceLink::Slide), Err(GraceError::LinkInvalid));
+    assert_eq!(p.cycle_link_type(g2), None);
+    assert_eq!(p.set_grace_link(g2, LinkType::Slide), Err(GraceError::LinkInvalid));
+}
+
+#[test]
+fn grace_notes_follow_the_no_overlap_rule() {
+    let mut p = project();
+    let long = add(&mut p, 58, 0.0, 3.0);
+    let main = add(&mut p, 60, 3.0, 4.0);
+    let g = p.add_grace_note(main, Some(58), GraceKind::Acciaccatura).unwrap();
+    let (gs, ge) = secs(&p, g);
+    close(secs(&p, long).1, gs);
+    assert!(secs(&p, long).0 < gs && ge <= 3.0 + 1e-9, "the grace note cut the same-pitch note it landed on");
+    let run_over = add(&mut p, 58, gs - 0.01, 3.5);
+    p.resolve_overlaps(&[run_over]);
+    assert!(p.note(g).is_none(), "an overlapped grace note is removed");
 }
 
 #[test]
