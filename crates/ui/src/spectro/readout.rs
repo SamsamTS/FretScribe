@@ -55,7 +55,7 @@ mod tests {
         assert!(out.pitch.starts_with("A#3 +12c, 23"), "{}", out.pitch);
         assert!(out.pitch.ends_with(" Hz"));
         assert_eq!(out.candidate.as_deref(), Some("G 3"));
-        assert_eq!(readout(64.0, &r, &std, 0).candidate.as_deref(), Some("E 0"));
+        assert_eq!(readout(64.0, &r, &std, 0).candidate.as_deref(), Some("e 0"));
         assert_eq!(readout(30.0, &r, &std, 0).candidate, None);
     }
 
