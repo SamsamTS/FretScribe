@@ -169,6 +169,19 @@ fn bend_arrives_vertically_with_a_straight_section_and_the_specified_curve() {
 }
 
 #[test]
+fn the_name_of_the_target_of_an_on_the_beat_grace_note_sits_between_the_arriving_dot_and_the_end() {
+    use fretscribe_core::{GraceKind, GraceNote};
+    let (mut notes, times) = setup(&[(1, 50, 1.0, 1.5, Some(2), Some(Technique::Slide)), (2, 55, 1.0, 3.0, None, None)]);
+    notes[0].grace_of = Some(GraceNote { main: 2, kind: GraceKind::Appoggiatura });
+    let items = items(&notes, &times);
+    let scene = layout(&geo(), &items, &metrics());
+    let (area, rect) = (scene.name_area(2).unwrap(), scene.rects[&2]);
+    let arrival = scene.dots.iter().find(|d| d.note_id == 2 && d.side == Side::Left).unwrap().pos.x;
+    assert!((area.left() - arrival).abs() < 1e-3 && (area.right() - rect.right()).abs() < 1e-3 && area.left() > rect.left());
+    assert_eq!(scene.name_area(1), scene.rects.get(&1).copied(), "other notes are centred as usual");
+}
+
+#[test]
 fn a_source_overlapping_the_destination_is_still_a_band_with_the_link_reaching_the_destination() {
     let (notes, times) = setup(&[(1, 50, 1.0, 3.0, Some(2), Some(Technique::Slide)), (2, 53, 2.0, 3.0, None, None)]);
     let g = glyphs(&notes, &times);

@@ -196,9 +196,16 @@ pub struct Scene {
     /// Edges that cannot be resized (left, right): the real end of a slide/bend source is the start
     /// of its destination, a grace note is placed by its kind.
     locked: HashMap<u64, [bool; 2]>,
+    /// Where the name of the destination of an on-the-beat grace note is centred: between the
+    /// arriving link dot and the end dot (or the end) of the note.
+    name_areas: HashMap<u64, Rect>,
 }
 
 impl Scene {
+    pub fn name_area(&self, id: u64) -> Option<Rect> {
+        self.name_areas.get(&id).or_else(|| self.rects.get(&id)).copied()
+    }
+
     pub fn side_attached(&self, id: u64, side: Side) -> bool {
         self.attached.get(&id).is_some_and(|a| a[side as usize])
     }
@@ -361,8 +368,17 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
     for id in attach_left {
         attached.entry(id).or_default()[Side::Left as usize] = true;
     }
+    let dot_x = |id: u64, side: Side| dots.iter().find(|d| d.note_id == id && d.side == side).map(|d| d.pos.x);
+    let name_areas = (0..n)
+        .filter(|&i| on_beat[i])
+        .filter_map(|i| {
+            let j = dest[i]?;
+            let (from, to) = (dot_x(items[j].id, Side::Left)?, dot_x(items[j].id, Side::Right).unwrap_or(rects[j].right()));
+            (to > from).then(|| (items[j].id, Rect::from_x_y_ranges(from..=to, rects[j].y_range())))
+        })
+        .collect();
     let locked = (0..n).map(|i| (items[i].id, [on_beat[i], !on_beat[i] && (band_to[i].is_some() || items[i].grace)])).collect();
-    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached, locked }
+    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached, locked, name_areas }
 }
 
 pub fn note_glyphs(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, m: &NoteMetrics) -> Vec<Glyph> {
