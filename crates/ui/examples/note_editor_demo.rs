@@ -155,6 +155,7 @@ struct Demo {
     undo: UndoStack,
     editor: NoteEditor,
     grid: SnapGrid,
+    keymap: ne::Keymap,
     exact: Option<ne::ExactFields>,
     exact_error: String,
     revision: u64,
@@ -182,6 +183,7 @@ impl Demo {
         if legato {
             legato_scene(&mut project);
         }
+        let keymap = ne::Keymap::load_or_default(std::path::Path::new("keymap.json"));
         let map = TempoMap::new(&project.measures);
         let times = NoteTimes::build(&project.notes, &map);
         let style = SpectroStyle { levels: Levels::new(0.0, APP_WHITE), gamma: APP_GAMMA, lut: luts[0].clone() };
@@ -192,6 +194,7 @@ impl Demo {
             undo: UndoStack::new(),
             editor: NoteEditor::default(),
             grid: SnapGrid::new(&[4, 3]),
+            keymap: keymap.0.clone(),
             exact: None,
             exact_error: String::new(),
             revision: 0,
@@ -203,7 +206,7 @@ impl Demo {
             pitch_ref: PitchRef::default(),
             a4_hz: 440.0,
             playhead: 2.5,
-            last_event: String::new(),
+            last_event: keymap.1.unwrap_or_default(),
         }
     }
 
@@ -223,6 +226,7 @@ impl Demo {
                         self.changed();
                     }
                     Effect::Message(m) => self.last_event = m,
+                    Effect::SnapGrid(grid) => self.grid = grid,
                     Effect::OpenExact(id) => self.exact = ne::fields_for(&self.project, id),
                 }
             }
@@ -267,7 +271,7 @@ impl eframe::App for Demo {
             }
         }
         egui::TopBottomPanel::bottom("actions").show(ctx, |ui| {
-            let buttons = ne::action_buttons(&self.project, &self.editor.selection);
+            let buttons = ne::action_buttons(&self.project, &self.editor.selection, &self.keymap);
             if let Some(action) = ne::show_action_row(ui, &buttons, &self.editor.selection) {
                 self.run(ctx, vec![ne::Input::Action(action)], self.ctl.current.pixels_per_sec, None);
             }
@@ -317,7 +321,7 @@ impl eframe::App for Demo {
             let events: Vec<SpectroEvent> = spec_out.events.iter().cloned().chain(seek).collect();
             let refine = |sec: f64, midi: f32| refine_pitch(&self.spectrogram, &self.pitch_ref, sec, midi);
             let source = ne::SourcePointer { geometry: spec_out.geometry, hovered_note: spec_out.hovered_note, pitch_ruler: spec_out.pitch_ruler, notes: &self.project.notes, times: &self.times };
-            let collected = ne::collect(ctx, &source, &events, &self.editor, &refine);
+            let collected = ne::collect(ctx, &source, &events, &self.editor, &self.keymap, &refine);
             let hovered = spec_out.hovered_note.map(|h| h.0);
             self.run(ctx, collected.inputs, view.pixels_per_sec, hovered);
             if let Some(id) = collected.open_exact {

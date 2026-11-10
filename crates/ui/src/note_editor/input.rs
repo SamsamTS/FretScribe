@@ -4,7 +4,7 @@ use egui::{Context, CursorIcon, Event, Id, Key, PointerButton, Pos2, Rect};
 use fretscribe_core::{Note, NoteTimes};
 
 use super::editor::{Button, Input, Mods, NoteEditor, Sample};
-use super::{EntryKey, NoteAction};
+use super::{EntryKey, Keymap};
 use crate::spectro::{hit_test, HitZone, SpectroEvent, SpectroGeometry};
 
 pub struct SourcePointer<'a> {
@@ -26,8 +26,8 @@ fn mods_of(ctx: &Context) -> Mods {
 }
 
 /// `refine(time_sec, midi)` returns the pitch centred on the spectrogram peak (project time in,
-/// the caller applies the track offset). Keys are skipped while a text field has the focus.
-pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEvent], editor: &NoteEditor, refine: &dyn Fn(f64, f32) -> f32) -> Collected {
+/// the caller applies the track offset). Keys go through `keymap` and are skipped while a text field has the focus.
+pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEvent], editor: &NoteEditor, keymap: &Keymap, refine: &dyn Fn(f64, f32) -> f32) -> Collected {
     let mods = mods_of(ctx);
     let geo = &src.geometry;
     let hover_id = src.hovered_note.map(|h| h.0);
@@ -95,30 +95,11 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
             if i.key_pressed(Key::Escape) && !cancelled {
                 inputs.push(Input::Escape);
             }
-            if i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace) {
-                inputs.push(Input::Action(NoteAction::Delete { bridge: i.modifiers.shift }));
-            }
-            if i.modifiers.command && i.key_pressed(Key::D) {
-                inputs.push(Input::Action(NoteAction::Duplicate));
-            }
-            if i.modifiers.command && i.key_pressed(Key::A) {
-                inputs.push(Input::Action(NoteAction::SelectAll));
-            }
-            if !i.modifiers.command && !i.modifiers.alt {
-                for (key, by) in [(Key::ArrowUp, 1), (Key::ArrowDown, -1)] {
-                    if i.key_pressed(key) {
-                        inputs.push(Input::Action(NoteAction::Transpose(by)));
-                    }
-                }
-                for (key, action) in [(Key::L, NoteAction::LinkHover), (Key::H, NoteAction::ForceLegato), (Key::G, NoteAction::Grace)] {
-                    if i.key_pressed(key) {
-                        inputs.push(Input::Action(action));
-                    }
-                }
-            }
+            inputs.extend(keymap.action_for(i).map(Input::Action));
             for event in &i.events {
                 match event {
                     Event::Copy => inputs.push(Input::Copy),
+                    Event::Cut => inputs.push(Input::Cut),
                     Event::Paste(_) => inputs.push(Input::Paste),
                     _ => {}
                 }

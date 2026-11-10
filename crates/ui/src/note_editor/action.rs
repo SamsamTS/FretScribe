@@ -14,6 +14,8 @@ pub enum NoteAction {
     Duplicate,
     Transpose(i8),
     Nudge { steps: i32 },
+    /// Moves by whole quarter-note beats.
+    NudgeBeat(i8),
     Resize { steps: i32 },
     LinkSelection,
     UnlinkSelection,
@@ -29,6 +31,8 @@ pub enum NoteAction {
     SelectPrevious { extend: bool },
     /// Starts the link drawing mode (UI state only).
     LinkHover,
+    /// Selects the previous / next `SnapGrid::presets` entry (UI state only, wraps around).
+    SnapPreset { next: bool },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -50,6 +54,7 @@ pub struct Applied {
     pub message: Option<String>,
     pub open_exact: Option<u64>,
     pub link_hover: bool,
+    pub snap_grid: Option<SnapGrid>,
     /// Main note whose grace entry should start.
     pub grace_entry: Option<u64>,
     /// Notes whose links or pitches changed, for the tab solver to re-run on.
@@ -87,6 +92,17 @@ fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Pro
     Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
 }
 
+fn step_preset(grid: &SnapGrid, by: i32) -> SnapGrid {
+    let presets = SnapGrid::presets();
+    let n = presets.len() as i32;
+    let index = match presets.iter().position(|p| p.grid == *grid) {
+        Some(i) => (i as i32 + by).rem_euclid(n),
+        None if by > 0 => 0,
+        None => n - 1,
+    };
+    presets[index as usize].grid.clone()
+}
+
 pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &SnapGrid) -> Result<Applied, ActionError> {
     let tempo = TempoMap::new(&project.measures);
     let order = time_order(&project.notes, &tempo);
@@ -99,6 +115,10 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
         NoteAction::SelectNext { extend } | NoteAction::SelectPrevious { extend } => {
             selection.step(matches!(action, NoteAction::SelectNext { .. }), extend, &order);
             return Ok(Applied { selection: Some(selection), ..Applied::default() });
+        }
+        NoteAction::SnapPreset { next } => {
+            let grid = step_preset(grid, if next { 1 } else { -1 });
+            return Ok(Applied { message: Some(format!("Snap {}", grid.label())), snap_grid: Some(grid), ..Applied::default() });
         }
         NoteAction::LinkHover if sel.ids.is_empty() => return Ok(Applied { link_hover: true, ..Applied::default() }),
         _ => {}
@@ -137,10 +157,16 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, moved))
         }
-        NoteAction::Nudge { steps } => {
+        NoteAction::Nudge { .. } | NoteAction::NudgeBeat(_) => {
             let first = project.note(anchor).map(|n| n.start).ok_or(ActionError::EmptySelection)?;
-            let target = step_on_grid(&tempo, ctx_grid, first, steps);
-            let delta = tempo.pos_to_beats(target).zip(tempo.pos_to_beats(first)).map_or(0.0, |(t, f)| t - f);
+            let delta = match action {
+                NoteAction::NudgeBeat(beats) => f64::from(beats),
+                NoteAction::Nudge { steps } => {
+                    let target = step_on_grid(&tempo, ctx_grid, first, steps);
+                    tempo.pos_to_beats(target).zip(tempo.pos_to_beats(first)).map_or(0.0, |(t, f)| t - f)
+                }
+                _ => 0.0,
+            };
             if delta == 0.0 {
                 return Ok(Applied::default());
             }
@@ -258,7 +284,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::SnapPreset { .. } => Ok(Applied::default()),
     }
 }
 
@@ -435,5 +461,24 @@ mod tests {
         assert_eq!(moved.affected, [grace]);
         run(&mut p, &[grace], NoteAction::Delete { bridge: false }).unwrap();
         assert!(p.note(grace).is_none() && p.note(main).is_some());
+    }
+
+    #[test]
+    fn beat_nudge_moves_whole_beats_and_snap_presets_wrap() {
+        let mut p = project();
+        let a = add(&mut p, 60, 1.0, 2.0);
+        let applied = run(&mut p, &[a], NoteAction::NudgeBeat(2)).unwrap();
+        assert!(applied.edit.is_some());
+        assert_eq!(p.note(a).unwrap().start, at(3.0));
+        run(&mut p, &[a], NoteAction::NudgeBeat(-1)).unwrap();
+        assert_eq!(p.note(a).unwrap().start, TimePos::new(1, 2.0));
+
+        let grid = |d: &[u8]| SnapGrid::new(d);
+        let step = |g: &SnapGrid, next| apply(&mut project(), &sel(&[]), NoteAction::SnapPreset { next }, g).unwrap().snap_grid.unwrap();
+        assert_eq!(step(&grid(&[4, 3]), true), grid(&[4, 6]));
+        assert_eq!(step(&grid(&[4, 3]), false), grid(&[2, 3]));
+        assert_eq!(step(&grid(&[4, 6]), true), grid(&[1]));
+        assert_eq!(step(&grid(&[1]), false), grid(&[4, 6]));
+        assert_eq!(step(&grid(&[4, 8]), true), grid(&[1]));
     }
 }

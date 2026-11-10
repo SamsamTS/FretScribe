@@ -4,7 +4,7 @@ use egui::{Button, Ui};
 use fretscribe_core::Project;
 use fretscribe_notation::tab::lowest_fret_candidate;
 
-use super::{NoteAction, Selection};
+use super::{Keymap, NoteAction, Selection};
 
 pub struct ActionButton {
     pub action: NoteAction,
@@ -14,19 +14,6 @@ pub struct ActionButton {
 }
 
 pub const HINT: &str = "Select notes, or hover one and press L to link";
-
-/// Default shortcut shown in the tooltips; the keymap of prompt 7c replaces this.
-pub fn default_shortcut(action: NoteAction) -> Option<&'static str> {
-    match action {
-        NoteAction::LinkSelection | NoteAction::LinkHover => Some("L"),
-        NoteAction::ForceLegato => Some("H"),
-        NoteAction::Grace => Some("G"),
-        NoteAction::Delete { bridge: true } => Some("Shift+Delete"),
-        NoteAction::Delete { .. } => Some("Delete"),
-        NoteAction::Duplicate => Some("Ctrl+D"),
-        _ => None,
-    }
-}
 
 /// Locks to the lowest-fret string of the first selected note, or unlocks when all are locked.
 fn string_action(project: &Project, selection: &Selection) -> (NoteAction, bool) {
@@ -41,13 +28,13 @@ fn string_action(project: &Project, selection: &Selection) -> (NoteAction, bool)
     (NoteAction::SetString(string), string.is_some())
 }
 
-pub fn action_buttons(project: &Project, selection: &Selection) -> Vec<ActionButton> {
+pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap) -> Vec<ActionButton> {
     let selected = |f: &dyn Fn(u64) -> bool| selection.ids.iter().any(|&id| f(id));
     let has_link = selected(&|id| project.link_of(id).is_some());
     let middle = selected(&|id| project.outgoing(id).is_some() && project.incoming(id).is_some());
     let (string, string_ok) = string_action(project, selection);
     let button = |action, label, name: &str, enabled| {
-        let tooltip = match default_shortcut(action) {
+        let tooltip = match keymap.shortcut_label(action) {
             Some(keys) => format!("{name} ({keys})"),
             None => name.to_owned(),
         };
@@ -114,12 +101,12 @@ mod tests {
         let a = add(&mut p, 64, 0.0, 1.0);
         let mut s = Selection::default();
         s.set(vec![a]);
-        let b = action_buttons(&p, &s);
+        let b = action_buttons(&p, &s, &Keymap::default());
         assert_eq!(b[0].tooltip, "Link the selected notes (L)");
         assert_eq!(b[6].tooltip, "Delete and reconnect the neighbours (Shift+Delete)");
         assert_eq!((b[3].tooltip.ends_with("(H)"), b[4].tooltip.ends_with("(G)")), (true, true));
         assert_eq!(b[5].action, NoteAction::SetString(Some(5)));
         p.notes[0].locked_fret = true;
-        assert_eq!(action_buttons(&p, &s)[5].action, NoteAction::SetString(None));
+        assert_eq!(action_buttons(&p, &s, &Keymap::default())[5].action, NoteAction::SetString(None));
     }
 }
