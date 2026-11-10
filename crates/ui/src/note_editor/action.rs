@@ -1,6 +1,6 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
-use fretscribe_core::{min_subdivision_beats, GraceKind, LinkReport, step_on_grid, EditError, LinkType, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
 use thiserror::Error;
 
 use super::clip::Clipboard;
@@ -61,6 +61,7 @@ fn type_name(kind: LinkType) -> &'static str {
         LinkType::Slide => "Slide",
         LinkType::Bend => "Bend",
         LinkType::Legato => "Legato",
+        LinkType::Dashed => "No link",
     }
 }
 
@@ -173,20 +174,29 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             Ok(edited(edit, ids))
         }
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
-        NoteAction::ForceLegato => link_edit(project, ids, "Force legato", Project::force_legato_selection),
-        NoteAction::Grace => {
-            let graces: Vec<(u64, GraceKind)> = project.notes.iter().filter(|n| ids.contains(&n.id)).filter_map(|n| n.grace_of.map(|g| (n.id, g.kind))).collect();
-            if graces.is_empty() {
-                return Ok(Applied { grace_entry: Some(anchor), ..Applied::default() });
+        NoteAction::ForceLegato => {
+            let tempo = fretscribe_core::TempoMap::new(&project.measures);
+            let mut sorted = ids.clone();
+            sorted.sort_by(|&a, &b| {
+                let start = |id| project.note(id).map_or(0.0, |n| tempo.pos_to_beats(n.start).unwrap_or(0.0));
+                start(a).total_cmp(&start(b))
+            });
+            let targets = if sorted.len() > 1 { &sorted[1..] } else { &sorted[..] };
+            let sources: Vec<u64> = targets.iter().filter_map(|&id| project.incoming(id).filter(|l| l.1 == LinkType::Legato).map(|l| l.0)).collect();
+            if sources.is_empty() || sources.len() < targets.len() {
+                return link_edit(project, ids, "Force legato", Project::force_legato_selection);
             }
-            let edit = project.edit_notes("Grace note kind", |p| {
-                for &(id, kind) in &graces {
-                    let next = if kind == GraceKind::Acciaccatura { GraceKind::Appoggiatura } else { GraceKind::Acciaccatura };
-                    let _ = p.set_grace_kind(id, next);
-                }
+            let edit = project.edit_notes("Remove legato", |p| {
+                sources.iter().for_each(|&s| {
+                    p.unlink(s);
+                });
                 Ok(())
             })?;
-            Ok(edited(edit, graces.iter().map(|g| g.0).collect()))
+            Ok(edited(edit, ids))
+        }
+        NoteAction::Grace => {
+            let main = project.note(anchor).map_or(anchor, |n| n.grace_of.map_or(anchor, |g| g.main));
+            Ok(Applied { grace_entry: Some(main), ..Applied::default() })
         }
         NoteAction::UnlinkSelection => {
             let with_link: Vec<u64> = ids.iter().copied().filter(|&id| project.outgoing(id).is_some()).collect();
@@ -256,6 +266,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
 mod tests {
     use super::super::testkit::*;
     use super::*;
+    use fretscribe_core::GraceKind;
     use fretscribe_core::Note;
 
     fn sel(ids: &[u64]) -> Selection {
@@ -408,14 +419,17 @@ mod tests {
     }
 
     #[test]
-    fn grace_on_a_grace_note_cycles_its_kind() {
+    fn grace_on_a_grace_note_starts_an_entry_on_its_main_and_h_toggles_the_legato() {
         let mut p = project();
         let main = add(&mut p, 62, 1.0, 2.0);
         let grace = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
         let applied = run(&mut p, &[grace], NoteAction::Grace).unwrap();
-        assert_eq!((applied.grace_entry, note(&p, grace).grace_of.unwrap().kind), (None, GraceKind::Appoggiatura));
-        applied.edit.unwrap().undo(&mut p);
-        assert_eq!(note(&p, grace).grace_of.unwrap().kind, GraceKind::Acciaccatura);
+        assert_eq!((applied.grace_entry, applied.edit.is_some(), note(&p, grace).grace_of.unwrap().kind), (Some(main), false, GraceKind::Acciaccatura));
+        assert_eq!(p.outgoing(grace), Some((main, LinkType::Legato)));
+        let off = run(&mut p, &[main], NoteAction::ForceLegato).unwrap();
+        assert_eq!(p.outgoing(grace), None, "H/P on a legato removes it");
+        off.edit.unwrap().undo(&mut p);
+        assert_eq!(p.outgoing(grace), Some((main, LinkType::Legato)));
         let moved = run(&mut p, &[grace], NoteAction::Transpose(1)).unwrap();
         assert_eq!(note(&p, grace).midi, 61);
         assert_eq!(moved.affected, [grace]);

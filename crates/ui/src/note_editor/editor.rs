@@ -2,7 +2,7 @@
 //! Edits are applied to the project right away and handed back as undo steps.
 
 use egui::Pos2;
-use fretscribe_core::{snap_edge, Edge, GraceLink, Project, ProjectEdit, SnapGrid, TempoMap};
+use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap};
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
@@ -149,7 +149,7 @@ fn target_of(hit: Option<(u64, HitZone)>) -> Option<u64> {
     hit.filter(|(_, z)| matches!(z, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge | HitZone::LinkLeft | HitZone::LinkRight)).map(|h| h.0)
 }
 
-/// The grace note a right click acts on: the one hit, or the source of the legato arc hit.
+/// The note a right click cycles the link of: a grace note hit, or the source of its legato arc.
 fn grace_of_hit(project: &Project, id: u64, zone: HitZone) -> Option<u64> {
     let grace = |id: u64| project.note(id).is_some_and(|n| n.grace_of.is_some()).then_some(id);
     match zone {
@@ -551,44 +551,26 @@ impl NoteEditor {
                 self.selection.clear();
                 Vec::new()
             }
-            (Button::Right, Some((id, zone))) if grace_of_hit(env.project, id, zone).is_some() => self.cycle_grace(env, grace_of_hit(env.project, id, zone).unwrap_or(id)),
+            (Button::Right, Some((id, zone))) if grace_of_hit(env.project, id, zone).is_some() => self.cycle_note(env, grace_of_hit(env.project, id, zone).unwrap_or(id)),
             (Button::Right, Some((id, HitZone::Line | HitZone::Arrow))) => self.remove_link(env, id, false),
             (Button::Right, Some((id, HitZone::Arc))) => self.remove_link(env, id, true),
-            (Button::Right, Some((id, _))) if on_note(first.hit).is_some() => {
-                let mut one = Selection::default();
-                one.set(vec![id]);
-                let merge = self.cycle.is_some_and(|(note, at)| note == id && env.now - at <= CYCLE_WINDOW_SEC);
-                match apply(env.project, &one, NoteAction::CycleLinkType, env.grid) {
-                    Ok(done) => {
-                        let Some(edit) = done.edit else { return Vec::new() };
-                        self.cycle = Some((id, env.now));
-                        let mut out = vec![Effect::Edit { edit: Box::new(edit), merge, affected: done.affected }];
-                        out.extend(done.message.map(Effect::Message));
-                        out
-                    }
-                    Err(e) => vec![Effect::Message(e.to_string())],
-                }
-            }
+            (Button::Right, Some((id, _))) if on_note(first.hit).is_some() => self.cycle_note(env, id),
             _ => Vec::new(),
         }
     }
 
-    /// Right click on a grace note or its connector: next valid link (legato, slide, dashed).
-    fn cycle_grace(&mut self, env: &mut Env, grace: u64) -> Vec<Effect> {
-        let merge = self.cycle.is_some_and(|(note, at)| note == grace && env.now - at <= CYCLE_WINDOW_SEC);
-        match env.project.try_edit("Grace note link", |p| p.cycle_grace_link(grace)) {
-            Ok((edit, Some(link))) => {
-                self.cycle = Some((grace, env.now));
-                let name = match link {
-                    GraceLink::Legato => "Legato",
-                    GraceLink::Slide => "Slide",
-                    GraceLink::Dashed => "No link",
-                };
-                vec![Effect::Edit { edit: Box::new(edit), merge, affected: vec![grace] }, Effect::Message(name.to_owned())]
-            }
-            Ok((edit, None)) => {
-                edit.undo(env.project);
-                vec![Effect::Message("no other link is possible".to_owned())]
+    /// Right click: next valid link type of the note.
+    fn cycle_note(&mut self, env: &mut Env, id: u64) -> Vec<Effect> {
+        let mut one = Selection::default();
+        one.set(vec![id]);
+        let merge = self.cycle.is_some_and(|(note, at)| note == id && env.now - at <= CYCLE_WINDOW_SEC);
+        match apply(env.project, &one, NoteAction::CycleLinkType, env.grid) {
+            Ok(done) => {
+                let Some(edit) = done.edit else { return Vec::new() };
+                self.cycle = Some((id, env.now));
+                let mut out = vec![Effect::Edit { edit: Box::new(edit), merge, affected: done.affected }];
+                out.extend(done.message.map(Effect::Message));
+                out
             }
             Err(e) => vec![Effect::Message(e.to_string())],
         }

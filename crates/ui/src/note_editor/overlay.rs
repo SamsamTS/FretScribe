@@ -35,6 +35,7 @@ pub fn paint(painter: &Painter, geo: &SpectroGeometry, editor: &NoteEditor, poin
                     LinkType::Slide => "Slide ",
                     LinkType::Bend => "Bend ",
                     LinkType::Legato => "Legato ",
+                    LinkType::Dashed => "",
                 });
                 label(painter, p + vec2(14.0, -26.0), &format!("{kind}{interval}"), Color32::WHITE);
             }

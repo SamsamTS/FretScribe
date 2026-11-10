@@ -43,7 +43,7 @@ fn string_action(project: &Project, selection: &Selection) -> (NoteAction, bool)
 
 pub fn action_buttons(project: &Project, selection: &Selection) -> Vec<ActionButton> {
     let selected = |f: &dyn Fn(u64) -> bool| selection.ids.iter().any(|&id| f(id));
-    let has_link = selected(&|id| project.outgoing(id).is_some());
+    let has_link = selected(&|id| project.link_of(id).is_some());
     let middle = selected(&|id| project.outgoing(id).is_some() && project.incoming(id).is_some());
     let (string, string_ok) = string_action(project, selection);
     let button = |action, label, name: &str, enabled| {
@@ -56,9 +56,9 @@ pub fn action_buttons(project: &Project, selection: &Selection) -> Vec<ActionBut
     vec![
         button(NoteAction::LinkSelection, "Link", "Link the selected notes", selection.ids.len() >= 2),
         button(NoteAction::UnlinkSelection, "Unlink", "Remove the links that start at the selected notes", has_link),
-        button(NoteAction::CycleLinkType, "Type", "Cycle the link type: slide, bend, legato", has_link),
-        button(NoteAction::ForceLegato, "H/P", "Hammer-on or pull-off into the selected note", !selection.ids.is_empty()),
-        button(NoteAction::Grace, "Grace", "Add a grace note, or change the kind of the selected ones", !selection.ids.is_empty()),
+        button(NoteAction::CycleLinkType, "Type", "Cycle the link type: slide, bend, legato (grace notes: or none)", has_link),
+        button(NoteAction::ForceLegato, "H/P", "Toggle hammer-on or pull-off into the selected note", !selection.ids.is_empty()),
+        button(NoteAction::Grace, "Grace", "Add a grace note before the selected note", !selection.ids.is_empty()),
         button(string, "String", "Lock or unlock the string and fret", string_ok),
         button(NoteAction::Delete { bridge: true }, "Bridge", "Delete and reconnect the neighbours", middle),
     ]

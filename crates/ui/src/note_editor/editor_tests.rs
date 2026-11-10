@@ -1,5 +1,5 @@
 use egui::pos2;
-use fretscribe_core::{GraceLink, LinkType, Project, SnapGrid, TimePos};
+use fretscribe_core::{LinkType, Project, SnapGrid, TimePos};
 
 use super::testkit::*;
 use super::*;
@@ -615,7 +615,7 @@ fn grace_entry_is_modal_and_enter_confirms_as_one_edit() {
     assert!(!h.ed.in_entry() && h.ed.ghost.is_none());
     let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
     assert_eq!((grace.midi, grace.grace_of.unwrap().kind), (61, fretscribe_core::GraceKind::Appoggiatura));
-    assert_eq!(h.p.grace_link(grace.id), GraceLink::Legato, "close to the main note: legato");
+    assert_eq!(h.p.grace_link(grace.id), LinkType::Legato, "close to the main note: legato");
     assert_eq!(h.ed.selection.ids, [grace.id]);
 }
 
@@ -642,7 +642,7 @@ fn the_pointer_left_of_the_note_draws_a_grace_note_before_the_beat_and_a_left_cl
     assert_eq!((grace.midi, grace.grace_of.unwrap().kind), (60, fretscribe_core::GraceKind::Acciaccatura));
     assert!((tempo.pos_to_sec(grace.start) - sec(5.0)).abs() < 1e-9);
     assert!((tempo.pos_to_sec(grace.end) - tempo.pos_to_sec(h.p.note(main).unwrap().start)).abs() < 1e-9, "the end is the start of the note");
-    assert_eq!(h.p.grace_link(grace.id), GraceLink::Legato);
+    assert_eq!(h.p.grace_link(grace.id), LinkType::Legato);
     assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(1.0), NONE)).is_empty(), "the click does not seek");
 }
 
@@ -656,7 +656,7 @@ fn the_pointer_right_of_the_note_draws_a_grace_note_on_the_beat() {
     h.mv(at, NONE);
     let ghost = h.ed.ghost.as_ref().unwrap();
     assert!((ghost.glyphs[0].start_sec - sec(8.0)).abs() < 1e-9 && (ghost.glyphs[0].end_sec - sec(8.5)).abs() < 1e-9);
-    assert!(ghost.glyphs[0].link_to.is_some(), "half a beat long: a slide");
+    assert_eq!(ghost.glyphs[1].legato_from, Some(0), "on the beat: legato first");
     h.press(Button::Left, at, NONE);
     assert_eq!(edits(&h.rel(Button::Left, at, NONE)), 1);
     let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
@@ -664,7 +664,7 @@ fn the_pointer_right_of_the_note_draws_a_grace_note_on_the_beat() {
     assert_eq!(grace.grace_of.unwrap().kind, fretscribe_core::GraceKind::Appoggiatura);
     assert!((tempo.pos_to_sec(grace.start) - tempo.pos_to_sec(h.p.note(main).unwrap().start)).abs() < 1e-9, "the start is the start of the note");
     assert!((tempo.pos_to_sec(grace.end) - sec(8.5)).abs() < 1e-9);
-    assert_eq!(h.p.grace_link(grace.id), GraceLink::Slide);
+    assert_eq!(h.p.grace_link(grace.id), LinkType::Legato);
 }
 
 #[test]
@@ -677,7 +677,7 @@ fn h_cycles_the_link_in_the_entry_and_escape_or_the_right_button_cancels() {
     h.send(Input::Entry(EntryKey::CycleLink));
     h.send(Input::Entry(EntryKey::Confirm));
     let grace = h.p.notes.iter().find(|n| n.grace_of.is_some()).unwrap().id;
-    assert_eq!(h.p.grace_link(grace), GraceLink::Dashed);
+    assert_eq!(h.p.grace_link(grace), LinkType::Dashed);
     h.p.remove_grace(grace).unwrap();
 
     h.ed.selection.set(vec![main]);
@@ -695,18 +695,17 @@ fn right_click_on_a_grace_note_or_its_connector_cycles_the_valid_links_in_one_st
     let main = add(&mut h.p, 64, 3.0, 4.0);
     let grace = h.p.add_grace_note(main, None, fretscribe_core::GraceKind::Acciaccatura).unwrap();
     let kinds = |h: &H| h.p.grace_link(grace);
-    assert_eq!(kinds(&h), GraceLink::Legato);
-    let expect = |h: &mut H, hit: Hit, link: GraceLink| {
+    assert_eq!(kinds(&h), LinkType::Legato);
+    let expect = |h: &mut H, hit: Hit, link: LinkType| {
         h.now += 5.0;
         let out = h.click(Button::Right, s(3.0, 62.0, hit), NONE);
         assert_eq!(edits(&out), 1);
         assert_eq!(kinds(h), link);
     };
-    expect(&mut h, body(grace), GraceLink::Slide);
-    expect(&mut h, Some((grace, HitZone::Line)), GraceLink::Dashed);
-    expect(&mut h, body(grace), GraceLink::Legato);
-    expect(&mut h, Some((main, HitZone::Arc)), GraceLink::Slide);
-    assert!(h.p.outgoing(grace).is_some(), "a grace note is never left unlinked by a click");
+    expect(&mut h, body(grace), LinkType::Dashed);
+    expect(&mut h, Some((grace, HitZone::Line)), LinkType::Slide);
+    expect(&mut h, body(grace), LinkType::Bend);
+    expect(&mut h, Some((main, HitZone::Arc)), LinkType::Legato);
     let same = add(&mut h.p, 62, 6.0, 7.0);
     let lone = h.p.add_grace_note(same, Some(62), fretscribe_core::GraceKind::Acciaccatura).unwrap();
     let out = h.click(Button::Right, s(6.0, 62.0, body(lone)), NONE);
@@ -714,13 +713,14 @@ fn right_click_on_a_grace_note_or_its_connector_cycles_the_valid_links_in_one_st
 }
 
 #[test]
-fn grace_on_a_selected_grace_note_cycles_it_and_transposes_and_deletes() {
+fn grace_on_a_selected_grace_note_starts_an_entry_and_transposes_and_deletes() {
     let mut h = H::new();
     let main = add(&mut h.p, 64, 1.0, 2.0);
     let grace = h.p.add_grace_note(main, None, fretscribe_core::GraceKind::Acciaccatura).unwrap();
     h.ed.selection.set(vec![grace]);
-    assert_eq!(edits(&h.send(Input::Action(NoteAction::Grace))), 1);
-    assert!(!h.ed.in_entry());
+    assert_eq!(edits(&h.send(Input::Action(NoteAction::Grace))), 0);
+    assert!(h.ed.in_entry());
+    h.send(Input::Escape);
     h.send(Input::Action(NoteAction::Transpose(1)));
     assert_eq!(h.p.note(grace).unwrap().midi, 63);
     h.send(Input::Action(NoteAction::Delete { bridge: false }));

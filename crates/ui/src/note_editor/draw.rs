@@ -265,6 +265,7 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
             LinkType::Legato => glyphs[ib].legato_from = Some(ia),
             LinkType::Bend => glyphs[ia].link_to = Some((ib, LinkKind::Bend)),
             LinkType::Slide => glyphs[ia].link_to = Some((ib, LinkKind::Slide)),
+            LinkType::Dashed => glyphs[ia].link_to = Some((ib, LinkKind::Dashed)),
         }
     }
     GhostShape { glyphs }

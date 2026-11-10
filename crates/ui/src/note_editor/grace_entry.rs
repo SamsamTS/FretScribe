@@ -1,6 +1,6 @@
 //! Quick entry of a grace note: modal keys over a ghost note, one undo step on Enter.
 
-use fretscribe_core::{GraceKind, GraceLink, Project, ProjectEdit, MAX_FRET};
+use fretscribe_core::{GraceKind, LinkType, Project, ProjectEdit, MAX_FRET};
 use fretscribe_notation::tab::{candidate_label, lowest_fret_candidate};
 
 use super::draw::DrawFeedback;
@@ -35,7 +35,7 @@ pub struct GraceEntry {
     pub string: Option<u8>,
     pub kind: GraceKind,
     /// `None` takes the default (legato when close, slide when further, dashed otherwise).
-    pub link: Option<GraceLink>,
+    pub link: Option<LinkType>,
     /// Length drawn with the pointer; `None` takes the kind's default length.
     pub len: Option<f64>,
     typed: Option<u8>,
@@ -69,7 +69,7 @@ impl GraceEntry {
             EntryKey::CycleLink => {
                 let mut scratch = project.clone();
                 if let Ok(id) = self.place(&mut scratch) {
-                    let valid = scratch.valid_grace_links(id);
+                    let valid = scratch.valid_links(id);
                     let at = valid.iter().position(|&k| k == scratch.grace_link(id)).unwrap_or(0);
                     self.link = valid.get((at + 1) % valid.len().max(1)).copied();
                 }
@@ -133,11 +133,12 @@ impl GraceEntry {
         let link = scratch.grace_link(id);
         let glyph = |id: u64, link_to, legato_from| scratch.note(id).map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to, legato_from, grace: n.grace_of.is_some() });
         let to_main = match link {
-            GraceLink::Slide => Some((1, LinkKind::Slide)),
-            GraceLink::Dashed => Some((1, LinkKind::Dashed)),
-            GraceLink::Legato => None,
+            LinkType::Slide => Some((1, LinkKind::Slide)),
+            LinkType::Bend => Some((1, LinkKind::Bend)),
+            LinkType::Dashed => Some((1, LinkKind::Dashed)),
+            LinkType::Legato => None,
         };
-        let glyphs = vec![glyph(id, to_main, None)?, glyph(self.main, None, (link == GraceLink::Legato).then_some(0))?];
+        let glyphs = vec![glyph(id, to_main, None)?, glyph(self.main, None, (link == LinkType::Legato).then_some(0))?];
         let label = self.placement(project).and_then(|(s, f)| candidate_label(&project.tuning, s, f)).unwrap_or_else(|| "?".into());
         let feedback = DrawFeedback { labels: vec![(glyphs[0].start_sec, self.midi, label)], ..DrawFeedback::default() };
         Some((GhostShape { glyphs }, feedback))
@@ -211,27 +212,27 @@ mod tests {
         let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-9, "{a} != {b}");
         let (start, end, link) = placed(&e, &p);
         near(end, 1.5);
-        assert_eq!((e.kind, link), (GraceKind::Acciaccatura, GraceLink::Legato));
+        assert_eq!((e.kind, link), (GraceKind::Acciaccatura, LinkType::Legato));
         assert!(start < end);
         e.pointer(&p, 1.0, 62.2);
         assert_eq!((e.kind, e.midi), (GraceKind::Acciaccatura, 62));
         let (start, end, link) = placed(&e, &p);
         near(start, 1.0);
         near(end, 1.5);
-        assert_eq!(link, GraceLink::Legato, "before the beat the end touches the note");
+        assert_eq!(link, LinkType::Legato, "before the beat the end touches the note");
         e.pointer(&p, 1.9, 62.0);
         assert_eq!(e.kind, GraceKind::Appoggiatura);
         let (start, end, link) = placed(&e, &p);
         near(start, 1.5);
         near(end, 1.9);
-        assert_eq!(link, GraceLink::Slide, "longer than a quarter beat");
+        assert_eq!(link, LinkType::Legato, "on the beat keeps the legato");
         e.key(&p, EntryKey::CycleLink);
-        assert_eq!((e.link, placed(&e, &p).2), (Some(GraceLink::Dashed), GraceLink::Dashed));
+        assert_eq!((e.link, placed(&e, &p).2), (Some(LinkType::Dashed), LinkType::Dashed));
         e.key(&p, EntryKey::CycleLink);
-        assert_eq!(e.link, Some(GraceLink::Slide));
+        assert_eq!(e.link, Some(LinkType::Slide));
         e.link = None;
         e.pointer(&p, 1.55, 62.0);
-        assert_eq!(placed(&e, &p).2, GraceLink::Legato);
+        assert_eq!(placed(&e, &p).2, LinkType::Legato);
         e.pointer(&p, 1.505, 63.0);
         assert_eq!((e.len, e.kind, e.midi), (None, GraceKind::Appoggiatura, 63), "dead zone: default length, same kind");
         e.key(&p, EntryKey::ToggleKind);
@@ -247,9 +248,9 @@ mod tests {
         assert_eq!((ghost.glyphs.len(), ghost.glyphs[0].grace, ghost.glyphs[1].legato_from), (2, true, Some(0)));
         assert_eq!(fb.labels[0].2, "B 3");
         e.key(&p, EntryKey::CycleLink);
-        assert_eq!(e.preview(&p).unwrap().0.glyphs[0].link_to, Some((1, LinkKind::Slide)));
-        e.key(&p, EntryKey::CycleLink);
         assert_eq!(e.preview(&p).unwrap().0.glyphs[0].link_to, Some((1, LinkKind::Dashed)));
+        e.key(&p, EntryKey::CycleLink);
+        assert_eq!(e.preview(&p).unwrap().0.glyphs[0].link_to, Some((1, LinkKind::Slide)));
         assert_eq!(p.notes.len(), 1);
     }
 
@@ -265,7 +266,7 @@ mod tests {
         let (edit, affected) = e.commit(&mut p).unwrap();
         let grace = p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
         assert_eq!((grace.midi, grace.string_fret, grace.locked_fret), (60, Some((3, 5)), true));
-        assert_eq!((grace.grace_of.unwrap().kind, p.grace_link(grace.id)), (GraceKind::Appoggiatura, GraceLink::Slide));
+        assert_eq!((grace.grace_of.unwrap().kind, p.grace_link(grace.id)), (GraceKind::Appoggiatura, LinkType::Slide));
         assert_eq!(affected, [grace.id, main]);
         edit.undo(&mut p);
         assert_eq!(p.notes, before);
