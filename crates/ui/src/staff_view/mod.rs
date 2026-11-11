@@ -116,6 +116,31 @@ impl Paint<'_> {
         self.p.text(at, align, c, FontId::new(self.s * FONT_PER_SPACE * scale, FontFamily::Name(FONT_NAME.into())), color);
     }
 
+    fn ppp(&self) -> f32 {
+        self.p.ctx().pixels_per_point()
+    }
+
+    /// Nearest physical pixel.
+    pub fn snap(&self, v: f32) -> f32 {
+        let k = self.ppp();
+        (v * k).round() / k
+    }
+
+    /// `frac` staff spaces as a whole number of physical pixels, at least one.
+    fn thickness(&self, frac: f32) -> f32 {
+        let k = self.ppp();
+        (frac * self.s * k).round().max(1.0) / k
+    }
+
+    /// Left edge of a stem: flush with the right edge of the head (stem up) or the left one (down).
+    fn stem_left(&self, x: f32, up: bool) -> f32 {
+        self.snap(if up { x + self.head_w(1.0) - self.thickness(0.12) } else { x })
+    }
+
+    fn fill(&self, x0: f32, y0: f32, x1: f32, y1: f32, color: Color32) {
+        self.p.rect_filled(Rect::from_min_max(pos2(x0.min(x1), y0.min(y1)), pos2(x0.max(x1), y0.max(y1))), 0.0, color);
+    }
+
     pub fn line(&self, a: Pos2, b: Pos2, width: f32, color: Color32) {
         self.p.line_segment([a, b], Stroke::new(width * self.s, color));
     }
@@ -169,14 +194,14 @@ impl Paint<'_> {
 
     fn staff(&self, rect: Rect) {
         for line in 0..5 {
-            let y = self.py(line * 2);
+            let y = self.snap(self.py(line * 2));
             self.p.hline(rect.x_range(), y, Stroke::new(1.0_f32, white(102)));
         }
     }
 
     fn ledgers(&self, step: i32, x: f32, w: f32) {
         for k in ledger_steps(step) {
-            self.p.hline(x - 0.4 * self.s..=x + w + 0.4 * self.s, self.py(k), Stroke::new(1.0_f32, self.style.ink));
+            self.p.hline(self.snap(x - 0.4 * self.s)..=self.snap(x + w + 0.4 * self.s), self.snap(self.py(k)), Stroke::new(1.0_f32, self.style.ink));
         }
     }
 
@@ -235,11 +260,11 @@ impl Paint<'_> {
         if e.duration.base != Base::Whole {
             let flags = e.duration.base.flags();
             let (from, tip) = if up { (self.py(low.step), self.py(high.step) - STEM_LEN * self.s) } else { (self.py(high.step), self.py(low.step) + STEM_LEN * self.s) };
-            let tip = self.beam_tip(layout, e).unwrap_or(tip);
-            let sx = if up { x + hw - 0.06 * self.s } else { x + 0.06 * self.s };
-            self.line(pos2(sx, from), pos2(sx, tip), 0.12, self.style.ink);
+            let tip = self.beam_tip(layout, e).map_or(tip, |t| self.snap(t));
+            let (w, left) = (self.thickness(0.12), self.stem_left(x, up));
+            self.fill(left, self.snap(from), left + w, self.snap(tip), self.style.ink);
             if flags > 0 && e.beam.is_none() {
-                self.glyph(&flag_char(flags, up).to_string(), pos2(sx - 0.06 * self.s, tip), 1.0, self.style.ink, Align2::LEFT_CENTER);
+                self.glyph(&flag_char(flags, up).to_string(), pos2(left, self.snap(tip)), 1.0, self.style.ink, Align2::LEFT_CENTER);
             }
         }
     }
@@ -268,20 +293,24 @@ impl Paint<'_> {
     fn beams(&self, layout: &StaffLayout, range: (usize, usize)) {
         for beam in layout.beams.iter().filter(|b| b.events.last().is_some_and(|&l| l >= range.0) && b.events.first().is_some_and(|&f| f <= range.1)) {
             let Some(tip) = beam.events.first().and_then(|&i| self.beam_tip(layout, &layout.events[i])) else { continue };
-            let hw = self.head_w(1.0);
-            let sx = |e: &StaffEvent| self.px(e.x_sec) + if beam.stem_up { hw - 0.06 * self.s } else { 0.06 * self.s };
-            let dir = if beam.stem_up { 1.0 } else { -1.0 };
+            let (w, bt) = (self.thickness(0.12), self.thickness(0.5));
+            let left = |k: usize| self.stem_left(self.px(layout.events[beam.events[k]].x_sec), beam.stem_up);
             let levels = beam.events.iter().map(|&i| layout.events[i].duration.base.flags()).max().unwrap_or(1);
             for level in 0..levels {
-                let y = tip + dir * level as f32 * 0.75 * self.s - dir * 0.25 * self.s;
-                let has = |i: usize| layout.events[beam.events[i]].duration.base.flags() > level;
+                // The stems end at the outer edge of the first beam, so every join is flush.
+                let outer = self.snap(tip + if beam.stem_up { 1.0 } else { -1.0 } * f32::from(level) * 0.75 * self.s);
+                let band = if beam.stem_up { (outer, outer + bt) } else { (outer - bt, outer) };
+                let has = |k: usize| layout.events[beam.events[k]].duration.base.flags() > level;
                 for k in 0..beam.events.len() {
-                    let x0 = sx(&layout.events[beam.events[k]]);
-                    let to = (k + 1 < beam.events.len() && has(k) && has(k + 1)).then(|| sx(&layout.events[beam.events[k + 1]]));
-                    let stub = (to.is_none() && has(k) && level > 0).then_some(if k > 0 { x0 - 1.1 * self.s } else { x0 + 1.1 * self.s });
-                    if let Some(x1) = to.or(stub) {
-                        self.line(pos2(x0, y), pos2(x1, y), 0.5, self.style.ink);
-                    }
+                    let next = (k + 1 < beam.events.len() && has(k) && has(k + 1)).then(|| left(k + 1) + w);
+                    let stub = (next.is_none() && has(k) && level > 0).then_some(if k > 0 { left(k) - 1.1 * self.s } else { left(k) + w + 1.1 * self.s });
+                    let (x0, x1) = match (next, stub) {
+                        (Some(x1), _) => (left(k), x1),
+                        (None, Some(x1)) if x1 < left(k) => (self.snap(x1), left(k) + w),
+                        (None, Some(x1)) => (left(k), self.snap(x1)),
+                        _ => continue,
+                    };
+                    self.fill(x0, band.0, x1, band.1, self.style.ink);
                 }
             }
         }
@@ -346,7 +375,7 @@ impl Paint<'_> {
             if x < rect.left() - 80.0 || x > rect.right() {
                 continue;
             }
-            self.p.vline(x, self.py(8)..=self.py(0), Stroke::new(1.0_f32, self.style.ink));
+            self.p.vline(self.snap(x), self.snap(self.py(8))..=self.snap(self.py(0)), Stroke::new(self.thickness(0.12), self.style.ink));
         }
     }
 
