@@ -70,7 +70,7 @@ impl eframe::App for Demo {
                         self.selected.extend(ids);
                     }
                     TabViewEvent::ClearSelection => self.selected.clear(),
-                    TabViewEvent::SeekRequested(_) | TabViewEvent::NoteContext(_) => {}
+                    TabViewEvent::SeekRequested(_) => {}
                 }
             }
         });

@@ -18,7 +18,7 @@ pub fn link_name(kind: LinkType) -> &'static str {
 /// `preview` receives the placement under the pointer so the view can draw a ghost number.
 /// Returns whether an entry was chosen (the caller closes the menu).
 pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Option<(u8, u8)>, events: &mut Vec<TabViewEvent>) -> bool {
-    ui.set_min_width(150.0);
+    ui.set_width(260.0);
     let mut chosen = false;
     let count = tuning.open_strings.len();
     let mut send = |_: &mut Ui, edit: TabEdit| {

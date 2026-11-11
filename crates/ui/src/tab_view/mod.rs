@@ -111,8 +111,6 @@ pub enum TabViewEvent {
     Marquee { ids: Vec<u64>, add: bool },
     /// Right click on empty space.
     ClearSelection,
-    /// Right click on a number (the app cycles its link type, like the note editor).
-    NoteContext(u64),
 }
 
 /// Holding the left button on a number shows the string colours after this delay (so a click does not flash them).
@@ -312,28 +310,17 @@ impl TabView<'_> {
         if !held {
             state.drag = None;
         }
-        // Left click: select like the note editor and open the menu (Ctrl / Shift only select, Alt cycles).
+        // Left click: select like the note editor (Ctrl toggles, Shift ranges); Alt cycles the placement.
         if response.clicked() {
             match pointer.map(|p| (p, hit(p))) {
-                Some((p, Some(id))) => {
-                    let plain = !(mods.command || mods.shift || mods.alt);
-                    let in_group = self.selected.len() > 1 && self.selected.contains(&id);
-                    if !(plain && in_group) {
-                        events.push(TabViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift });
-                    }
-                    if mods.alt {
-                        events.push(TabViewEvent::Edit(TabEdit::Cycle { ids: vec![id], back: mods.shift }));
-                    } else if plain {
-                        state.menu = menu_model(project, if in_group { self.selected } else { &[] }, id, self.opts);
-                        state.menu_pos = state.menu.as_ref().map(|_| p);
-                    }
-                }
+                Some((_, Some(id))) if mods.alt => events.push(TabViewEvent::Edit(TabEdit::Cycle { ids: vec![id], back: mods.shift })),
+                Some((_, Some(id))) => events.push(TabViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
                 Some((p, None)) if ruler.contains(p) => state.open_tuning(project),
                 Some((p, None)) => events.push(TabViewEvent::SeekRequested(geo.sec(view, p.x))),
                 None => {}
             }
         }
-        // Right button: marquee by dragging, clear on empty space, context on a number. Esc cancels.
+        // Right button: marquee by dragging, clear on empty space, menu on a number. Esc cancels.
         if response.drag_started_by(egui::PointerButton::Secondary) {
             state.marquee = pointer;
         }
@@ -356,7 +343,18 @@ impl TabView<'_> {
             }
         }
         if response.secondary_clicked() {
-            events.push(pointer.and_then(hit).map_or(TabViewEvent::ClearSelection, TabViewEvent::NoteContext));
+            match pointer.and_then(hit) {
+                // The menu opens beside the number so it does not cover it.
+                Some(id) => {
+                    let in_group = self.selected.len() > 1 && self.selected.contains(&id);
+                    if !self.selected.contains(&id) {
+                        events.push(TabViewEvent::NoteClicked { id, ctrl: false, shift: false });
+                    }
+                    state.menu = menu_model(project, if in_group { self.selected } else { &[] }, id, self.opts);
+                    state.menu_pos = heads.iter().find(|h| h.0 == id).map(|h| pos2(h.1.right() + 8.0, h.1.top()));
+                }
+                None => events.push(TabViewEvent::ClearSelection),
+            }
         }
         if let (Some(model), Some(pos)) = (state.menu.clone(), state.menu_pos) {
             let area = egui::Area::new(egui::Id::new("fretscribe_tab_menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ui.ctx(), |ui| {

@@ -239,14 +239,12 @@ fn clicks_select_seek_and_cycle() {
     let off = h.press(note, PointerButton::Primary, false, Modifiers::NONE);
     let (events, _) = h.run(&p, &[], &mut state, off);
     assert_eq!(events, vec![TabViewEvent::NoteClicked { id: 1, ctrl: false, shift: false }]);
-    assert_eq!(state.menu.as_ref().map(|m| m.placements.len()), Some(5), "a plain left click opens the menu");
-    assert!(state.menu_open());
+    assert!(!state.menu_open(), "the menu is on the right button");
 
     let empty = pos2(note.x + 300.0, note.y);
     h.run(&p, &[], &mut state, vec![Event::PointerMoved(empty)]);
     let on = h.press(empty, PointerButton::Primary, true, Modifiers::NONE);
     h.run(&p, &[], &mut state, on);
-    assert!(state.menu.is_none(), "a press outside closes the menu");
     let off = h.press(empty, PointerButton::Primary, false, Modifiers::NONE);
     let (events, _) = h.run(&p, &[], &mut state, off);
     assert!(matches!(events.as_slice(), [TabViewEvent::SeekRequested(s)] if (*s - 1.5).abs() < 0.01), "{events:?}");
@@ -292,9 +290,12 @@ fn right_button_follows_the_note_editor_scheme() {
     let rect = settle(&mut h, &p, &mut state);
     let note = position(rect, 5, 0.0, 6);
     let empty = pos2(note.x + 300.0, note.y);
-    assert_eq!(click(&mut h, &p, &[], &mut state, note, PointerButton::Secondary, Modifiers::NONE), vec![TabViewEvent::NoteContext(1)]);
+    assert_eq!(click(&mut h, &p, &[], &mut state, note, PointerButton::Secondary, Modifiers::NONE), vec![TabViewEvent::NoteClicked { id: 1, ctrl: false, shift: false }]);
+    assert_eq!(state.menu.as_ref().map(|m| m.placements.len()), Some(5), "right click opens the menu");
+    assert!(state.menu_pos.is_some_and(|m| m.x > note.x), "beside the number, not over it");
+    h.run(&p, &[1], &mut state, vec![Event::PointerMoved(empty)]);
     assert_eq!(click(&mut h, &p, &[1], &mut state, empty, PointerButton::Secondary, Modifiers::NONE), vec![TabViewEvent::ClearSelection]);
-    assert!(state.menu.is_none(), "the menu is on the left button");
+    assert!(state.menu.is_none(), "a press outside closes the menu");
 
     for (mods, add) in [(Modifiers::NONE, false), (Modifiers::COMMAND, true)] {
         let from = note - vec2(30.0, 40.0);
