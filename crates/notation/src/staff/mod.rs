@@ -128,6 +128,9 @@ pub struct MeasureLayout {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StaffLayout {
+    pub key: KeySignature,
+    /// Clef with the 8 beneath.
+    pub guitar_octave: bool,
     pub measures: Vec<MeasureLayout>,
     pub events: Vec<StaffEvent>,
     pub beams: Vec<Beam>,
@@ -153,7 +156,7 @@ fn bend_label(semitones: i32) -> Option<String> {
 }
 
 pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> StaffLayout {
-    let mut out = StaffLayout::default();
+    let mut out = StaffLayout { key: opts.key, guitar_octave: opts.guitar_octave, ..Default::default() };
     if measures.is_empty() {
         return out;
     }
