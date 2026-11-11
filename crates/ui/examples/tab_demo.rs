@@ -1,4 +1,4 @@
-//! Tablature of a hand-made melody: right click a number for the placements, drag it to another
+//! Tablature of a hand-made melody: click a number for the placements, hold and drag it to another
 //! string, Up/Down (adjacent string) and Tab (next placement) while hovering, Alt+click cycles,
 //! click the left column for the tuning popup. Ctrl+Z / Ctrl+Y undo and redo.
 
@@ -65,7 +65,12 @@ impl eframe::App for Demo {
                         let edit = apply_tuning(&mut self.project, tuning, capo, &self.opts);
                         self.undo.push(edit);
                     }
-                    TabViewEvent::SeekRequested(_) => {}
+                    TabViewEvent::Marquee { ids, add } => {
+                        if !add { self.selected.clear() }
+                        self.selected.extend(ids);
+                    }
+                    TabViewEvent::ClearSelection => self.selected.clear(),
+                    TabViewEvent::SeekRequested(_) | TabViewEvent::NoteContext(_) => {}
                 }
             }
         });

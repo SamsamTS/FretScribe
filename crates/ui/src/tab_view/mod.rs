@@ -107,13 +107,23 @@ pub enum TabViewEvent {
     Edit(TabEdit),
     /// The tuning popup was applied: `apply_tuning`.
     TuningChanged { tuning: Tuning, capo: u8 },
+    /// Right drag: the numbers inside the rectangle (Ctrl adds to the selection). Same scheme as the note editor.
+    Marquee { ids: Vec<u64>, add: bool },
+    /// Right click on empty space.
+    ClearSelection,
+    /// Right click on a number (the app cycles its link type, like the note editor).
+    NoteContext(u64),
 }
+
+/// Holding the left button on a number shows the string colours after this delay (so a click does not flash them).
+const HOLD_SEC: f64 = 0.15;
 
 struct Drag {
     note: u64,
     ids: Vec<u64>,
     origin: egui::Pos2,
     moved: bool,
+    since: f64,
     /// `(string, fret)` the dragged note can take.
     targets: Vec<(u8, u8)>,
 }
@@ -130,13 +140,27 @@ pub struct TabViewState {
     pub high_contrast: bool,
     flashes: Vec<(u64, f64)>,
     menu: Option<MenuModel>,
-    menu_open: bool,
+    menu_pos: Option<egui::Pos2>,
+    marquee: Option<egui::Pos2>,
     preview: Option<(u8, u8)>,
     drag: Option<Drag>,
     pub tuning: Option<TuningDraft>,
 }
 
 impl TabViewState {
+    fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    /// The left button is held on a number (long enough, or already dragging).
+    fn holding(&self, now: f64) -> bool {
+        self.drag.as_ref().is_some_and(|d| d.moved || now - d.since > HOLD_SEC)
+    }
+
+    fn close_menu(&mut self) {
+        (self.menu, self.menu_pos, self.preview) = (None, None, None);
+    }
+
     /// Highlights notes for about 600 ms; `now` is `ctx.input(|i| i.time)`.
     pub fn flash(&mut self, ids: &[u64], now: f64) {
         self.flashes.extend(ids.iter().map(|&id| (id, now + FLASH_SEC)));
@@ -182,17 +206,17 @@ impl TabView<'_> {
         });
     }
 
-    fn line_style(&self, geo: &Geo, state: &TabViewState, string: u8) -> Stroke {
+    fn line_style(&self, geo: &Geo, state: &TabViewState, string: u8, now: f64) -> Stroke {
         let neutral = Stroke::new(1.0_f32, white(102));
         if state.high_contrast {
             return neutral;
         }
         let color = string_color(usize::from(string), geo.strings);
         let chosen = |strings: Vec<u8>| strings.contains(&string);
-        if let Some(d) = &state.drag {
+        if let Some(d) = state.drag.as_ref().filter(|_| state.holding(now)) {
             return if chosen(d.targets.iter().map(|t| t.0).collect()) { Stroke::new(2.0_f32, color) } else { Stroke::new(1.0_f32, white(40)) };
         }
-        if state.menu_open {
+        {
             if let Some(m) = &state.menu {
                 let hit = if m.ids.len() == 1 { chosen(m.placements.iter().map(|p| p.string).collect()) } else { chosen(m.strings.clone()) };
                 return if hit { Stroke::new(2.0_f32, color) } else { Stroke::new(1.0_f32, white(40)) };
@@ -217,12 +241,12 @@ impl TabView<'_> {
         }
         let full = ui.painter_at(rect);
         full.rect_filled(rect, 0.0, st.background);
-        let colored = !state.high_contrast && (state.menu_open || state.drag.is_some() || state.string_colors);
+        let colored = !state.high_contrast && (state.menu_open() || state.holding(now) || state.string_colors);
         for s in 0..n as u8 {
-            full.hline(rect.x_range(), geo.y(s).round(), self.line_style(&geo, state, s));
+            full.hline(rect.x_range(), geo.y(s).round(), self.line_style(&geo, state, s, now));
             let label = string_label_styled(&project.tuning, s, LabelStyle::Convention).unwrap_or_default();
             let color = if colored { string_color(usize::from(s), n) } else { st.ink.gamma_multiply(0.7) };
-            full.text(pos2(rect.left() + self.timeline_offset - 8.0, geo.y(s)), egui::Align2::RIGHT_CENTER, label, egui::FontId::proportional(st.font * 0.85), color);
+            full.text(pos2(rect.left() + self.timeline_offset - 16.0, geo.y(s)), egui::Align2::RIGHT_CENTER, label, egui::FontId::proportional(st.font * 0.85), color);
         }
         for (i, ch) in "TAB".chars().enumerate() {
             let y = geo.top + (n as f32 - 1.0) * geo.gap / 2.0 + (i as f32 - 1.0) * st.font;
@@ -230,7 +254,8 @@ impl TabView<'_> {
         }
         let ruler = Rect::from_min_max(rect.min, pos2(rect.left() + self.timeline_offset, rect.bottom()));
 
-        let painter = ui.painter_at(body);
+        // The first note sits on the left edge of the timeline: let its number overlap the label column.
+        let painter = ui.painter_at(Rect::from_min_max(pos2(body.left() - 16.0, body.top()), body.max));
         for m in &project.measures {
             let x = geo.x(view, m.start_sec).round();
             if x >= body.left() - 1.0 && x <= body.right() {
@@ -257,23 +282,25 @@ impl TabView<'_> {
         let hovered = response.hover_pos().and_then(hit);
         let pointer = response.interact_pointer_pos();
 
-        if response.drag_started() {
-            if let Some((id, origin)) = pointer.and_then(|p| hit(p).map(|id| (id, p))) {
-                let targets = placements(project, self.opts, id);
-                state.drag = Some(Drag { note: id, ids: acts_on(id), origin, moved: false, targets });
-            }
+        let hover = response.hover_pos();
+        let held = ui.input(|i| i.pointer.primary_down());
+        if ui.input(|i| i.pointer.primary_pressed()) && response.contains_pointer() {
+            state.drag = hover.and_then(|p| hit(p).map(|id| Drag { note: id, ids: acts_on(id), origin: p, moved: false, since: now, targets: placements(project, self.opts, id) }));
         }
-        if let (Some(d), Some(pos)) = (state.drag.as_mut(), pointer) {
-            d.moved |= (pos - d.origin).length() > DRAG_PX;
-            if d.moved {
-                let target = geo.nearest_string(pos.y);
-                if let Some(&(_, fret)) = d.targets.iter().find(|t| t.0 == target) {
-                    let x = geo.x(view, self.times.start_sec(d.note).unwrap_or(0.0));
-                    ctx.number(pos2(x, geo.y(target)), &fret.to_string(), 1.0, string_color(usize::from(target), n), Some(white(30)));
+        if let Some(d) = state.drag.as_mut() {
+            if let Some(pos) = pointer.or(hover) {
+                d.moved |= (pos - d.origin).length() > DRAG_PX;
+                if d.moved {
+                    let target = geo.nearest_string(pos.y);
+                    if let Some(&(_, fret)) = d.targets.iter().find(|t| t.0 == target) {
+                        let x = geo.x(view, self.times.start_sec(d.note).unwrap_or(0.0));
+                        ctx.number(pos2(x, geo.y(target)), &fret.to_string(), 1.0, string_color(usize::from(target), n), Some(white(30)));
+                    }
                 }
             }
+            ui.ctx().request_repaint();
         }
-        if response.drag_stopped() {
+        if response.drag_stopped_by(egui::PointerButton::Primary) {
             if let (Some(d), Some(pos)) = (state.drag.take(), pointer) {
                 let target = geo.nearest_string(pos.y);
                 let current = project.note(d.note).and_then(|n| n.string_fret).map(|s| s.0);
@@ -282,12 +309,23 @@ impl TabView<'_> {
                 }
             }
         }
+        if !held {
+            state.drag = None;
+        }
+        // Left click: select like the note editor and open the menu (Ctrl / Shift only select, Alt cycles).
         if response.clicked() {
             match pointer.map(|p| (p, hit(p))) {
-                Some((_, Some(id))) => {
-                    events.push(TabViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift });
+                Some((p, Some(id))) => {
+                    let plain = !(mods.command || mods.shift || mods.alt);
+                    let in_group = self.selected.len() > 1 && self.selected.contains(&id);
+                    if !(plain && in_group) {
+                        events.push(TabViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift });
+                    }
                     if mods.alt {
                         events.push(TabViewEvent::Edit(TabEdit::Cycle { ids: vec![id], back: mods.shift }));
+                    } else if plain {
+                        state.menu = menu_model(project, if in_group { self.selected } else { &[] }, id, self.opts);
+                        state.menu_pos = state.menu.as_ref().map(|_| p);
                     }
                 }
                 Some((p, None)) if ruler.contains(p) => state.open_tuning(project),
@@ -295,24 +333,38 @@ impl TabView<'_> {
                 None => {}
             }
         }
-        if response.secondary_clicked() {
-            let id = pointer.and_then(hit);
-            state.menu = id.and_then(|id| menu_model(project, self.selected, id, self.opts));
-            if let Some(id) = id.filter(|id| !self.selected.contains(id)) {
-                events.push(TabViewEvent::NoteClicked { id, ctrl: false, shift: false });
+        // Right button: marquee by dragging, clear on empty space, context on a number. Esc cancels.
+        if response.drag_started_by(egui::PointerButton::Secondary) {
+            state.marquee = pointer;
+        }
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            state.marquee = None;
+            state.close_menu();
+        }
+        if let Some(origin) = state.marquee {
+            if let Some(pos) = pointer.or(hover) {
+                let r = Rect::from_two_pos(origin, pos);
+                full.rect_filled(r, 0.0, st.selected.gamma_multiply(0.15));
+                full.rect_stroke(r, 0.0, Stroke::new(1.0_f32, st.selected), egui::StrokeKind::Inside);
             }
         }
-        if let Some(model) = state.menu.clone() {
-            let was_open = state.menu_open;
-            let mut ran = false;
-            response.context_menu(|ui| {
-                ran = true;
-                menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events);
+        if response.drag_stopped_by(egui::PointerButton::Secondary) {
+            if let (Some(origin), Some(pos)) = (state.marquee.take(), pointer) {
+                let r = Rect::from_two_pos(origin, pos);
+                let ids = heads.iter().filter(|h| h.1.intersects(r)).map(|h| h.0).collect();
+                events.push(TabViewEvent::Marquee { ids, add: mods.command });
+            }
+        }
+        if response.secondary_clicked() {
+            events.push(pointer.and_then(hit).map_or(TabViewEvent::ClearSelection, TabViewEvent::NoteContext));
+        }
+        if let (Some(model), Some(pos)) = (state.menu.clone(), state.menu_pos) {
+            let area = egui::Area::new(egui::Id::new("fretscribe_tab_menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events)).inner
             });
-            // The closure only runs while the menu is open.
-            state.menu_open = ran;
-            if !state.menu_open && was_open {
-                (state.menu, state.preview) = (None, None);
+            let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
+            if area.inner || outside {
+                state.close_menu();
             }
             ui.ctx().request_repaint();
         }

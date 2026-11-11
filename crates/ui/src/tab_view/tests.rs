@@ -239,10 +239,14 @@ fn clicks_select_seek_and_cycle() {
     let off = h.press(note, PointerButton::Primary, false, Modifiers::NONE);
     let (events, _) = h.run(&p, &[], &mut state, off);
     assert_eq!(events, vec![TabViewEvent::NoteClicked { id: 1, ctrl: false, shift: false }]);
+    assert_eq!(state.menu.as_ref().map(|m| m.placements.len()), Some(5), "a plain left click opens the menu");
+    assert!(state.menu_open());
 
     let empty = pos2(note.x + 300.0, note.y);
+    h.run(&p, &[], &mut state, vec![Event::PointerMoved(empty)]);
     let on = h.press(empty, PointerButton::Primary, true, Modifiers::NONE);
     h.run(&p, &[], &mut state, on);
+    assert!(state.menu.is_none(), "a press outside closes the menu");
     let off = h.press(empty, PointerButton::Primary, false, Modifiers::NONE);
     let (events, _) = h.run(&p, &[], &mut state, off);
     assert!(matches!(events.as_slice(), [TabViewEvent::SeekRequested(s)] if (*s - 1.5).abs() < 0.01), "{events:?}");
@@ -274,22 +278,61 @@ fn dragging_a_number_to_another_string_edits_only_where_the_pitch_reaches() {
     }
 }
 
+fn click(h: &mut Harness, p: &Project, selected: &[u64], state: &mut TabViewState, at: Pos2, button: PointerButton, mods: Modifiers) -> Vec<TabViewEvent> {
+    let on = h.press(at, button, true, mods);
+    h.run(p, selected, state, on);
+    let off = h.press(at, button, false, mods);
+    h.run(p, selected, state, off).0
+}
+
 #[test]
-fn right_click_builds_the_menu_and_keys_edit_the_selection() {
+fn right_button_follows_the_note_editor_scheme() {
+    let p = solved(&[64, 67]);
+    let (mut h, mut state) = (Harness::new(), TabViewState::default());
+    let rect = settle(&mut h, &p, &mut state);
+    let note = position(rect, 5, 0.0, 6);
+    let empty = pos2(note.x + 300.0, note.y);
+    assert_eq!(click(&mut h, &p, &[], &mut state, note, PointerButton::Secondary, Modifiers::NONE), vec![TabViewEvent::NoteContext(1)]);
+    assert_eq!(click(&mut h, &p, &[1], &mut state, empty, PointerButton::Secondary, Modifiers::NONE), vec![TabViewEvent::ClearSelection]);
+    assert!(state.menu.is_none(), "the menu is on the left button");
+
+    for (mods, add) in [(Modifiers::NONE, false), (Modifiers::COMMAND, true)] {
+        let from = note - vec2(30.0, 40.0);
+        let to = position(rect, 0, 0.7, 6) + vec2(0.0, 12.0);
+        let on = h.press(from, PointerButton::Secondary, true, mods);
+        h.run(&p, &[], &mut state, on);
+        h.run(&p, &[], &mut state, vec![Event::PointerMoved(from + vec2(5.0, 10.0))]);
+        h.run(&p, &[], &mut state, vec![Event::PointerMoved(to)]);
+        let off = vec![Event::PointerButton { pos: to, button: PointerButton::Secondary, pressed: false, modifiers: mods }];
+        let (events, _) = h.run(&p, &[], &mut state, off);
+        assert_eq!(events, vec![TabViewEvent::Marquee { ids: vec![1, 2], add }], "{mods:?}");
+    }
+}
+
+#[test]
+fn holding_the_left_button_shows_the_string_colours_after_a_delay_without_moving() {
     let p = solved(&[64]);
     let (mut h, mut state) = (Harness::new(), TabViewState::default());
     let rect = settle(&mut h, &p, &mut state);
     let note = position(rect, 5, 0.0, 6);
-    let on = h.press(note, PointerButton::Secondary, true, Modifiers::NONE);
+    let on = h.press(note, PointerButton::Primary, true, Modifiers::NONE);
     h.run(&p, &[], &mut state, on);
-    let off = h.press(note, PointerButton::Secondary, false, Modifiers::NONE);
-    let (events, _) = h.run(&p, &[], &mut state, off);
-    assert_eq!(events, vec![TabViewEvent::NoteClicked { id: 1, ctrl: false, shift: false }]);
-    assert_eq!(state.menu.as_ref().map(|m| m.placements.len()), Some(5));
-    h.run(&p, &[1], &mut state, vec![]);
-    assert!(state.menu_open, "the lines take their string colours while the menu is open");
+    assert!(!state.holding(h.frame as f64 * 0.02), "a click does not flash the colours");
+    for _ in 0..10 {
+        h.run(&p, &[], &mut state, vec![]);
+    }
+    assert!(state.holding(h.frame as f64 * 0.02));
+    let off = h.press(note, PointerButton::Primary, false, Modifiers::NONE);
+    h.run(&p, &[], &mut state, off);
+    assert!(state.drag.is_none());
+}
 
-    let mut state = TabViewState::default();
+#[test]
+fn keys_edit_the_selection_while_hovering() {
+    let p = solved(&[64]);
+    let (mut h, mut state) = (Harness::new(), TabViewState::default());
+    let rect = settle(&mut h, &p, &mut state);
+    let note = position(rect, 5, 0.0, 6);
     h.run(&p, &[1], &mut state, vec![Event::PointerMoved(note)]);
     let key = |key, modifiers| vec![Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }];
     let (events, _) = h.run(&p, &[1], &mut state, key(Key::ArrowDown, Modifiers::NONE));

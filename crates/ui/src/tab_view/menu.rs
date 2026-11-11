@@ -16,11 +16,14 @@ pub fn link_name(kind: LinkType) -> &'static str {
 }
 
 /// `preview` receives the placement under the pointer so the view can draw a ghost number.
-pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Option<(u8, u8)>, events: &mut Vec<TabViewEvent>) {
+/// Returns whether an entry was chosen (the caller closes the menu).
+pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Option<(u8, u8)>, events: &mut Vec<TabViewEvent>) -> bool {
+    ui.set_min_width(150.0);
+    let mut chosen = false;
     let count = tuning.open_strings.len();
-    let mut send = |ui: &mut Ui, edit: TabEdit| {
+    let mut send = |_: &mut Ui, edit: TabEdit| {
         events.push(TabViewEvent::Edit(edit));
-        ui.close_menu();
+        chosen = true;
     };
     *preview = None;
     if m.ids.len() == 1 {
@@ -64,6 +67,7 @@ pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Op
             send(ui, TabEdit::SetLink { id: m.note, kind: None });
         }
     }
+    chosen
 }
 
 const DOT_COLUMN: f32 = 16.0;
