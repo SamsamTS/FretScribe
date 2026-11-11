@@ -286,6 +286,8 @@ fn right_click_builds_the_menu_and_keys_edit_the_selection() {
     let (events, _) = h.run(&p, &[], &mut state, off);
     assert_eq!(events, vec![TabViewEvent::NoteClicked { id: 1, ctrl: false, shift: false }]);
     assert_eq!(state.menu.as_ref().map(|m| m.placements.len()), Some(5));
+    h.run(&p, &[1], &mut state, vec![]);
+    assert!(state.menu_open, "the lines take their string colours while the menu is open");
 
     let mut state = TabViewState::default();
     h.run(&p, &[1], &mut state, vec![Event::PointerMoved(note)]);

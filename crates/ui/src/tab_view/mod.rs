@@ -304,8 +304,13 @@ impl TabView<'_> {
         }
         if let Some(model) = state.menu.clone() {
             let was_open = state.menu_open;
-            response.context_menu(|ui| menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events));
-            state.menu_open = ui.memory(|m| m.any_popup_open());
+            let mut ran = false;
+            response.context_menu(|ui| {
+                ran = true;
+                menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events);
+            });
+            // The closure only runs while the menu is open.
+            state.menu_open = ran;
             if !state.menu_open && was_open {
                 (state.menu, state.preview) = (None, None);
             }
