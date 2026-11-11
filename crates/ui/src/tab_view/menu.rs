@@ -1,6 +1,6 @@
 //! Right-click menu of a fret number: placements in their string colours, then reset and techniques.
 
-use egui::{RichText, Ui};
+use egui::{pos2, vec2, Align2, FontId, Response, Sense, Ui};
 use fretscribe_core::{LinkType, Tuning};
 use fretscribe_notation::tab::string_label;
 
@@ -25,15 +25,8 @@ pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Op
     *preview = None;
     if m.ids.len() == 1 {
         for p in &m.placements {
-            let mut text = format!("{}{}", if m.current == Some((p.string, p.fret)) { "✓ " } else { "   " }, p.label);
-            if p.auto {
-                text.push_str(" (auto)");
-            }
-            let mut rich = RichText::new(text).color(string_color(usize::from(p.string), count));
-            if p.near {
-                rich = rich.strong();
-            }
-            let response = ui.button(rich);
+            let text = if p.auto { format!("{} (auto)", p.label) } else { p.label.clone() };
+            let response = row(ui, &text, m.current == Some((p.string, p.fret)), string_color(usize::from(p.string), count));
             if response.hovered() {
                 *preview = Some((p.string, p.fret));
             }
@@ -45,7 +38,7 @@ pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Op
         ui.label(format!("Move {} notes to string", m.ids.len()));
         for &s in &m.strings {
             let label = string_label(tuning, s).unwrap_or_default();
-            if ui.button(RichText::new(label).color(string_color(usize::from(s), count))).clicked() {
+            if row(ui, &label, false, string_color(usize::from(s), count)).clicked() {
                 send(ui, TabEdit::SetString { ids: m.ids.clone(), string: s });
             }
         }
@@ -71,4 +64,28 @@ pub(super) fn show(ui: &mut Ui, m: &MenuModel, tuning: &Tuning, preview: &mut Op
             send(ui, TabEdit::SetLink { id: m.note, kind: None });
         }
     }
+}
+
+const DOT_COLUMN: f32 = 16.0;
+
+/// Left-aligned menu row: a dot column (filled for the current placement) then the text, which is
+/// emboldened for the current one (egui has no bold face, so it is drawn twice, half a pixel apart).
+fn row(ui: &mut Ui, text: &str, current: bool, color: egui::Color32) -> Response {
+    let font = FontId::proportional(ui.text_style_height(&egui::TextStyle::Button));
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), font, color);
+    let size = vec2((DOT_COLUMN + galley.size().x + 8.0).max(ui.available_width()), ui.spacing().interact_size.y);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 3.0, ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    let y = rect.center().y;
+    if current {
+        ui.painter().circle_filled(pos2(rect.left() + DOT_COLUMN / 2.0, y), 3.0, color);
+    }
+    let at = Align2::LEFT_CENTER.anchor_size(pos2(rect.left() + DOT_COLUMN, y), galley.size()).min;
+    ui.painter().galley(at, galley.clone(), color);
+    if current {
+        ui.painter().galley(at + vec2(0.6, 0.0), galley, color);
+    }
+    response
 }

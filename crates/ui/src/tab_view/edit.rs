@@ -209,6 +209,7 @@ pub fn menu_model(project: &Project, selection: &[u64], note: u64, opts: &TabOpt
         let mut strings: Vec<u8> = ids.iter().flat_map(|&id| placements(project, opts, id)).map(|p| p.0).collect();
         strings.sort_unstable();
         strings.dedup();
+        strings.reverse();
         model.strings = strings;
         return Some(model);
     }
@@ -220,7 +221,7 @@ pub fn menu_model(project: &Project, selection: &[u64], note: u64, opts: &TabOpt
         .iter()
         .filter_map(|&(string, fret)| Some(Placement { string, fret, label: candidate_label(&project.tuning, string, fret)?, auto: auto == Some(string), near: near == Some((string, fret)) }))
         .collect();
-    list.sort_by_key(|p| p.string);
+    list.sort_by_key(|p| std::cmp::Reverse(p.string));
     model.placements = list;
     Some(model)
 }

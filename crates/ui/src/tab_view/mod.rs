@@ -304,9 +304,9 @@ impl TabView<'_> {
         }
         if let Some(model) = state.menu.clone() {
             let was_open = state.menu_open;
-            let shown = response.context_menu(|ui| menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events));
-            state.menu_open = shown.is_some();
-            if shown.is_none() && was_open {
+            response.context_menu(|ui| menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events));
+            state.menu_open = ui.memory(|m| m.any_popup_open());
+            if !state.menu_open && was_open {
                 (state.menu, state.preview) = (None, None);
             }
             ui.ctx().request_repaint();

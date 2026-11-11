@@ -172,7 +172,7 @@ fn menu_lists_placements_with_labels_auto_and_the_selection_rule() {
     let opts = TabOptions::default();
     let m = menu_model(&p, &[], 1, &opts).unwrap();
     let labels: Vec<&str> = m.placements.iter().map(|p| p.label.as_str()).collect();
-    assert_eq!(labels, ["A 19", "D 14", "G 9", "B 5", "e 0"]);
+    assert_eq!(labels, ["e 0", "B 5", "G 9", "D 14", "A 19"]);
     assert_eq!(m.placements.iter().filter(|p| p.auto).map(|p| p.string).collect::<Vec<_>>(), [5]);
     assert_eq!(m.current, Some((5, 0)));
     let mut q = solved(&[64, 67]);

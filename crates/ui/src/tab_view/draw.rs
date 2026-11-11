@@ -86,7 +86,15 @@ fn level(c: &Ctx, note: &Note) -> i32 {
     open.map_or(0, |fretted| i32::from(note.midi) - fretted).max(0)
 }
 
-fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, pre_bend: bool) {
+/// How a link sits in its chain: a bend that arrives on a note continuing the chain stops at that note's
+/// number, and a link leaving a bent note starts there, so bend + release read as one gesture.
+struct Chain {
+    pre_bend: bool,
+    from_bent: bool,
+    to_continues: bool,
+}
+
+fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, chain: &Chain) {
     let color = c.st.ink;
     let gap = c.geo.gap;
     match link.kind {
@@ -101,9 +109,10 @@ fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, pre
             let step = 0.5 * gap;
             let (la, lb) = (level(c, from), level(c, to));
             let y_at = |lvl: i32| if lvl == 0 { a.center().y - 0.25 * gap } else { a.top() - lvl as f32 * step };
-            let start = pos2(a.right() + 1.0, y_at(la));
-            let end = pos2(c.geo.x(c.view, c.times.end_sec(to.id).unwrap_or(0.0)).max(start.x + gap), y_at(lb));
-            if pre_bend && la > 0 {
+            let start = pos2(if chain.from_bent { a.center().x } else { a.right() + 1.0 }, y_at(la));
+            let end_x = if chain.to_continues { b.center().x } else { c.geo.x(c.view, c.times.end_sec(to.id).unwrap_or(0.0)) };
+            let end = pos2(end_x.max(start.x + gap), y_at(lb));
+            if chain.pre_bend && la > 0 {
                 let x = a.center().x;
                 c.p.line_segment([pos2(x, a.top() - 1.0), pos2(x, y_at(la) + 5.0)], c.stroke(color));
                 arrow_head(c, pos2(x, y_at(la)), true, color);
@@ -137,6 +146,7 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
     let all = links(&c.project.notes);
     let bend_ends: HashSet<u64> = all.iter().filter(|l| l.kind == LinkType::Bend).map(|l| l.to).collect();
     let has_incoming: HashSet<u64> = all.iter().map(|l| l.to).collect();
+    let has_outgoing: HashSet<u64> = all.iter().map(|l| l.from).collect();
     let mut rects: HashMap<u64, Rect> = HashMap::new();
     let mut order = Vec::new();
     for n in &c.project.notes {
@@ -169,7 +179,8 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
         let (Some(&a), Some(&b)) = (rects.get(&link.from), rects.get(&link.to)) else { continue };
         if let (Some(&from), Some(&to)) = (by_id.get(&link.from), by_id.get(&link.to)) {
             if from.string_fret.is_some() && to.string_fret.is_some() && from.string_fret.map(|s| s.0) == to.string_fret.map(|s| s.0) {
-                draw_link(c, link, from, to, a, b, !has_incoming.contains(&link.from));
+                let chain = Chain { pre_bend: !has_incoming.contains(&link.from), from_bent: bend_ends.contains(&link.from), to_continues: has_outgoing.contains(&link.to) };
+                draw_link(c, link, from, to, a, b, &chain);
             }
         }
     }
