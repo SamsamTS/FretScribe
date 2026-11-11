@@ -1,3 +1,4 @@
-//! Tab inference and staff layout (pure logic, no drawing). Staff layout is not written yet.
+//! Tab inference and staff layout (pure logic, no drawing).
 
+pub mod staff;
 pub mod tab;
