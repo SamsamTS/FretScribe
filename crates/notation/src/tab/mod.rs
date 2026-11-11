@@ -8,7 +8,7 @@ mod tests;
 use fretscribe_core::Tuning;
 
 pub use label::{candidate_label, candidate_label_styled, string_label, string_label_styled, LabelStyle};
-pub use solve::{assign_tabs, assign_tabs_range};
+pub use solve::{assign_tabs, assign_tabs_range, group_options, GroupOption};
 
 pub const MAX_FRET: u8 = 24;
 

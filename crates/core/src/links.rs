@@ -320,6 +320,15 @@ impl Project {
         }
     }
 
+    /// Sets the kind of the link that starts at `id`; `false` when there is no link or `kind` is not valid for it.
+    pub fn set_link_type(&mut self, id: u64, kind: LinkType) -> bool {
+        let ok = self.valid_links(id).contains(&kind);
+        if ok {
+            self.set_link(id, kind);
+        }
+        ok
+    }
+
     /// Next valid kind of the link of `id` in the order slide, bend, legato, dashed (grace notes
     /// only); `None` when there is no link or no other kind is valid.
     pub fn cycle_link_type(&mut self, id: u64) -> Option<LinkType> {
