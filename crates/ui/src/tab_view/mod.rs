@@ -11,6 +11,8 @@ mod draw;
 mod edit;
 mod menu;
 mod tuning;
+#[cfg(test)]
+mod tests;
 
 use egui::{pos2, vec2, Color32, Key, Modifiers, Rect, Response, Sense, Stroke, Ui};
 use fretscribe_core::{NoteTimes, Project, Tuning};
@@ -301,15 +303,20 @@ impl TabView<'_> {
             }
         }
         if let Some(model) = state.menu.clone() {
+            let was_open = state.menu_open;
             let shown = response.context_menu(|ui| menu::show(ui, &model, &project.tuning, &mut state.preview, &mut events));
             state.menu_open = shown.is_some();
-            if shown.is_none() {
+            if shown.is_none() && was_open {
                 (state.menu, state.preview) = (None, None);
-            } else {
-                ui.ctx().request_repaint();
             }
+            ui.ctx().request_repaint();
         }
-        if response.hovered() && !self.selected.is_empty() && !ui.ctx().wants_keyboard_input() {
+        if response.hovered() && !self.selected.is_empty() {
+            // egui would turn Tab into focus navigation before we see it.
+            response.request_focus();
+            ui.memory_mut(|m| m.set_focus_lock_filter(response.id, egui::EventFilter { tab: true, ..Default::default() }));
+        }
+        if response.hovered() && !self.selected.is_empty() && ui.memory(|m| m.focused()).is_none_or(|id| id == response.id) {
             let ids = self.selected.to_vec();
             let key = |ui: &Ui, m: Modifiers, k: Key| ui.input_mut(|i| i.consume_key(m, k));
             if key(ui, Modifiers::SHIFT, Key::Tab) {
