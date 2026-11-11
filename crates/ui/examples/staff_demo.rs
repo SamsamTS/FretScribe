@@ -23,6 +23,9 @@ const SCORE: &[(u8, f64, f64)] = &[
     (60, 16.0, 17.0), (62, 15.9, 16.0), (64, 16.0, 16.1), // main, acciaccatura, appoggiatura
     (61, 17.0, 17.5), (61, 17.5, 18.0), (60, 18.0, 19.0),
     (40, 24.0, 25.0),
+    (45, 25.0, 25.5), (69, 25.5, 26.0), // big leap up: slope is limited
+    (76, 26.0, 26.5), (60, 26.5, 27.0), // leap down, stems down
+    (60, 27.0, 27.25), (72, 27.25, 27.5), (64, 27.5, 27.75), (62, 27.75, 28.0), // high note inside
 ];
 
 fn notes(measures: &[Measure]) -> Vec<Note> {

@@ -20,6 +20,9 @@ const FONT_BYTES: &[u8] = include_bytes!("../../assets/Bravura.otf");
 const FONT_PER_SPACE: f32 = 4.0;
 const HEAD_W: f32 = 1.18;
 const STEM_LEN: f32 = 3.5;
+const MIN_STEM_LEN: f32 = 2.6;
+/// Largest height difference between the two ends of a beam, in staff spaces.
+const MAX_BEAM_RISE: f32 = 1.25;
 const GRACE_SCALE: f32 = 0.62;
 /// Staff spaces above and below the five lines.
 const MARGIN: f32 = 5.0;
@@ -146,6 +149,26 @@ impl Paint<'_> {
     }
 }
 
+/// Outer edge of a beam (the side of the stem tips), as a line through two stem centres.
+struct BeamLine {
+    xa: f32,
+    ya: f32,
+    xb: f32,
+    yb: f32,
+    /// -1 stems up (beam above the heads), 1 stems down.
+    dir: f32,
+}
+
+impl BeamLine {
+    fn y_at(&self, x: f32) -> f32 {
+        if self.xb > self.xa { self.ya + (self.yb - self.ya) * (x - self.xa) / (self.xb - self.xa) } else { self.ya }
+    }
+
+    fn flat(&self) -> bool {
+        (self.ya - self.yb).abs() < 1e-3
+    }
+}
+
 fn head_char(b: Base) -> &'static str {
     match b {
         Base::Whole => "\u{E0A2}",
@@ -224,10 +247,33 @@ impl Paint<'_> {
     }
 
     /// Tip of the stems of a beamed group (flat beam), `None` for a lone event.
-    fn beam_tip(&self, layout: &StaffLayout, e: &StaffEvent) -> Option<f32> {
-        let beam = &layout.beams[e.beam?];
-        let ys = beam.events.iter().map(|&i| &layout.events[i]).flat_map(|b| b.notes.iter().map(|n| self.py(n.step)));
-        Some(if beam.stem_up { ys.fold(f32::MAX, f32::min) - STEM_LEN * self.s } else { ys.fold(f32::MIN, f32::max) + STEM_LEN * self.s })
+    /// The beam of a group: its outer edge runs through the stem tips. The slope follows the first
+    /// and the last notehead (limited to `MAX_BEAM_RISE`), then the line moves away from the heads
+    /// until every stem is at least `MIN_STEM_LEN` long. Equal first and last pitches give a flat
+    /// beam, snapped to the pixel grid; a slanted one is not.
+    fn beam_line(&self, layout: &StaffLayout, beam: usize) -> BeamLine {
+        let b = &layout.beams[beam];
+        let dir = if b.stem_up { -1.0_f32 } else { 1.0 };
+        let evs: Vec<&StaffEvent> = b.events.iter().map(|&i| &layout.events[i]).collect();
+        let xs: Vec<f32> = evs.iter().map(|e| self.stem_left(self.px(e.x_sec), b.stem_up) + self.thickness(0.12) / 2.0).collect();
+        let heads: Vec<f32> = evs.iter().map(|e| {
+            let ys = e.notes.iter().map(|n| self.py(n.step));
+            if b.stem_up { ys.fold(f32::MAX, f32::min) } else { ys.fold(f32::MIN, f32::max) }
+        }).collect();
+        let (xa, xb) = (xs[0], xs[xs.len() - 1]);
+        let (mut ya, mut yb) = (heads[0] + dir * STEM_LEN * self.s, heads[heads.len() - 1] + dir * STEM_LEN * self.s);
+        let max_rise = MAX_BEAM_RISE * self.s;
+        if (yb - ya).abs() > max_rise {
+            let (mid, half) = ((ya + yb) / 2.0, max_rise * (yb - ya).signum() / 2.0);
+            (ya, yb) = (mid - half, mid + half);
+        }
+        let at = |x: f32| if xb > xa { ya + (yb - ya) * (x - xa) / (xb - xa) } else { ya };
+        let shift = xs.iter().zip(&heads).map(|(&x, &h)| MIN_STEM_LEN * self.s - (at(x) - h) * dir).fold(0.0_f32, f32::max);
+        let (mut ya, mut yb) = (ya + dir * shift, yb + dir * shift);
+        if (ya - yb).abs() < 1e-3 {
+            (ya, yb) = (self.snap(ya), self.snap(ya));
+        }
+        BeamLine { xa, ya, xb, yb, dir }
     }
 
     fn event(&self, layout: &StaffLayout, e: &StaffEvent, selected: &[u64], heads: &mut Vec<Head>) {
@@ -260,9 +306,17 @@ impl Paint<'_> {
         if e.duration.base != Base::Whole {
             let flags = e.duration.base.flags();
             let (from, tip) = if up { (self.py(low.step), self.py(high.step) - STEM_LEN * self.s) } else { (self.py(high.step), self.py(low.step) + STEM_LEN * self.s) };
-            let tip = self.beam_tip(layout, e).map_or(tip, |t| self.snap(t));
+            let tip = e.beam.map_or_else(
+                || self.snap(tip),
+                |b| {
+                    // End inside the beam, so a slanted edge never leaves a gap or a point.
+                    let line = self.beam_line(layout, b);
+                    line.y_at(self.stem_left(x, up) + self.thickness(0.12) / 2.0) - line.dir * self.thickness(0.5) / 2.0
+                },
+            );
             let (w, left) = (self.thickness(0.12), self.stem_left(x, up));
-            self.fill(left, self.snap(from), left + w, self.snap(tip), self.style.ink);
+            let tip = if e.beam.is_some() { tip } else { self.snap(tip) };
+            self.fill(left, self.snap(from), left + w, tip, self.style.ink);
             if flags > 0 && e.beam.is_none() {
                 self.glyph(&flag_char(flags, up).to_string(), pos2(left, self.snap(tip)), 1.0, self.style.ink, Align2::LEFT_CENTER);
             }
@@ -291,28 +345,39 @@ impl Paint<'_> {
 impl Paint<'_> {
     /// Flat beams, stacked towards the noteheads; an isolated short note of a group gets a stub.
     fn beams(&self, layout: &StaffLayout, range: (usize, usize)) {
-        for beam in layout.beams.iter().filter(|b| b.events.last().is_some_and(|&l| l >= range.0) && b.events.first().is_some_and(|&f| f <= range.1)) {
-            let Some(tip) = beam.events.first().and_then(|&i| self.beam_tip(layout, &layout.events[i])) else { continue };
-            let (w, bt) = (self.thickness(0.12), self.thickness(0.5));
+        for (index, beam) in layout.beams.iter().enumerate().filter(|(_, b)| b.events.last().is_some_and(|&l| l >= range.0) && b.events.first().is_some_and(|&f| f <= range.1)) {
+            let (line, w, bt) = (self.beam_line(layout, index), self.thickness(0.12), self.thickness(0.5));
             let left = |k: usize| self.stem_left(self.px(layout.events[beam.events[k]].x_sec), beam.stem_up);
             let levels = beam.events.iter().map(|&i| layout.events[i].duration.base.flags()).max().unwrap_or(1);
             for level in 0..levels {
-                // The stems end at the outer edge of the first beam, so every join is flush.
-                let outer = self.snap(tip + if beam.stem_up { 1.0 } else { -1.0 } * f32::from(level) * 0.75 * self.s);
-                let band = if beam.stem_up { (outer, outer + bt) } else { (outer - bt, outer) };
+                // Secondary beams stack towards the heads, 0.75 space apart.
+                let offset = -line.dir * f32::from(level) * 0.75 * self.s;
                 let has = |k: usize| layout.events[beam.events[k]].duration.base.flags() > level;
                 for k in 0..beam.events.len() {
                     let next = (k + 1 < beam.events.len() && has(k) && has(k + 1)).then(|| left(k + 1) + w);
                     let stub = (next.is_none() && has(k) && level > 0).then_some(if k > 0 { left(k) - 1.1 * self.s } else { left(k) + w + 1.1 * self.s });
                     let (x0, x1) = match (next, stub) {
                         (Some(x1), _) => (left(k), x1),
-                        (None, Some(x1)) if x1 < left(k) => (self.snap(x1), left(k) + w),
-                        (None, Some(x1)) => (left(k), self.snap(x1)),
+                        (None, Some(x1)) if x1 < left(k) => (x1, left(k) + w),
+                        (None, Some(x1)) => (left(k), x1),
                         _ => continue,
                     };
-                    self.fill(x0, band.0, x1, band.1, self.style.ink);
+                    self.beam_segment(&line, (x0, x1), offset, bt);
                 }
             }
+        }
+    }
+
+    /// One beam band between two x positions: a snapped rectangle when flat, a parallelogram otherwise.
+    fn beam_segment(&self, line: &BeamLine, (x0, x1): (f32, f32), offset: f32, bt: f32) {
+        let inward = -line.dir * bt;
+        if line.flat() {
+            let outer = self.snap(line.ya + offset);
+            self.fill(self.snap(x0), outer, self.snap(x1), outer + inward, self.style.ink);
+        } else {
+            let (y0, y1) = (line.y_at(x0) + offset, line.y_at(x1) + offset);
+            let points = vec![pos2(x0, y0), pos2(x1, y1), pos2(x1, y1 + inward), pos2(x0, y0 + inward)];
+            self.p.add(Shape::convex_polygon(points, self.style.ink, Stroke::NONE));
         }
     }
 
@@ -340,7 +405,7 @@ impl Paint<'_> {
             let evs: Vec<&StaffEvent> = t.events.iter().map(|&i| &layout.events[i]).collect();
             let up = evs[0].stem_up;
             let ys = evs.iter().flat_map(|e| e.notes.iter().map(|n| self.py(n.step)).chain(std::iter::once(self.top + 2.0 * self.s)));
-            let y = if up { ys.fold(f32::MAX, f32::min) - (STEM_LEN + 0.8) * self.s } else { ys.fold(f32::MIN, f32::max) + (STEM_LEN + 0.8) * self.s };
+            let y = if up { ys.fold(f32::MAX, f32::min) - (STEM_LEN + 0.8 + MAX_BEAM_RISE) * self.s } else { ys.fold(f32::MIN, f32::max) + (STEM_LEN + 0.8 + MAX_BEAM_RISE) * self.s };
             let y = if up { y.min(self.top - self.s) } else { y.max(self.top + 5.0 * self.s) };
             let (x0, x1) = (self.px(evs[0].x_sec), self.px(evs[evs.len() - 1].x_sec) + self.head_w(1.0));
             let (mid, hook) = ((x0 + x1) / 2.0, if up { 0.6 * self.s } else { -0.6 * self.s });
