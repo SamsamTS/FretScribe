@@ -40,4 +40,4 @@ pub use snap_note::{add_beats, effective_divisions, min_subdivision_beats, snap_
 pub use tempo::{BeatKind, BeatLine, NoteTimes, TempoMap};
 pub use overlap::MIN_PIECE_BEATS;
 pub use tracks::{audible_tracks, next_note_id, project_end_sec, shift_track};
-pub use undo::{UndoStack, DEFAULT_UNDO_LIMIT};
+pub use undo::{SavedHistory, UndoPolicy, UndoStack, DEFAULT_UNDO_LIMIT};

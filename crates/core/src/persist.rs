@@ -12,6 +12,7 @@ use crate::edit::NotePolicy;
 use crate::error::CoreError;
 use crate::model::Project;
 use crate::snap::SnapGrid;
+use crate::undo::SavedHistory;
 
 pub const CURRENT_VERSION: u32 = 1;
 pub const AUTOSAVE_GENERATIONS: usize = 3;
@@ -66,6 +67,9 @@ pub struct ProjectFile {
     pub project_id: Uuid,
     pub ui: UiState,
     pub project: Project,
+    /// Set by the app before saving (if it keeps history with the project) and taken after loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<SavedHistory>,
 }
 
 impl ProjectFile {
@@ -75,6 +79,7 @@ impl ProjectFile {
             project_id: Uuid::new_v4(),
             ui: UiState::default(),
             project,
+            history: None,
         }
     }
 }
@@ -98,8 +103,17 @@ pub fn from_json(text: &str) -> Result<ProjectFile, CoreError> {
         });
     }
     migrate(&mut value, version, CURRENT_VERSION, MIGRATIONS)?;
+    let history = value.as_object_mut().and_then(|o| o.remove("history"));
     let mut file: ProjectFile = serde_json::from_value(value)?;
+    file.history = history.and_then(|h| match serde_json::from_value(h) {
+        Ok(history) => Some(history),
+        Err(e) => {
+            log::warn!("dropping unreadable undo history: {e}");
+            None
+        }
+    });
     file.project.repair_counters();
+    file.project.notes.sort_by_key(|n| n.id);
     file.project.validate()?;
     Ok(file)
 }
