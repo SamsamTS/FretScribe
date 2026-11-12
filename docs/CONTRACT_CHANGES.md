@@ -23,7 +23,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 
 - `Propagation { Following (default), Single }`, `set_tempo_scoped`, `set_time_sig_scoped` (functions and `Project` methods); `set_tempo` / `set_time_sig` use `Following`.
 - `UndoStack` (`undo` module, `DEFAULT_UNDO_LIMIT = 200`) over `ProjectEdit`: `push`, `push_merged`, `undo`, `redo`, `can_undo`, `can_redo`, `undo_label`, `redo_label`, `clear`, `with_limit`.
-- `ProjectEdit` snapshots include `tuning` and `capo` (both undoable).
+- `ProjectEdit` is a delta (see 2026-11-12); `tuning` and `capo` are undoable.
 
 ## 2026-11-05 - ui: overview and navigation
 
@@ -96,3 +96,11 @@ Modules are not re-exported at the crate root.
 - The app calls `tab_view::apply(&mut project, &edit, &opts, state.propagate_backwards) -> TabApplied { edit, changed }` (manual change, lock and `assign_tabs_range` update are ONE `ProjectEdit`; flash `changed`) and `apply_tuning(&mut project, tuning, capo, &opts) -> ProjectEdit`.
 - Holding the left button (>= `HOLD_SEC` 0.15 s) or an open menu shows string colours. Keys (Up/Down adjacent string, Tab / Shift+Tab next / previous placement) act only while the pointer is over the view and are consumed: call `TabView::show` before the note editor collects keys.
 - Demos: `cargo run -p fretscribe-ui --example staff_demo` (`-- --screenshot out.png` saves a frame and quits), `--example tab_demo`.
+
+## 2026-11-12 - core: delta undo, history thinning and persistence
+
+- `ProjectEdit` stores a delta (changed notes by id, other groups whole), not two snapshots. `Project::notes` is sorted by id (new ids are max + 1; `from_json` sorts). Undoable: tracks (except the live fields), `source_track`, measures + `next_measure_id`, tuning, capo, `reference_hz`, notes.
+- Live track fields `volume`, `muted`, `solo`, `spectrogram_collapsed` are never restored by undo/redo (a track re-added by undo takes the delta's values): the app must re-send track state to the player after every undo/redo.
+- `Project::set_reference(hz) -> Result<ProjectEdit, CoreError>` (validated); `UndoError::Diverged`; `ProjectEdit::{try_undo, try_redo, weight}` (`undo`/`redo` apply nothing on divergence). `UndoStack::undo/redo` clear the history on divergence and return `None`; `take_diverged()` is true once so the app can toast.
+- `UndoPolicy { min_entries: 20, per_level: 3, max_entries: 200 }` (serde; keep it in the app settings): `UndoStack::{with_policy, set_policy}` (applies at the next push), `with_limit(n)` sets `max_entries` (`min_entries` is lowered below it when needed). Old history is thinned on a log scale; `undo_weight()` / `redo_weight()` give the steps an entry covers.
+- `UndoStack::{to_saved, from_saved(saved, &project, policy)}`, `SavedHistory`, `ProjectFile::history` (optional, no version bump; the app sets it before saving only if the history is kept with the project, and takes it after loading; autosave carries it too). `from_saved` never fails: it keeps the newest run that replays and validates; an unreadable `history` is dropped by `from_json`.

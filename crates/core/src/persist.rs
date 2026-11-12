@@ -430,4 +430,32 @@ mod tests {
         assert!(dir_names(dir.path()).is_empty());
         discard_autosave(&path).unwrap();
     }
+
+    #[test]
+    fn history_is_optional_lenient_and_notes_load_sorted() {
+        let plain: Value = serde_json::from_str(&to_json(&file(0.0)).unwrap()).unwrap();
+        assert!(plain.get("history").is_none());
+        assert!(from_json(&plain.to_string()).unwrap().history.is_none());
+
+        let mut f = file(0.0);
+        f.project.notes.push(Note::new(3, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+        f.project.notes.push(Note::new(2, 62, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+        let mut value: Value = serde_json::from_str(&to_json(&f).unwrap()).unwrap();
+        value["history"] = serde_json::json!({ "done": "garbage" });
+        let loaded = from_json(&value.to_string()).unwrap();
+        assert!(loaded.history.is_none());
+        assert_eq!(loaded.project.notes.iter().map(|n| n.id).collect::<Vec<_>>(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn autosave_keeps_the_history() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("recovery.json");
+        let mut f = file(0.0);
+        let mut stack = crate::undo::UndoStack::new();
+        stack.push(f.project.set_reference(432.0).unwrap());
+        f.history = stack.to_saved();
+        save_autosave(&f, &path).unwrap();
+        assert_eq!(load_autosave(&path).unwrap().unwrap(), f);
+    }
 }

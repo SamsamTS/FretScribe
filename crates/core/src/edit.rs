@@ -84,11 +84,6 @@ impl ProjectEdit {
     pub fn redo(&self, project: &mut Project) {
         let _ = self.try_redo(project);
     }
-
-    #[cfg(test)]
-    pub(crate) fn delta(&self) -> &Delta {
-        &self.delta
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
