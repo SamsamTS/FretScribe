@@ -7,6 +7,7 @@ use fretscribe_core::{next_note_id, LinkType, Note, NoteTimes, Project, TempoMap
 use fretscribe_notation::staff::{layout, StaffOptions};
 use fretscribe_notation::tab::{assign_tabs, TabOptions};
 use fretscribe_ui::tab_view::{apply, apply_tuning, TabEdit, TabStyle, TabView, TabViewEvent, TabViewState};
+use fretscribe_ui::note_editor::{time_order, Selection};
 use fretscribe_ui::TimelineView;
 
 struct Demo {
@@ -15,7 +16,7 @@ struct Demo {
     state: TabViewState,
     view: TimelineView,
     style: TabStyle,
-    selected: Vec<u64>,
+    selected: Selection,
     opts: TabOptions,
     log: String,
 }
@@ -53,12 +54,13 @@ impl eframe::App for Demo {
         egui::CentralPanel::default().show(ctx, |ui| {
             let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
             let staff = layout(&self.project.notes, &self.project.measures, &StaffOptions::default());
-            let out = TabView { project: &self.project, times: &times, staff: Some(&staff), selected: &self.selected, playhead: None, style: &self.style, opts: &self.opts, timeline_offset: 90.0 }.show(ui, &self.view, &mut self.state);
+            let out = TabView { project: &self.project, times: &times, staff: Some(&staff), selected: &self.selected.ids, playhead: None, style: &self.style, opts: &self.opts, timeline_offset: 90.0 }.show(ui, &self.view, &mut self.state);
             let now = ctx.input(|i| i.time);
             for e in out.events {
                 match e {
-                    TabViewEvent::NoteClicked { id, ctrl, .. } => {
-                        if ctrl { self.selected.push(id) } else { self.selected = vec![id] }
+                    TabViewEvent::NoteClicked { id, ctrl, shift } => {
+                        let order = time_order(&self.project.notes, &TempoMap::new(&self.project.measures));
+                        self.selected.click(id, ctrl, shift, &order);
                     }
                     TabViewEvent::Edit(edit) => self.edit(&edit, now),
                     TabViewEvent::TuningChanged { tuning, capo } => {
@@ -66,8 +68,7 @@ impl eframe::App for Demo {
                         self.undo.push(edit);
                     }
                     TabViewEvent::Marquee { ids, add } => {
-                        if !add { self.selected.clear() }
-                        self.selected.extend(ids);
+                        self.selected.marquee(&ids, add);
                     }
                     TabViewEvent::ClearSelection => self.selected.clear(),
                     TabViewEvent::SeekRequested(_) => {}
@@ -91,7 +92,7 @@ impl Demo {
 }
 
 fn main() -> eframe::Result {
-    let demo = Demo { project: project(), undo: UndoStack::new(), state: TabViewState::default(), view: TimelineView::new(0.0, 110.0), style: TabStyle::default(), selected: vec![], opts: TabOptions::default(), log: String::new() };
+    let demo = Demo { project: project(), undo: UndoStack::new(), state: TabViewState::default(), view: TimelineView::new(0.0, 110.0), style: TabStyle::default(), selected: Selection::default(), opts: TabOptions::default(), log: String::new() };
     eframe::run_native(
         "FretScribe tab demo",
         eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_inner_size([1300.0, 320.0]), ..Default::default() },

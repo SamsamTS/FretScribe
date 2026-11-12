@@ -110,7 +110,8 @@ fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, cha
             let (la, lb) = (level(c, from), level(c, to));
             let y_at = |lvl: i32| if lvl == 0 { a.center().y - 0.25 * gap } else { a.top() - lvl as f32 * step };
             let start = pos2(if chain.from_bent { a.center().x } else { a.right() + 1.0 }, y_at(la));
-            let end_x = if chain.to_continues { b.center().x } else { c.geo.x(c.view, c.times.end_sec(to.id).unwrap_or(0.0)) };
+            // Stops at the number, or just after it for a long note so the release never reaches the next one.
+            let end_x = if chain.to_continues { b.center().x } else { c.geo.x(c.view, c.times.end_sec(to.id).unwrap_or(0.0)).min(b.right() + gap) };
             let end = pos2(end_x.max(start.x + gap), y_at(lb));
             if chain.pre_bend && la > 0 {
                 let x = a.center().x;
