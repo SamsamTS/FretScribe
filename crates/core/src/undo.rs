@@ -24,7 +24,11 @@ pub struct UndoPolicy {
 
 impl Default for UndoPolicy {
     fn default() -> Self {
-        Self { min_entries: 20, per_level: 3, max_entries: DEFAULT_UNDO_LIMIT }
+        Self {
+            min_entries: 20,
+            per_level: 3,
+            max_entries: DEFAULT_UNDO_LIMIT,
+        }
     }
 }
 
@@ -32,7 +36,11 @@ impl UndoPolicy {
     /// `per_level >= 1`, `max_entries >= 1`, and `min_entries < max_entries` (lowered if needed).
     fn sanitised(self) -> Self {
         let max_entries = self.max_entries.max(1);
-        Self { min_entries: self.min_entries.min(max_entries - 1), per_level: self.per_level.max(1), max_entries }
+        Self {
+            min_entries: self.min_entries.min(max_entries - 1),
+            per_level: self.per_level.max(1),
+            max_entries,
+        }
     }
 }
 
@@ -57,11 +65,17 @@ impl UndoStack {
     }
 
     pub fn with_policy(policy: UndoPolicy) -> Self {
-        Self { policy: policy.sanitised(), ..Self::default() }
+        Self {
+            policy: policy.sanitised(),
+            ..Self::default()
+        }
     }
 
     pub fn with_limit(limit: usize) -> Self {
-        Self::with_policy(UndoPolicy { max_entries: limit, ..UndoPolicy::default() })
+        Self::with_policy(UndoPolicy {
+            max_entries: limit,
+            ..UndoPolicy::default()
+        })
     }
 
     /// Takes effect at the next push.
@@ -85,20 +99,33 @@ impl UndoStack {
     }
 
     fn enforce(&mut self) {
-        let UndoPolicy { min_entries, per_level, max_entries } = self.policy;
+        let UndoPolicy {
+            min_entries,
+            per_level,
+            max_entries,
+        } = self.policy;
         // A weight level that overflows merges its two oldest entries into the next level.
         loop {
             let mut end = self.done.len().saturating_sub(min_entries);
             let overflow = loop {
-                let Some(w) = end.checked_sub(1).map(|i| self.done[i].weight()) else { break None };
-                let start = (0..end).rev().take_while(|&i| self.done[i].weight() == w).last().unwrap_or(end);
+                let Some(w) = end.checked_sub(1).map(|i| self.done[i].weight()) else {
+                    break None;
+                };
+                let start = (0..end)
+                    .rev()
+                    .take_while(|&i| self.done[i].weight() == w)
+                    .last()
+                    .unwrap_or(end);
                 if end - start > per_level {
                     break Some(start);
                 }
                 end = start;
             };
             let Some(start) = overflow else { break };
-            let (Some(later), Some(first)) = (self.done.remove(start + 1), self.done.remove(start)) else { break };
+            let (Some(later), Some(first)) = (self.done.remove(start + 1), self.done.remove(start))
+            else {
+                break;
+            };
             let weight = first.weight() + later.weight();
             self.done.insert(start, first.merge_weighted(later, weight));
         }
@@ -145,8 +172,17 @@ impl UndoStack {
         self.run(edit, project, false)
     }
 
-    fn run(&mut self, edit: ProjectEdit, project: &mut Project, undo: bool) -> Option<&ProjectEdit> {
-        let result = if undo { edit.try_undo(project) } else { edit.try_redo(project) };
+    fn run(
+        &mut self,
+        edit: ProjectEdit,
+        project: &mut Project,
+        undo: bool,
+    ) -> Option<&ProjectEdit> {
+        let result = if undo {
+            edit.try_undo(project)
+        } else {
+            edit.try_redo(project)
+        };
         if result == Err(UndoError::Diverged) {
             self.clear();
             self.diverged = true;
@@ -172,7 +208,9 @@ impl UndoStack {
     }
 
     pub fn to_saved(&self) -> Option<SavedHistory> {
-        (!self.done.is_empty()).then(|| SavedHistory { done: self.done.iter().cloned().collect() })
+        (!self.done.is_empty()).then(|| SavedHistory {
+            done: self.done.iter().cloned().collect(),
+        })
     }
 
     /// Never fails: replays the entries backwards from `current` and keeps the newest run that still
@@ -231,7 +269,10 @@ mod tests {
         stack.push(e2);
         assert_eq!(stack.undo_label(), Some("Set tempo"));
 
-        assert_eq!(stack.undo(&mut p).map(ProjectEdit::label), Some("Set tempo"));
+        assert_eq!(
+            stack.undo(&mut p).map(ProjectEdit::label),
+            Some("Set tempo")
+        );
         assert_eq!(first_tempo(&p), 100.0);
         assert!(stack.can_redo());
         stack.undo(&mut p);
@@ -314,7 +355,9 @@ mod tests {
         assert!(w[w.len() - 20..].iter().all(|&x| x == 1));
         assert!(w.windows(2).all(|pair| pair[0] >= pair[1]));
         let old = &w[..w.len() - 20];
-        assert!(old.iter().all(|x| old.iter().filter(|y| y == &x).count() <= 3));
+        assert!(old
+            .iter()
+            .all(|x| old.iter().filter(|y| y == &x).count() <= 3));
         assert_eq!(w.iter().sum::<usize>(), 100);
     }
 
@@ -323,7 +366,11 @@ mod tests {
         let mut p = project();
         let (original, mut stack) = (p.clone(), UndoStack::new());
         capo_run(&mut p, &mut stack, 1000);
-        assert!(stack.done.len() < (20.0 + 3.0 * (1000f64.log2() + 2.0)) as usize, "{}", stack.done.len());
+        assert!(
+            stack.done.len() < (20.0 + 3.0 * (1000f64.log2() + 2.0)) as usize,
+            "{}",
+            stack.done.len()
+        );
         assert_eq!(weights(&stack).iter().sum::<usize>(), 1000);
         let (end, mut steps) = (p.clone(), 0);
         while stack.undo(&mut p).is_some() {
@@ -344,8 +391,14 @@ mod tests {
         assert_eq!((stack.undo_weight(), stack.redo_weight()), (1, 0));
         let e = crate::delta::tests::set_capo(&mut p, 11);
         stack.push_merged(e);
-        assert_eq!((stack.undo_weight(), stack.done.len()), (1, weights(&stack).len()));
-        let heaviest = (0..stack.done.len()).map(|_| stack.undo(&mut p).map(ProjectEdit::weight).unwrap()).last().unwrap();
+        assert_eq!(
+            (stack.undo_weight(), stack.done.len()),
+            (1, weights(&stack).len())
+        );
+        let heaviest = (0..stack.done.len())
+            .map(|_| stack.undo(&mut p).map(ProjectEdit::weight).unwrap())
+            .last()
+            .unwrap();
         assert!(heaviest > 1);
         assert_eq!(stack.redo_weight(), heaviest);
         assert!(stack.undo(&mut p).is_none() && stack.undo_weight() == 0);
@@ -353,20 +406,50 @@ mod tests {
 
     #[test]
     fn policy_is_sanitised_and_applies_at_the_next_push() {
-        let bad = UndoPolicy { min_entries: 5, per_level: 0, max_entries: 3 };
-        assert_eq!(bad.sanitised(), UndoPolicy { min_entries: 2, per_level: 1, max_entries: 3 });
-        assert_eq!(UndoPolicy { max_entries: 0, ..bad }.sanitised().max_entries, 1);
+        let bad = UndoPolicy {
+            min_entries: 5,
+            per_level: 0,
+            max_entries: 3,
+        };
+        assert_eq!(
+            bad.sanitised(),
+            UndoPolicy {
+                min_entries: 2,
+                per_level: 1,
+                max_entries: 3
+            }
+        );
+        assert_eq!(
+            UndoPolicy {
+                max_entries: 0,
+                ..bad
+            }
+            .sanitised()
+            .max_entries,
+            1
+        );
         let mut p = project();
         let mut stack = UndoStack::new();
         capo_run(&mut p, &mut stack, 30);
         let len = stack.done.len();
-        stack.set_policy(UndoPolicy { min_entries: 2, per_level: 1, max_entries: 6 });
+        stack.set_policy(UndoPolicy {
+            min_entries: 2,
+            per_level: 1,
+            max_entries: 6,
+        });
         assert_eq!(stack.done.len(), len);
         capo_run(&mut p, &mut stack, 1);
         assert!(stack.done.len() <= 6);
-        let mut capped = UndoStack::with_policy(UndoPolicy { min_entries: 50, per_level: 100, max_entries: 60 });
+        let mut capped = UndoStack::with_policy(UndoPolicy {
+            min_entries: 50,
+            per_level: 100,
+            max_entries: 60,
+        });
         capo_run(&mut p, &mut capped, 80);
-        assert_eq!((capped.done.len(), weights(&capped).iter().sum::<usize>()), (60, 60));
+        assert_eq!(
+            (capped.done.len(), weights(&capped).iter().sum::<usize>()),
+            (60, 60)
+        );
     }
 
     #[test]
@@ -407,8 +490,14 @@ mod tests {
     fn saved_history_replays_step_by_step_after_loading() {
         let (original, p, mut stack) = mixed_history();
         assert!(stack.done.iter().any(|e| e.weight() > 1));
-        let mut loaded = crate::persist::from_json(&crate::persist::to_json(&history_file(&stack, &p)).unwrap()).unwrap();
-        let mut restored = UndoStack::from_saved(loaded.history.take().unwrap(), &loaded.project, UndoPolicy::default());
+        let mut loaded =
+            crate::persist::from_json(&crate::persist::to_json(&history_file(&stack, &p)).unwrap())
+                .unwrap();
+        let mut restored = UndoStack::from_saved(
+            loaded.history.take().unwrap(),
+            &loaded.project,
+            UndoPolicy::default(),
+        );
         assert!(!restored.can_redo() && restored.done.len() == stack.done.len());
         let (mut a, mut b) = (p.clone(), loaded.project);
         while stack.undo(&mut a).is_some() {
@@ -428,14 +517,22 @@ mod tests {
         let saved = stack.to_saved().unwrap();
         let mut json = serde_json::to_value(&saved).unwrap();
         json["done"][2]["delta"]["capo"]["after"] = serde_json::json!(99);
-        let broken = UndoStack::from_saved(serde_json::from_value(json).unwrap(), &p, UndoPolicy::default());
+        let broken = UndoStack::from_saved(
+            serde_json::from_value(json).unwrap(),
+            &p,
+            UndoPolicy::default(),
+        );
         assert_eq!(broken.done.len(), 3);
 
         p.notes[0].midi = 80;
         let stale = UndoStack::from_saved(saved, &p, UndoPolicy::default());
         assert_eq!(stale.done.len(), 5);
         p.capo = 0;
-        assert!(UndoStack::from_saved(stack.to_saved().unwrap(), &p, UndoPolicy::default()).done.is_empty());
+        assert!(
+            UndoStack::from_saved(stack.to_saved().unwrap(), &p, UndoPolicy::default())
+                .done
+                .is_empty()
+        );
         assert!(UndoStack::new().to_saved().is_none());
     }
 
@@ -444,7 +541,11 @@ mod tests {
         let mut p = project();
         let mut stack = UndoStack::with_limit(1000);
         capo_run(&mut p, &mut stack, 30);
-        let policy = UndoPolicy { min_entries: 2, per_level: 1, max_entries: 5 };
+        let policy = UndoPolicy {
+            min_entries: 2,
+            per_level: 1,
+            max_entries: 5,
+        };
         let loaded = UndoStack::from_saved(stack.to_saved().unwrap(), &p, policy);
         assert!(loaded.done.len() <= 5);
     }

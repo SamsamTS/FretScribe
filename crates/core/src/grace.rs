@@ -87,7 +87,11 @@ pub fn default_grace_midi(main_midi: u8) -> u8 {
 
 impl Project {
     fn grace_siblings(&self, main: u64) -> Vec<u64> {
-        self.notes.iter().filter(|n| n.grace_of.is_some_and(|g| g.main == main)).map(|n| n.id).collect()
+        self.notes
+            .iter()
+            .filter(|n| n.grace_of.is_some_and(|g| g.main == main))
+            .map(|n| n.id)
+            .collect()
     }
 
     /// Start (seconds) of the latest note before `limit` that is not part of the main note's group.
@@ -105,7 +109,14 @@ impl Project {
     /// the anchor is the start of the nearest later grace note of the group, else of the main note,
     /// and the room runs back to the start of the previous note; on the beat the anchor is the start
     /// of the main note and the room is its length. `after` ignores the grace notes starting before it.
-    fn grace_room(&self, times: &NoteTimes, main: u64, id: Option<u64>, kind: GraceKind, after: f64) -> Option<(f64, f64)> {
+    fn grace_room(
+        &self,
+        times: &NoteTimes,
+        main: u64,
+        id: Option<u64>,
+        kind: GraceKind,
+        after: f64,
+    ) -> Option<(f64, f64)> {
         let main_start = times.start_sec(main)?;
         if kind == GraceKind::Appoggiatura {
             return Some((main_start, times.end_sec(main)? - main_start));
@@ -113,7 +124,11 @@ impl Project {
         let end = self
             .notes
             .iter()
-            .filter(|n| Some(n.id) != id && n.grace_of.is_some_and(|g| g.main == main && g.kind == GraceKind::Acciaccatura))
+            .filter(|n| {
+                Some(n.id) != id
+                    && n.grace_of
+                        .is_some_and(|g| g.main == main && g.kind == GraceKind::Acciaccatura)
+            })
             .filter_map(|n| times.start_sec(n.id))
             .filter(|&s| s > after + SAME_SEC)
             .fold(main_start, f64::min);
@@ -122,16 +137,32 @@ impl Project {
 
     /// Puts grace note `id` in place as `kind` with a length of at most `len_sec`, then re-checks
     /// its link.
-    fn place_grace(&mut self, id: u64, kind: GraceKind, len_sec: f64, after: f64) -> Result<(), GraceError> {
+    fn place_grace(
+        &mut self,
+        id: u64,
+        kind: GraceKind,
+        len_sec: f64,
+        after: f64,
+    ) -> Result<(), GraceError> {
         let main = self.grace_mut(id)?.grace_of.map_or(0, |g| g.main);
         let tempo = TempoMap::new(&self.measures);
         let times = NoteTimes::build(&self.notes, &tempo);
-        let (anchor, room) = self.grace_room(&times, main, Some(id), kind, after).ok_or(GraceError::UnknownNote(main))?;
-        let len = len_sec.min(if kind == GraceKind::Acciaccatura { room - MIN_GRACE_SEC } else { room });
+        let (anchor, room) = self
+            .grace_room(&times, main, Some(id), kind, after)
+            .ok_or(GraceError::UnknownNote(main))?;
+        let len = len_sec.min(if kind == GraceKind::Acciaccatura {
+            room - MIN_GRACE_SEC
+        } else {
+            room
+        });
         if len < MIN_GRACE_SEC {
             return Err(GraceError::NoRoom);
         }
-        let (start, end) = if kind == GraceKind::Acciaccatura { (anchor - len, anchor) } else { (anchor, anchor + len) };
+        let (start, end) = if kind == GraceKind::Acciaccatura {
+            (anchor - len, anchor)
+        } else {
+            (anchor, anchor + len)
+        };
         let (start, end) = (tempo.sec_to_pos(start), tempo.sec_to_pos(end));
         let note = self.grace_mut(id)?;
         (note.start, note.end) = (start, end);
@@ -146,7 +177,12 @@ impl Project {
     /// Creates a grace note with the kind's default length (at most half the room): before the beat
     /// it ends where the earliest existing grace note of `main` starts (or at the main note), on the
     /// beat it starts with the main note.
-    pub fn add_grace_note(&mut self, main: u64, midi: Option<u8>, kind: GraceKind) -> Result<u64, GraceError> {
+    pub fn add_grace_note(
+        &mut self,
+        main: u64,
+        midi: Option<u8>,
+        kind: GraceKind,
+    ) -> Result<u64, GraceError> {
         let main_note = self.note(main).ok_or(GraceError::UnknownNote(main))?;
         if main_note.grace_of.is_some() {
             return Err(GraceError::MainIsGrace);
@@ -160,8 +196,15 @@ impl Project {
         note.grace_of = Some(GraceNote { main, kind });
         self.notes.push(note);
         let times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
-        let room = self.grace_room(&times, main, Some(id), kind, f64::NEG_INFINITY).map_or(0.0, |r| r.1);
-        let placed = self.place_grace(id, kind, grace_default_sec(kind).min(room / 2.0), f64::NEG_INFINITY);
+        let room = self
+            .grace_room(&times, main, Some(id), kind, f64::NEG_INFINITY)
+            .map_or(0.0, |r| r.1);
+        let placed = self.place_grace(
+            id,
+            kind,
+            grace_default_sec(kind).min(room / 2.0),
+            f64::NEG_INFINITY,
+        );
         if let Err(e) = placed {
             self.remove_note_set(&HashSet::from([id]));
             return Err(e);
@@ -173,21 +216,35 @@ impl Project {
 
     /// Re-times a grace note: `kind` decides the side of the beat, `len_sec` its length (limited by
     /// the room).
-    pub fn set_grace_timing(&mut self, id: u64, kind: GraceKind, len_sec: f64) -> Result<(), GraceError> {
-        let after = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)).start_sec(id).unwrap_or(f64::NEG_INFINITY);
+    pub fn set_grace_timing(
+        &mut self,
+        id: u64,
+        kind: GraceKind,
+        len_sec: f64,
+    ) -> Result<(), GraceError> {
+        let after = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures))
+            .start_sec(id)
+            .unwrap_or(f64::NEG_INFINITY);
         self.place_grace(id, kind, len_sec, after)
     }
 
     /// Switches between before the beat and on the beat, keeping the length.
     pub fn set_grace_kind(&mut self, id: u64, kind: GraceKind) -> Result<(), GraceError> {
         let times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
-        let len = times.end_sec(id).zip(times.start_sec(id)).map_or(grace_default_sec(kind), |(e, s)| e - s);
+        let len = times
+            .end_sec(id)
+            .zip(times.start_sec(id))
+            .map_or(grace_default_sec(kind), |(e, s)| e - s);
         self.grace_mut(id)?;
         self.set_grace_timing(id, kind, len)
     }
 
     pub fn grace_target(&self, id: u64) -> Option<u64> {
-        grace_target_of(&self.notes, &NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)), id)
+        grace_target_of(
+            &self.notes,
+            &NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)),
+            id,
+        )
     }
 
     pub fn grace_link(&self, id: u64) -> LinkType {
@@ -207,13 +264,18 @@ impl Project {
     /// Legato when possible, else slide, else dashed.
     pub fn default_grace_link(&self, id: u64) -> LinkType {
         let valid = self.valid_links(id);
-        DEFAULT_LINKS.into_iter().find(|k| valid.contains(k)).unwrap_or(LinkType::Dashed)
+        DEFAULT_LINKS
+            .into_iter()
+            .find(|k| valid.contains(k))
+            .unwrap_or(LinkType::Dashed)
     }
 
     /// Keeps the current link while it stays valid and still leads into the right note, otherwise
     /// takes the default.
     fn refresh_grace_link(&mut self, id: u64) {
-        let stale = self.outgoing(id).is_some_and(|(to, _)| Some(to) != self.grace_target(id));
+        let stale = self
+            .outgoing(id)
+            .is_some_and(|(to, _)| Some(to) != self.grace_target(id));
         if stale {
             self.unlink(id);
         }
@@ -223,7 +285,11 @@ impl Project {
     }
 
     fn grace_mut(&mut self, id: u64) -> Result<&mut Note, GraceError> {
-        let note = self.notes.iter_mut().find(|n| n.id == id).ok_or(GraceError::UnknownNote(id))?;
+        let note = self
+            .notes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or(GraceError::UnknownNote(id))?;
         if note.grace_of.is_none() {
             return Err(GraceError::NotGrace(id));
         }
@@ -240,20 +306,42 @@ impl Project {
     /// Hammer-on or pull-off from `from` to `to`; `kind = None` infers it from the pitch direction.
     /// Notes assigned to different strings give `NeedsSameString` with the destination's placements
     /// on the source's string.
-    pub fn link_legato(&mut self, from: u64, to: u64, kind: Option<Legato>) -> Result<Legato, LegatoError> {
+    pub fn link_legato(
+        &mut self,
+        from: u64,
+        to: u64,
+        kind: Option<Legato>,
+    ) -> Result<Legato, LegatoError> {
         self.can_link(from, to, crate::links::LinkType::Legato)?;
-        let (a, b) = (self.note(from).ok_or(LinkError::UnknownNote(from))?, self.note(to).ok_or(LinkError::UnknownNote(to))?);
+        let (a, b) = (
+            self.note(from).ok_or(LinkError::UnknownNote(from))?,
+            self.note(to).ok_or(LinkError::UnknownNote(to))?,
+        );
         let inferred = legato_kind(a, b);
         if kind.is_some_and(|k| k != inferred) {
             return Err(LegatoError::KindMismatch(kind.unwrap_or(inferred)));
         }
         if strings_differ(a, b) {
-            let open = a.string_fret.and_then(|(s, _)| self.tuning.open_strings.get(usize::from(s)).map(|&o| (s, o)));
+            let open = a.string_fret.and_then(|(s, _)| {
+                self.tuning
+                    .open_strings
+                    .get(usize::from(s))
+                    .map(|&o| (s, o))
+            });
             let candidates: Vec<(u8, u8)> = open
-                .and_then(|(s, o)| b.midi.checked_sub(o).filter(|f| (self.capo..=MAX_FRET).contains(f)).map(|f| (s, f)))
+                .and_then(|(s, o)| {
+                    b.midi
+                        .checked_sub(o)
+                        .filter(|f| (self.capo..=MAX_FRET).contains(f))
+                        .map(|f| (s, f))
+                })
                 .into_iter()
                 .collect();
-            return Err(if candidates.is_empty() { LinkError::NoSameString.into() } else { LegatoError::NeedsSameString { candidates } });
+            return Err(if candidates.is_empty() {
+                LinkError::NoSameString.into()
+            } else {
+                LegatoError::NeedsSameString { candidates }
+            });
         }
         self.write_link(from, to, crate::links::LinkType::Legato);
         Ok(inferred)
@@ -277,7 +365,10 @@ impl Project {
 
     /// Removes the legato link that ends at `to`.
     pub fn unlink_legato(&mut self, to: u64) -> bool {
-        self.notes.iter_mut().find(|n| n.id == to).is_some_and(|n| n.legato.take().is_some())
+        self.notes
+            .iter_mut()
+            .find(|n| n.id == to)
+            .is_some_and(|n| n.legato.take().is_some())
     }
 }
 

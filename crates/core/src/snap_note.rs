@@ -84,7 +84,11 @@ pub fn min_subdivision_beats(grid: &SnapGrid) -> f64 {
 /// would be closer than about 6 px. The coarsest always remains.
 pub fn effective_divisions(grid: &SnapGrid, sec_per_beat: f64, px_per_sec: f64) -> Vec<u8> {
     let mut divisions = grid.sorted_divisions();
-    while divisions.len() > 1 && divisions.last().is_some_and(|&d| sec_per_beat / f64::from(d) * px_per_sec < MIN_SPACING_PX) {
+    while divisions.len() > 1
+        && divisions
+            .last()
+            .is_some_and(|&d| sec_per_beat / f64::from(d) * px_per_sec < MIN_SPACING_PX)
+    {
         divisions.pop();
     }
     divisions
@@ -124,7 +128,11 @@ fn grid_candidates(tempo: &TempoMap, divisions: &[u8], sec: f64) -> Vec<(TimePos
     let mut out = Vec::new();
     for i in centre.saturating_sub(1)..=(centre + 1).min(last) {
         let len_units = (tempo.beats[i] * f64::from(UNITS_PER_BEAT)).round() as u32;
-        let end_units = if i == last { len_units + UNITS_PER_BEAT * 2 } else { len_units };
+        let end_units = if i == last {
+            len_units + UNITS_PER_BEAT * 2
+        } else {
+            len_units
+        };
         let mut by_units: BTreeMap<u32, u8> = BTreeMap::new();
         for &division in divisions {
             let step = UNITS_PER_BEAT / u32::from(division);
@@ -135,7 +143,10 @@ fn grid_candidates(tempo: &TempoMap, divisions: &[u8], sec: f64) -> Vec<(TimePos
             }
         }
         for (units, division) in by_units {
-            let pos = TimePos::new(tempo.measures[i].id, f64::from(units) / f64::from(UNITS_PER_BEAT));
+            let pos = TimePos::new(
+                tempo.measures[i].id,
+                f64::from(units) / f64::from(UNITS_PER_BEAT),
+            );
             out.push((pos, tempo.pos_to_sec(pos), division));
         }
     }
@@ -152,7 +163,9 @@ fn better(a: &Candidate, b: &Candidate, sec: f64) -> bool {
 }
 
 fn choose(candidates: &[Candidate], sec: f64, sticky_sec: Option<f64>) -> Option<Candidate> {
-    let mut within = candidates.iter().filter(|c| (c.sec - sec).abs() <= c.radius);
+    let mut within = candidates
+        .iter()
+        .filter(|c| (c.sec - sec).abs() <= c.radius);
     let mut best = *within.next()?;
     for c in within {
         if better(c, &best, sec) {
@@ -165,12 +178,23 @@ fn choose(candidates: &[Candidate], sec: f64, sticky_sec: Option<f64>) -> Option
             .find(|c| (c.sec - s).abs() < SAME_SEC && (c.sec - sec).abs() <= c.radius)
     });
     match sticky {
-        Some(s) if (best.sec - s.sec).abs() >= SAME_SEC && (best.sec - sec).abs() > HYSTERESIS * (s.sec - sec).abs() => Some(*s),
+        Some(s)
+            if (best.sec - s.sec).abs() >= SAME_SEC
+                && (best.sec - sec).abs() > HYSTERESIS * (s.sec - sec).abs() =>
+        {
+            Some(*s)
+        }
         _ => Some(best),
     }
 }
 
-pub fn snap_edge(pos: TimePos, edge: Edge, tempo: &TempoMap, others: &[Note], opts: &SnapOpts) -> TimePos {
+pub fn snap_edge(
+    pos: TimePos,
+    edge: Edge,
+    tempo: &TempoMap,
+    others: &[Note],
+    opts: &SnapOpts,
+) -> TimePos {
     let sec = tempo.pos_to_sec(pos);
     let pos = tempo.normalise(pos);
     if opts.disabled || tempo.is_empty() || !sec.is_finite() {
@@ -184,11 +208,18 @@ pub fn snap_edge(pos: TimePos, edge: Edge, tempo: &TempoMap, others: &[Note], op
         let divisions = effective_divisions(opts.grid, spb, opts.px_per_sec);
         let grid = grid_candidates(tempo, &divisions, sec);
         for (k, &(pos, at, division)) in grid.iter().enumerate() {
-            let gap = |other: Option<&(TimePos, f64, u8)>| other.map_or(f64::INFINITY, |o| (o.1 - at).abs());
+            let gap = |other: Option<&(TimePos, f64, u8)>| {
+                other.map_or(f64::INFINITY, |o| (o.1 - at).abs())
+            };
             let below = k.checked_sub(1).and_then(|j| grid.get(j));
             let cap = NEIGHBOUR_CAP * gap(below).min(gap(grid.get(k + 1)));
             let (coarse, straight) = rank_division(division);
-            candidates.push(Candidate { pos, sec: at, radius: threshold.min(cap), rank: (0, coarse, straight) });
+            candidates.push(Candidate {
+                pos,
+                sec: at,
+                radius: threshold.min(cap),
+                rank: (0, coarse, straight),
+            });
         }
     }
     if opts.enable_neighbour_snap {
@@ -198,7 +229,12 @@ pub fn snap_edge(pos: TimePos, edge: Edge, tempo: &TempoMap, others: &[Note], op
                 Edge::End => note.start,
             };
             let pos = tempo.normalise(target);
-            candidates.push(Candidate { pos, sec: tempo.pos_to_sec(pos), radius: threshold, rank: (1, 0, false) });
+            candidates.push(Candidate {
+                pos,
+                sec: tempo.pos_to_sec(pos),
+                radius: threshold,
+                rank: (1, 0, false),
+            });
         }
     }
     let sticky = match edge {
@@ -261,7 +297,14 @@ pub fn step_on_grid(tempo: &TempoMap, grid: &SnapGrid, pos: TimePos, steps: i32)
 
 /// Snaps the moving `edge` of a note whose opposite edge `fixed` stays put, keeping at least one
 /// minimal subdivision between them.
-pub fn snap_resized(edge: Edge, pos: TimePos, fixed: TimePos, tempo: &TempoMap, other_notes: &[Note], opts: &SnapOpts) -> TimePos {
+pub fn snap_resized(
+    edge: Edge,
+    pos: TimePos,
+    fixed: TimePos,
+    tempo: &TempoMap,
+    other_notes: &[Note],
+    opts: &SnapOpts,
+) -> TimePos {
     let snapped = snap_edge(pos, edge, tempo, other_notes, opts);
     if tempo.is_empty() {
         return snapped;
@@ -295,9 +338,18 @@ pub fn snap_resized(edge: Edge, pos: TimePos, fixed: TimePos, tempo: &TempoMap, 
 /// Snaps both edges of a note given as raw pointer positions. Start snaps to grid or to the end of
 /// a neighbour (nearest wins, ties prefer the grid), then to onsets; the end likewise with the start
 /// of a neighbour. The result never shorter than one minimal subdivision.
-pub fn snap_note(start: TimePos, end: TimePos, tempo: &TempoMap, other_notes: &[Note], opts: &SnapOpts) -> (TimePos, TimePos) {
+pub fn snap_note(
+    start: TimePos,
+    end: TimePos,
+    tempo: &TempoMap,
+    other_notes: &[Note],
+    opts: &SnapOpts,
+) -> (TimePos, TimePos) {
     let new_start = snap_edge(start, Edge::Start, tempo, other_notes, opts);
-    (new_start, snap_resized(Edge::End, end, new_start, tempo, other_notes, opts))
+    (
+        new_start,
+        snap_resized(Edge::End, end, new_start, tempo, other_notes, opts),
+    )
 }
 
 #[cfg(test)]
@@ -387,12 +439,29 @@ mod tests {
 
     #[test]
     fn ties_prefer_the_coarser_division_then_the_straight_one() {
-        let c = |sec: f64, rank| Candidate { pos: at(1, sec), sec, radius: 1.0, rank };
+        let c = |sec: f64, rank| Candidate {
+            pos: at(1, sec),
+            sec,
+            radius: 1.0,
+            rank,
+        };
         let pick = |list: &[Candidate]| choose(list, 0.5, None).map(|b| b.sec);
-        assert_eq!(pick(&[c(0.0, (0, 2, false)), c(1.0, (0, 1, false))]), Some(1.0));
-        assert_eq!(pick(&[c(0.0, (0, 4, false)), c(1.0, (0, 3, true))]), Some(1.0));
-        assert_eq!(pick(&[c(0.0, (0, 4, true)), c(1.0, (0, 4, false))]), Some(1.0));
-        assert_eq!(pick(&[c(0.0, (1, 0, false)), c(1.0, (0, 4, false))]), Some(1.0));
+        assert_eq!(
+            pick(&[c(0.0, (0, 2, false)), c(1.0, (0, 1, false))]),
+            Some(1.0)
+        );
+        assert_eq!(
+            pick(&[c(0.0, (0, 4, false)), c(1.0, (0, 3, true))]),
+            Some(1.0)
+        );
+        assert_eq!(
+            pick(&[c(0.0, (0, 4, true)), c(1.0, (0, 4, false))]),
+            Some(1.0)
+        );
+        assert_eq!(
+            pick(&[c(0.0, (1, 0, false)), c(1.0, (0, 4, false))]),
+            Some(1.0)
+        );
     }
 
     #[test]
@@ -557,8 +626,17 @@ mod tests {
     fn resizing_keeps_the_minimal_length_from_either_side() {
         let (m, grid) = (map(), g(&[4]));
         let o = opts(&grid);
-        assert_eq!(snap_resized(Edge::End, at(1, 1.02), at(1, 1.0), &m, &[], &o), at(1, 1.25));
-        assert_eq!(snap_resized(Edge::Start, at(1, 2.01), at(1, 2.0), &m, &[], &o), at(1, 1.75));
-        assert_eq!(snap_resized(Edge::Start, at(1, 0.51), at(1, 2.0), &m, &[], &o), at(1, 0.5));
+        assert_eq!(
+            snap_resized(Edge::End, at(1, 1.02), at(1, 1.0), &m, &[], &o),
+            at(1, 1.25)
+        );
+        assert_eq!(
+            snap_resized(Edge::Start, at(1, 2.01), at(1, 2.0), &m, &[], &o),
+            at(1, 1.75)
+        );
+        assert_eq!(
+            snap_resized(Edge::Start, at(1, 0.51), at(1, 2.0), &m, &[], &o),
+            at(1, 0.5)
+        );
     }
 }

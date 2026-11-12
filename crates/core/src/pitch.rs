@@ -7,7 +7,9 @@ use crate::error::CoreError;
 pub const A4_MIDI: f64 = 69.0;
 const STANDARD_A4_HZ: f64 = 440.0;
 const A4_RANGE_HZ: std::ops::RangeInclusive<f32> = 400.0..=480.0;
-const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "f32", into = "f32")]

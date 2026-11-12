@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::delta::{Delta, Snapshot};
 use crate::error::{CoreError, EditError, UndoError};
 use crate::measures::{self, recompute_starts, valid_tempo, Propagation};
-use crate::model::{Measure, Project, TimePos, TimeSignature, Technique, MAX_BPM, MIN_BPM};
+use crate::model::{Measure, Project, Technique, TimePos, TimeSignature, MAX_BPM, MIN_BPM};
 use crate::pitch::PitchRef;
 use crate::tempo::{NoteTimes, TempoMap};
 
@@ -47,7 +47,11 @@ pub struct ProjectEdit {
 
 impl ProjectEdit {
     pub(crate) fn new(label: &str, delta: Delta) -> Self {
-        Self { label: label.to_owned(), weight: 1, delta }
+        Self {
+            label: label.to_owned(),
+            weight: 1,
+            delta,
+        }
     }
 
     pub fn label(&self) -> &str {
@@ -65,7 +69,11 @@ impl ProjectEdit {
     }
 
     pub(crate) fn merge_weighted(self, later: ProjectEdit, weight: usize) -> ProjectEdit {
-        ProjectEdit { label: later.label, weight, delta: self.delta.compose(later.delta) }
+        ProjectEdit {
+            label: later.label,
+            weight,
+            delta: self.delta.compose(later.delta),
+        }
     }
 
     pub fn try_undo(&self, project: &mut Project) -> Result<(), UndoError> {
@@ -117,7 +125,11 @@ impl Project {
     }
 
     /// Like `edit_notes` for operations with their own error and result types.
-    pub fn try_edit<T, E>(&mut self, label: &str, f: impl FnOnce(&mut Project) -> Result<T, E>) -> Result<(ProjectEdit, T), E> {
+    pub fn try_edit<T, E>(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Project) -> Result<T, E>,
+    ) -> Result<(ProjectEdit, T), E> {
         let before = Snapshot::capture(self);
         match f(self) {
             Ok(value) => Ok((self.finish(label, &before), value)),
@@ -135,7 +147,11 @@ impl Project {
         self.try_edit(label, f).map(|(edit, ())| edit)
     }
 
-    pub(crate) fn transact_infallible(&mut self, label: &str, f: impl FnOnce(&mut Project)) -> ProjectEdit {
+    pub(crate) fn transact_infallible(
+        &mut self,
+        label: &str,
+        f: impl FnOnce(&mut Project),
+    ) -> ProjectEdit {
         let before = Snapshot::capture(self);
         f(self);
         self.finish(label, &before)
@@ -170,7 +186,9 @@ impl Project {
         f(self)?;
         let map = TempoMap::new(&self.measures);
         for note in &mut self.notes {
-            if let (Some(start), Some(end)) = (old_times.start_sec(note.id), old_times.end_sec(note.id)) {
+            if let (Some(start), Some(end)) =
+                (old_times.start_sec(note.id), old_times.end_sec(note.id))
+            {
                 note.start = resolve(&map, note.start, start, policy);
                 note.end = resolve(&map, note.end, end, policy);
             }
@@ -178,7 +196,12 @@ impl Project {
         Ok(())
     }
 
-    fn grid_edit<F>(&mut self, label: &str, policy: NotePolicy, f: F) -> Result<ProjectEdit, EditError>
+    fn grid_edit<F>(
+        &mut self,
+        label: &str,
+        policy: NotePolicy,
+        f: F,
+    ) -> Result<ProjectEdit, EditError>
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
     {
@@ -321,7 +344,11 @@ impl Project {
 
     /// Inserts a measure (tempo and signature of the previous one) at `index`; every later measure,
     /// anchored or not, moves later by its duration.
-    pub fn insert_measure(&mut self, index: usize, policy: NotePolicy) -> Result<ProjectEdit, EditError> {
+    pub fn insert_measure(
+        &mut self,
+        index: usize,
+        policy: NotePolicy,
+    ) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Insert measure", policy, |p| {
             let len = p.measures.len();
             if len == 0 {
@@ -370,7 +397,9 @@ impl Project {
                 .collect();
             let doomed = p.with_grace_notes(&starting_here);
             if !doomed.is_empty() && !confirmed {
-                return Err(EditError::NeedsConfirmation { notes: doomed.len() });
+                return Err(EditError::NeedsConfirmation {
+                    notes: doomed.len(),
+                });
             }
 
             let cut = match p.measures.get(index + 1) {
@@ -419,7 +448,11 @@ impl Project {
 
             let nominal = p.measures[index].tempo_bpm;
             let effective = map.effective_bpm(index);
-            let tempo_bpm = if (effective - nominal).abs() < INTEGER_EPS { nominal } else { effective };
+            let tempo_bpm = if (effective - nominal).abs() < INTEGER_EPS {
+                nominal
+            } else {
+                effective
+            };
             let start_sec = p.measures[index].start_sec + at_beat * 60.0 / effective;
 
             p.measures[index].time_sig = TimeSignature::new(first_numerator, sig.denominator);
@@ -583,7 +616,10 @@ mod tests {
         let third = 1.0 / 3.0;
         let n = note(&mut p, 60, (1, third), (1, 2.0 * third));
         p.set_tempo(3, 90.0, Keep).unwrap();
-        assert_eq!(pos(&p, n), (TimePos::new(1, third), TimePos::new(1, 2.0 * third)));
+        assert_eq!(
+            pos(&p, n),
+            (TimePos::new(1, third), TimePos::new(1, 2.0 * third))
+        );
     }
 
     #[test]
@@ -600,7 +636,10 @@ mod tests {
         let mut p = project(4);
         let n = note(&mut p, 60, (3, 0.0), (3, 4.0));
         p.set_tempo(1, 60.0, Follow).unwrap();
-        assert_eq!(p.measures.iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(), [120.0, 60.0, 60.0, 60.0]);
+        assert_eq!(
+            p.measures.iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(),
+            [120.0, 60.0, 60.0, 60.0]
+        );
         let (s, e) = secs(&p, n);
         close(s, 6.0);
         close(e, 10.0);
@@ -684,12 +723,15 @@ mod tests {
     fn single_propagation_edits_only_the_chosen_measure() {
         let mut p = project(4);
         let n = note(&mut p, 60, (3, 0.0), (3, 1.0));
-        let edit = p.set_tempo_scoped(0, 60.0, Propagation::Single, Follow).unwrap();
+        let edit = p
+            .set_tempo_scoped(0, 60.0, Propagation::Single, Follow)
+            .unwrap();
         let tempos: Vec<f64> = p.measures.iter().map(|m| m.tempo_bpm).collect();
         assert_eq!(tempos, [60.0, 120.0, 120.0, 120.0]);
         close(p.measures[1].start_sec, 4.0);
         close(secs(&p, n).0, 6.0);
-        p.set_time_sig_scoped(1, TimeSignature::new(3, 4), Propagation::Single, Follow).unwrap();
+        p.set_time_sig_scoped(1, TimeSignature::new(3, 4), Propagation::Single, Follow)
+            .unwrap();
         assert_eq!(p.measures[1].time_sig, TimeSignature::new(3, 4));
         assert_eq!(p.measures[2].time_sig, TimeSignature::COMMON);
         p.validate().unwrap();
@@ -742,9 +784,21 @@ mod tests {
         let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
         let (s0, e0) = secs(&p, n);
         let fitted = [
-            FittedMeasure { start_sec: 0.2, tempo_bpm: 118.0, time_sig: TimeSignature::COMMON },
-            FittedMeasure { start_sec: 0.2 + 4.0 * 60.0 / 118.0, tempo_bpm: 118.0, time_sig: TimeSignature::COMMON },
-            FittedMeasure { start_sec: 0.2 + 8.0 * 60.0 / 118.0, tempo_bpm: 118.0, time_sig: TimeSignature::COMMON },
+            FittedMeasure {
+                start_sec: 0.2,
+                tempo_bpm: 118.0,
+                time_sig: TimeSignature::COMMON,
+            },
+            FittedMeasure {
+                start_sec: 0.2 + 4.0 * 60.0 / 118.0,
+                tempo_bpm: 118.0,
+                time_sig: TimeSignature::COMMON,
+            },
+            FittedMeasure {
+                start_sec: 0.2 + 8.0 * 60.0 / 118.0,
+                tempo_bpm: 118.0,
+                time_sig: TimeSignature::COMMON,
+            },
         ];
         p.auto_fit(&fitted, Keep).unwrap();
         assert_eq!(p.measures.len(), 3);
@@ -762,7 +816,11 @@ mod tests {
         let mut p = project(4);
         let n = note(&mut p, 60, (4, 1.0), (4, 2.0));
         let (s0, _) = secs(&p, n);
-        let fitted = [FittedMeasure { start_sec: 0.0, tempo_bpm: 60.0, time_sig: TimeSignature::COMMON }];
+        let fitted = [FittedMeasure {
+            start_sec: 0.0,
+            tempo_bpm: 60.0,
+            time_sig: TimeSignature::COMMON,
+        }];
         p.auto_fit(&fitted, Follow).unwrap();
         assert_eq!(p.measures.len(), 1);
         close(secs(&p, n).0, s0);
@@ -772,11 +830,31 @@ mod tests {
     #[test]
     fn auto_fit_validation() {
         let mut p = project(2);
-        let ok = FittedMeasure { start_sec: 0.0, tempo_bpm: 120.0, time_sig: TimeSignature::COMMON };
+        let ok = FittedMeasure {
+            start_sec: 0.0,
+            tempo_bpm: 120.0,
+            time_sig: TimeSignature::COMMON,
+        };
         assert!(p.auto_fit(&[], Keep).is_err());
         assert!(p.auto_fit(&[ok, ok], Keep).is_err());
-        assert!(p.auto_fit(&[FittedMeasure { tempo_bpm: 1.0, ..ok }], Keep).is_err());
-        assert!(p.auto_fit(&[FittedMeasure { time_sig: TimeSignature::new(4, 5), ..ok }], Keep).is_err());
+        assert!(p
+            .auto_fit(
+                &[FittedMeasure {
+                    tempo_bpm: 1.0,
+                    ..ok
+                }],
+                Keep
+            )
+            .is_err());
+        assert!(p
+            .auto_fit(
+                &[FittedMeasure {
+                    time_sig: TimeSignature::new(4, 5),
+                    ..ok
+                }],
+                Keep
+            )
+            .is_err());
     }
 
     #[test]
@@ -862,12 +940,18 @@ mod tests {
         let mut p = project(3);
         let main = note(&mut p, 60, (2, 1.0), (2, 2.0));
         let grace = note(&mut p, 59, (2, 0.9), (2, 1.0));
-        p.notes[1].grace_of = Some(GraceNote { main, kind: GraceKind::Acciaccatura });
+        p.notes[1].grace_of = Some(GraceNote {
+            main,
+            kind: GraceKind::Acciaccatura,
+        });
         let slide_start = note(&mut p, 50, (1, 0.0), (1, 1.0));
         p.notes[2].technique = Some(Technique::Slide);
         p.notes[2].link_to = Some(main);
         let hammer = note(&mut p, 62, (3, 0.0), (3, 1.0));
-        p.notes[3].legato = Some(LegatoLink { kind: Legato::HammerOn, from: main });
+        p.notes[3].legato = Some(LegatoLink {
+            kind: Legato::HammerOn,
+            from: main,
+        });
         p.delete_measure(1, Follow, true).unwrap();
         assert!(p.note(main).is_none() && p.note(grace).is_none());
         let start = p.note(slide_start).unwrap();
@@ -881,7 +965,10 @@ mod tests {
         let mut p = project(3);
         let main = note(&mut p, 60, (1, 1.0), (1, 2.0));
         let grace = note(&mut p, 59, (1, 0.9), (1, 1.0));
-        p.notes[1].grace_of = Some(GraceNote { main, kind: GraceKind::Appoggiatura });
+        p.notes[1].grace_of = Some(GraceNote {
+            main,
+            kind: GraceKind::Appoggiatura,
+        });
         p.delete_measure(2, Follow, false).unwrap();
         assert!(p.note(grace).is_some());
     }
@@ -916,7 +1003,10 @@ mod tests {
     #[test]
     fn cannot_delete_the_only_measure() {
         let mut p = project(1);
-        assert_eq!(p.delete_measure(0, Follow, true).unwrap_err(), EditError::LastMeasure);
+        assert_eq!(
+            p.delete_measure(0, Follow, true).unwrap_err(),
+            EditError::LastMeasure
+        );
     }
 
     #[test]
@@ -954,14 +1044,31 @@ mod tests {
     fn split_six_eight_and_validation() {
         let mut p = project(1);
         p.set_time_sig(0, TimeSignature::new(6, 8), Follow).unwrap();
-        assert_eq!(p.split_measure(0, 1.5).map(|e| e.label().to_owned()).unwrap(), "Split measure");
+        assert_eq!(
+            p.split_measure(0, 1.5)
+                .map(|e| e.label().to_owned())
+                .unwrap(),
+            "Split measure"
+        );
         assert_eq!(p.measures[0].time_sig, TimeSignature::new(3, 8));
         assert_eq!(p.measures[1].time_sig, TimeSignature::new(3, 8));
         let mut p = project(1);
-        assert_eq!(p.split_measure(0, 1.5).unwrap_err(), EditError::InvalidSplit);
-        assert_eq!(p.split_measure(0, 0.0).unwrap_err(), EditError::InvalidSplit);
-        assert_eq!(p.split_measure(0, 4.0).unwrap_err(), EditError::InvalidSplit);
-        assert_eq!(p.split_measure(0, f64::NAN).unwrap_err(), EditError::InvalidSplit);
+        assert_eq!(
+            p.split_measure(0, 1.5).unwrap_err(),
+            EditError::InvalidSplit
+        );
+        assert_eq!(
+            p.split_measure(0, 0.0).unwrap_err(),
+            EditError::InvalidSplit
+        );
+        assert_eq!(
+            p.split_measure(0, 4.0).unwrap_err(),
+            EditError::InvalidSplit
+        );
+        assert_eq!(
+            p.split_measure(0, f64::NAN).unwrap_err(),
+            EditError::InvalidSplit
+        );
         assert!(p.split_measure(4, 2.0).is_err());
     }
 
@@ -1005,12 +1112,18 @@ mod tests {
     fn merge_validation() {
         let mut p = project(2);
         p.measures[1].time_sig = TimeSignature::new(6, 8);
-        assert_eq!(p.merge_measures(0).unwrap_err(), EditError::IncompatibleTimeSignatures);
+        assert_eq!(
+            p.merge_measures(0).unwrap_err(),
+            EditError::IncompatibleTimeSignatures
+        );
         assert!(project(2).merge_measures(1).is_err());
         let mut p = project(2);
         p.measures[0].time_sig = TimeSignature::new(40, 4);
         p.measures[1].time_sig = TimeSignature::new(40, 4);
-        assert_eq!(p.merge_measures(0).unwrap_err(), EditError::IncompatibleTimeSignatures);
+        assert_eq!(
+            p.merge_measures(0).unwrap_err(),
+            EditError::IncompatibleTimeSignatures
+        );
     }
 
     #[test]
@@ -1036,7 +1149,10 @@ mod tests {
         let mut p = project(2);
         let main = note(&mut p, 60, (1, 1.0), (1, 2.0));
         let grace = note(&mut p, 59, (1, 0.9), (1, 1.0));
-        p.notes[1].grace_of = Some(GraceNote { main, kind: GraceKind::Acciaccatura });
+        p.notes[1].grace_of = Some(GraceNote {
+            main,
+            kind: GraceKind::Acciaccatura,
+        });
         let before = p.clone();
         let edit = p.remove_notes(&[main]);
         assert!(p.notes.is_empty());

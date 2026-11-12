@@ -46,6 +46,43 @@ pub struct UiState {
     pub loop_enabled: bool,
     pub note_policy: NotePolicy,
     pub snap_grid: SnapGrid,
+    pub focus_enabled: bool,
+    pub focus_strength: f32,
+    pub spectro_black: f32,
+    pub spectro_white: f32,
+    pub spectro_gamma: f32,
+    pub lut_name: String,
+}
+
+/// Same values as `analysis::{MIN_LEVELS_GAP, GAMMA_MIN, GAMMA_MAX}` (core cannot depend on analysis).
+pub const LEVELS_MIN_GAP: f32 = 0.02;
+pub const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.2..=5.0;
+
+fn finite_or(v: f32, default: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else {
+        default
+    }
+}
+
+impl UiState {
+    /// Clamps the display and focus fields to their valid ranges (levels keep their minimum gap).
+    pub fn sanitise(&mut self) {
+        self.focus_strength = finite_or(self.focus_strength, 0.5).clamp(0.0, 1.0);
+        let black = finite_or(self.spectro_black, 0.0).clamp(0.0, 1.0);
+        let white = finite_or(self.spectro_white, 1.0).clamp(0.0, 1.0);
+        let mut white = white;
+        let mut black = black;
+        if white - black < LEVELS_MIN_GAP {
+            white = (black + LEVELS_MIN_GAP).min(1.0);
+            black = black.min(white - LEVELS_MIN_GAP);
+        }
+        self.spectro_black = black;
+        self.spectro_white = white;
+        self.spectro_gamma =
+            finite_or(self.spectro_gamma, 1.0).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
+    }
 }
 
 impl Default for UiState {
@@ -57,6 +94,12 @@ impl Default for UiState {
             loop_enabled: false,
             note_policy: NotePolicy::default(),
             snap_grid: SnapGrid::default(),
+            focus_enabled: false,
+            focus_strength: 0.5,
+            spectro_black: 0.0,
+            spectro_white: 1.0,
+            spectro_gamma: 1.0,
+            lut_name: "Classic".to_owned(),
         }
     }
 }
@@ -112,6 +155,7 @@ pub fn from_json(text: &str) -> Result<ProjectFile, CoreError> {
             None
         }
     });
+    file.ui.sanitise();
     file.project.repair_counters();
     file.project.notes.sort_by_key(|n| n.id);
     file.project.validate()?;
@@ -229,7 +273,12 @@ mod tests {
             120.0,
             TimeSignature::COMMON,
         );
-        p.notes.push(Note::new(1, 64, TimePos::new(1, seed), TimePos::new(1, seed + 1.0)));
+        p.notes.push(Note::new(
+            1,
+            64,
+            TimePos::new(1, seed),
+            TimePos::new(1, seed + 1.0),
+        ));
         let mut f = ProjectFile::new(p);
         f.ui.selected_region = Some((1.0, 2.5));
         f.ui.loop_enabled = true;
@@ -302,9 +351,15 @@ mod tests {
                 if found == CURRENT_VERSION + 1 && supported == CURRENT_VERSION
         ));
         value.as_object_mut().unwrap().remove("version");
-        assert!(matches!(from_json(&value.to_string()), Err(CoreError::MissingVersion)));
+        assert!(matches!(
+            from_json(&value.to_string()),
+            Err(CoreError::MissingVersion)
+        ));
         value["version"] = Value::from(0);
-        assert!(matches!(from_json(&value.to_string()), Err(CoreError::MissingVersion)));
+        assert!(matches!(
+            from_json(&value.to_string()),
+            Err(CoreError::MissingVersion)
+        ));
         assert!(matches!(from_json("not json"), Err(CoreError::Json(_))));
     }
 
@@ -312,13 +367,22 @@ mod tests {
     fn rejects_inconsistent_projects() {
         let mut f = file(0.0);
         f.project.notes[0].start.measure = 999;
-        assert!(matches!(from_json(&to_json(&f).unwrap()), Err(CoreError::Invalid(_))));
+        assert!(matches!(
+            from_json(&to_json(&f).unwrap()),
+            Err(CoreError::Invalid(_))
+        ));
         let mut f = file(0.0);
         f.project.source_track = 42;
-        assert!(matches!(from_json(&to_json(&f).unwrap()), Err(CoreError::Invalid(_))));
+        assert!(matches!(
+            from_json(&to_json(&f).unwrap()),
+            Err(CoreError::Invalid(_))
+        ));
         let mut f = file(0.0);
         f.project.reference_hz = 100.0;
-        assert!(matches!(from_json(&to_json(&f).unwrap()), Err(CoreError::PitchRefOutOfRange(_))));
+        assert!(matches!(
+            from_json(&to_json(&f).unwrap()),
+            Err(CoreError::PitchRefOutOfRange(_))
+        ));
     }
 
     #[test]
@@ -332,6 +396,53 @@ mod tests {
         assert!(loaded.ui.loop_enabled);
         assert_eq!(loaded.ui.snap_grid, SnapGrid::default());
         assert!(loaded.project.measures.iter().all(|m| !m.anchored));
+    }
+
+    #[test]
+    fn files_without_focus_or_display_fields_load_with_defaults() {
+        let mut value: Value = serde_json::from_str(&to_json(&file(0.0)).unwrap()).unwrap();
+        value["ui"] = serde_json::json!({ "loop_enabled": true });
+        let ui = from_json(&value.to_string()).unwrap().ui;
+        assert!(!ui.focus_enabled);
+        assert_eq!(
+            (
+                ui.focus_strength,
+                ui.spectro_black,
+                ui.spectro_white,
+                ui.spectro_gamma
+            ),
+            (0.5, 0.0, 1.0, 1.0)
+        );
+        assert_eq!(ui.lut_name, "Classic");
+    }
+
+    #[test]
+    fn out_of_range_focus_and_display_values_are_clamped() {
+        let mut f = file(0.0);
+        (f.ui.focus_strength, f.ui.spectro_gamma) = (7.0, 99.0);
+        (f.ui.spectro_black, f.ui.spectro_white) = (0.6, 0.6);
+        let ui = from_json(&to_json(&f).unwrap()).unwrap().ui;
+        assert_eq!((ui.focus_strength, ui.spectro_gamma), (1.0, 5.0));
+        assert!(
+            ui.spectro_white - ui.spectro_black >= LEVELS_MIN_GAP - 1e-6 && ui.spectro_black == 0.6
+        );
+        let mut ui = UiState {
+            spectro_black: 1.0,
+            spectro_white: 1.0,
+            spectro_gamma: 0.0,
+            focus_strength: f32::NAN,
+            ..UiState::default()
+        };
+        ui.sanitise();
+        assert!((ui.spectro_white, ui.spectro_gamma, ui.focus_strength) == (1.0, 0.2, 0.5));
+        assert!(ui.spectro_white - ui.spectro_black >= LEVELS_MIN_GAP - 1e-6);
+        let mut ui = UiState {
+            spectro_black: -3.0,
+            spectro_white: f32::NAN,
+            ..UiState::default()
+        };
+        ui.sanitise();
+        assert_eq!((ui.spectro_black, ui.spectro_white), (0.0, 1.0));
     }
 
     #[test]
@@ -379,7 +490,10 @@ mod tests {
         let err = migrate(&mut v, 1, 2, &[failing]).unwrap_err();
         assert!(matches!(err, CoreError::Migration { from: 1, ref reason } if reason == "boom"));
         assert_eq!(v["version"], 1);
-        assert!(matches!(migrate(&mut v, 1, 2, &[]), Err(CoreError::Migration { .. })));
+        assert!(matches!(
+            migrate(&mut v, 1, 2, &[]),
+            Err(CoreError::Migration { .. })
+        ));
     }
 
     #[test]
@@ -389,7 +503,10 @@ mod tests {
         for k in 0..5 {
             save_autosave(&file(f64::from(k)), &path).unwrap();
         }
-        assert_eq!(dir_names(dir.path()), ["recovery.json", "recovery.json.1", "recovery.json.2"]);
+        assert_eq!(
+            dir_names(dir.path()),
+            ["recovery.json", "recovery.json.1", "recovery.json.2"]
+        );
         let beat = |p: &Path| load_project(p).unwrap().project.notes[0].start.beat;
         assert_eq!(beat(&path), 4.0);
         assert_eq!(beat(&generation_path(&path, 1)), 3.0);
@@ -404,11 +521,26 @@ mod tests {
         for k in 0..3 {
             save_autosave(&file(f64::from(k)), &path).unwrap();
         }
-        assert_eq!(load_autosave(&path).unwrap().unwrap().project.notes[0].start.beat, 2.0);
+        assert_eq!(
+            load_autosave(&path).unwrap().unwrap().project.notes[0]
+                .start
+                .beat,
+            2.0
+        );
         fs::write(&path, b"{ truncated").unwrap();
-        assert_eq!(load_autosave(&path).unwrap().unwrap().project.notes[0].start.beat, 1.0);
+        assert_eq!(
+            load_autosave(&path).unwrap().unwrap().project.notes[0]
+                .start
+                .beat,
+            1.0
+        );
         fs::remove_file(&path).unwrap();
-        assert_eq!(load_autosave(&path).unwrap().unwrap().project.notes[0].start.beat, 1.0);
+        assert_eq!(
+            load_autosave(&path).unwrap().unwrap().project.notes[0]
+                .start
+                .beat,
+            1.0
+        );
     }
 
     #[test]
@@ -438,13 +570,25 @@ mod tests {
         assert!(from_json(&plain.to_string()).unwrap().history.is_none());
 
         let mut f = file(0.0);
-        f.project.notes.push(Note::new(3, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
-        f.project.notes.push(Note::new(2, 62, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+        f.project
+            .notes
+            .push(Note::new(3, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+        f.project
+            .notes
+            .push(Note::new(2, 62, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
         let mut value: Value = serde_json::from_str(&to_json(&f).unwrap()).unwrap();
         value["history"] = serde_json::json!({ "done": "garbage" });
         let loaded = from_json(&value.to_string()).unwrap();
         assert!(loaded.history.is_none());
-        assert_eq!(loaded.project.notes.iter().map(|n| n.id).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(
+            loaded
+                .project
+                .notes
+                .iter()
+                .map(|n| n.id)
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
     }
 
     #[test]
