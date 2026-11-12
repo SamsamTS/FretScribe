@@ -461,3 +461,32 @@ pub fn assign_tabs(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo:
 pub fn assign_tabs_range(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &TabOptions, edited_index: usize, propagate_backwards: bool) -> Vec<u64> {
     run(notes, times, tuning, capo, opts, Scope::From { edited: edited_index, backwards: propagate_backwards }).changed
 }
+
+/// One way to play the slide / bend / legato group of a note: every member on `string`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupOption {
+    pub string: u8,
+    pub frets: Vec<(u64, u8)>,
+}
+
+impl GroupOption {
+    pub fn fret_of(&self, id: u64) -> Option<u8> {
+        self.frets.iter().find(|f| f.0 == id).map(|f| f.1)
+    }
+}
+
+/// The strings (lowest first) that play the whole group of `id` (the note alone when it has no link),
+/// with the frets that follow; locks are ignored.
+pub fn group_options(notes: &[Note], tuning: &Tuning, capo: u8, opts: &TabOptions, id: u64) -> Vec<GroupOption> {
+    let Some(at) = notes.iter().position(|n| n.id == id) else { return Vec::new() };
+    let ctx = Ctx { tuning, capo, opts, spans: Vec::new(), family: Vec::new() };
+    let mut links = read_links(notes);
+    let root = find(&mut links.parent, at);
+    let members: Vec<usize> = (0..notes.len()).filter(|&i| find(&mut links.parent, i) == root).collect();
+    (0..tuning.open_strings.len())
+        .filter_map(|s| {
+            let frets = derive(notes, &links, &ctx, &members, s)?;
+            Some(GroupOption { string: s as u8, frets: members.iter().map(|&m| notes[m].id).zip(frets).collect() })
+        })
+        .collect()
+}

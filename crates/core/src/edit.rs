@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::EditError;
 use crate::measures::{self, recompute_starts, valid_tempo, Propagation};
-use crate::model::{Measure, Note, Project, TimePos, TimeSignature, Track, Technique, MAX_BPM, MIN_BPM};
+use crate::model::{Measure, Note, Project, TimePos, TimeSignature, Track, Technique, Tuning, MAX_BPM, MIN_BPM};
 use crate::tempo::{NoteTimes, TempoMap};
 
 const MIN_MEASURE_SEC: f64 = 1e-3;
@@ -41,6 +41,8 @@ struct Snapshot {
     measures: Vec<Measure>,
     next_measure_id: u64,
     notes: Vec<Note>,
+    tuning: Tuning,
+    capo: u8,
 }
 
 impl Snapshot {
@@ -51,6 +53,8 @@ impl Snapshot {
             measures: p.measures.clone(),
             next_measure_id: p.next_measure_id,
             notes: p.notes.clone(),
+            tuning: p.tuning.clone(),
+            capo: p.capo,
         }
     }
 
@@ -60,6 +64,8 @@ impl Snapshot {
         p.measures = self.measures.clone();
         p.next_measure_id = self.next_measure_id;
         p.notes = self.notes.clone();
+        p.tuning = self.tuning.clone();
+        p.capo = self.capo;
     }
 }
 

@@ -285,3 +285,22 @@ fn presets_cover_the_named_tunings() {
     assert_eq!(names[0], "Standard");
     assert_eq!(candidates(64, &Tuning::standard(), 0, 22).first(), Some(&(1, 19)));
 }
+
+#[test]
+fn group_options_follow_the_whole_chain() {
+    let mut f = fixture();
+    let ids = f.seq(&[64, 66, 64]);
+    f.notes[ids[0]].link_to = Some(2);
+    f.notes[ids[0]].technique = Some(Technique::Bend);
+    f.notes[ids[1]].link_to = Some(3);
+    f.notes[ids[1]].technique = Some(Technique::Bend);
+    let options = group_options(&f.notes, &f.tuning, 0, &TabOptions::default(), 2);
+    let strings: Vec<u8> = options.iter().map(|o| o.string).collect();
+    assert_eq!(strings, [1, 2, 3, 4, 5]);
+    assert!(options.iter().all(|o| o.frets.len() == 3 && o.fret_of(1) == o.fret_of(2) && o.fret_of(2) == o.fret_of(3)));
+    assert_eq!(options.last().and_then(|o| o.fret_of(2)), Some(0));
+    f.notes[ids[0]].technique = None;
+    f.notes[ids[0]].link_to = None;
+    assert_eq!(group_options(&f.notes, &f.tuning, 0, &TabOptions::default(), 1).len(), 5);
+    assert!(group_options(&f.notes, &f.tuning, 0, &TabOptions::default(), 99).is_empty());
+}

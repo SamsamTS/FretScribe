@@ -145,7 +145,7 @@ impl StaffLayout {
     }
 }
 
-fn bend_label(semitones: i32) -> Option<String> {
+pub fn bend_label(semitones: i32) -> Option<String> {
     match semitones {
         ..=0 => None,
         1 => Some("1/2".to_owned()),
