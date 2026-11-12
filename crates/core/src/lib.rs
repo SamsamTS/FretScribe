@@ -1,5 +1,6 @@
 //! Pure data model and logic of FretScribe: no UI, no audio I/O.
 
+mod delta;
 pub mod edit;
 pub mod error;
 pub mod grace;
@@ -16,7 +17,7 @@ pub mod tracks;
 pub mod undo;
 
 pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
-pub use error::{CoreError, EditError};
+pub use error::{CoreError, EditError, UndoError};
 pub use grace::{default_grace_midi, grace_default_sec, grace_target_of, GraceError, LegatoError, ACCIACCATURA_SEC, APPOGGIATURA_SEC};
 pub use links::{infer_link, same_string_fit, LinkError, LinkReport, LinkType, MAX_FRET};
 pub use measures::{

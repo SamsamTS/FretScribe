@@ -51,3 +51,9 @@ pub enum EditError {
     #[error(transparent)]
     Link(#[from] crate::links::LinkError),
 }
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum UndoError {
+    #[error("the project changed outside the undo history")]
+    Diverged,
+}
