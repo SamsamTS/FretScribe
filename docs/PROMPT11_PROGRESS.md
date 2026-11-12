@@ -3,7 +3,7 @@
 Env: `apt-get install -y libasound2-dev pkg-config` already needed on a fresh Linux session.
 Plan (tick when committed+pushed):
 - [x] 1 core: UiState focus/display fields, Track::audio_rel_path, tests, changelog
-- [ ] 2 ui::theme (+ Inter / JetBrains Mono assets) and apply()
+- [x] 2 ui::theme (+ Inter / JetBrains Mono assets) and apply()  (existing widgets keep their own styles; not refactored)
 - [ ] 3 app pure logic modules + tests: settings, autosave (rotation/recovery decision), lut selection, player_sync, form (tuning parse, validation, name fallback, build project), paths
 - [ ] 4 audio: tag metadata fn (title/album/artist) if missing
 - [ ] 5 app shell: loading pipeline, home screen, form UI, toolbar, lanes + notation panel, event loop
