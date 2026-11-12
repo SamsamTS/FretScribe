@@ -173,6 +173,8 @@ pub enum TrackRole {
     Other,
 }
 
+/// `volume`, `muted`, `solo` and `spectrogram_collapsed` are live: the app applies them outside the
+/// undo history, so undo and redo never restore them (see `with_live_of`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: u64,
@@ -219,6 +221,21 @@ impl Track {
         } else {
             1.0
         };
+    }
+
+    /// This track with the live fields of `live`.
+    pub(crate) fn with_live_of(&self, live: &Track) -> Track {
+        Track {
+            volume: live.volume,
+            muted: live.muted,
+            solo: live.solo,
+            spectrogram_collapsed: live.spectrogram_collapsed,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn same_undoable(&self, other: &Track) -> bool {
+        self.with_live_of(other) == *other
     }
 
     pub fn audio_to_project_time(&self, audio_sec: f64) -> f64 {

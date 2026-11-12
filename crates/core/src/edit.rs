@@ -9,9 +9,11 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::EditError;
+use crate::delta::{Delta, Snapshot};
+use crate::error::{CoreError, EditError, UndoError};
 use crate::measures::{self, recompute_starts, valid_tempo, Propagation};
-use crate::model::{Measure, Note, Project, TimePos, TimeSignature, Track, Technique, Tuning, MAX_BPM, MIN_BPM};
+use crate::model::{Measure, Project, TimePos, TimeSignature, Technique, MAX_BPM, MIN_BPM};
+use crate::pitch::PitchRef;
 use crate::tempo::{NoteTimes, TempoMap};
 
 const MIN_MEASURE_SEC: f64 = 1e-3;
@@ -34,68 +36,53 @@ impl NotePolicy {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct Snapshot {
-    tracks: Vec<Track>,
-    source_track: u64,
-    measures: Vec<Measure>,
-    next_measure_id: u64,
-    notes: Vec<Note>,
-    tuning: Tuning,
-    capo: u8,
-}
-
-impl Snapshot {
-    fn capture(p: &Project) -> Self {
-        Self {
-            tracks: p.tracks.clone(),
-            source_track: p.source_track,
-            measures: p.measures.clone(),
-            next_measure_id: p.next_measure_id,
-            notes: p.notes.clone(),
-            tuning: p.tuning.clone(),
-            capo: p.capo,
-        }
-    }
-
-    fn restore(&self, p: &mut Project) {
-        p.tracks = self.tracks.clone();
-        p.source_track = self.source_track;
-        p.measures = self.measures.clone();
-        p.next_measure_id = self.next_measure_id;
-        p.notes = self.notes.clone();
-        p.tuning = self.tuning.clone();
-        p.capo = self.capo;
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
+/// An undoable change, stored as a delta (see `delta`). `weight` is the number of user-visible steps
+/// it covers (more than 1 once old history has been thinned).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectEdit {
     label: String,
-    before: Snapshot,
-    after: Snapshot,
+    weight: usize,
+    delta: Delta,
 }
 
 impl ProjectEdit {
+    pub(crate) fn new(label: &str, delta: Delta) -> Self {
+        Self { label: label.to_owned(), weight: 1, delta }
+    }
+
     pub fn label(&self) -> &str {
         &self.label
     }
 
-    /// One edit that undoes `self` and `later` together.
-    pub fn merge(self, later: ProjectEdit) -> ProjectEdit {
-        ProjectEdit {
-            label: later.label,
-            before: self.before,
-            after: later.after,
-        }
+    pub fn weight(&self) -> usize {
+        self.weight
     }
 
+    /// One edit that undoes `self` and `later` together; the weight stays that of `self`.
+    pub fn merge(self, later: ProjectEdit) -> ProjectEdit {
+        let weight = self.weight;
+        self.merge_weighted(later, weight)
+    }
+
+    pub(crate) fn merge_weighted(self, later: ProjectEdit, weight: usize) -> ProjectEdit {
+        ProjectEdit { label: later.label, weight, delta: self.delta.compose(later.delta) }
+    }
+
+    pub fn try_undo(&self, project: &mut Project) -> Result<(), UndoError> {
+        self.delta.apply(project, true)
+    }
+
+    pub fn try_redo(&self, project: &mut Project) -> Result<(), UndoError> {
+        self.delta.apply(project, false)
+    }
+
+    /// Applies nothing if the project diverged from the history; use `try_undo` to learn about it.
     pub fn undo(&self, project: &mut Project) {
-        self.before.restore(project);
+        let _ = self.try_undo(project);
     }
 
     pub fn redo(&self, project: &mut Project) {
-        self.after.restore(project);
+        let _ = self.try_redo(project);
     }
 }
 
@@ -133,7 +120,7 @@ impl Project {
     pub fn try_edit<T, E>(&mut self, label: &str, f: impl FnOnce(&mut Project) -> Result<T, E>) -> Result<(ProjectEdit, T), E> {
         let before = Snapshot::capture(self);
         match f(self) {
-            Ok(value) => Ok((ProjectEdit { label: label.to_owned(), before, after: Snapshot::capture(self) }, value)),
+            Ok(value) => Ok((self.finish(label, &before), value)),
             Err(e) => {
                 before.restore(self);
                 Err(e)
@@ -145,26 +132,34 @@ impl Project {
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
     {
-        let before = Snapshot::capture(self);
-        if let Err(e) = f(self) {
-            before.restore(self);
-            return Err(e);
-        }
-        Ok(ProjectEdit {
-            label: label.to_owned(),
-            before,
-            after: Snapshot::capture(self),
-        })
+        self.try_edit(label, f).map(|(edit, ())| edit)
     }
 
     pub(crate) fn transact_infallible(&mut self, label: &str, f: impl FnOnce(&mut Project)) -> ProjectEdit {
         let before = Snapshot::capture(self);
         f(self);
-        ProjectEdit {
-            label: label.to_owned(),
-            before,
-            after: Snapshot::capture(self),
+        self.finish(label, &before)
+    }
+
+    fn finish(&self, label: &str, before: &Snapshot) -> ProjectEdit {
+        let edit = ProjectEdit::new(label, Delta::diff(before, self));
+        #[cfg(test)]
+        {
+            let mut undone = self.clone();
+            edit.undo(&mut undone);
+            assert_eq!(Snapshot::capture(&undone), *before, "undo of {label:?}");
+            let mut redone = self.clone();
+            before.restore(&mut redone);
+            edit.redo(&mut redone);
+            assert_eq!(redone, *self, "redo of {label:?}");
         }
+        edit
+    }
+
+    /// Changes the reference pitch (A4); notes keep their pitch numbers.
+    pub fn set_reference(&mut self, hz: f32) -> Result<ProjectEdit, CoreError> {
+        PitchRef::new(hz)?;
+        Ok(self.transact_infallible("Set reference pitch", |p| p.reference_hz = hz))
     }
 
     fn rebase_notes<F>(&mut self, policy: NotePolicy, f: F) -> Result<(), EditError>
@@ -477,14 +472,10 @@ impl Project {
     /// Grace notes of a removed main note go with it; links and legato sources pointing at a
     /// removed note are cleared.
     pub fn remove_notes(&mut self, ids: &[u64]) -> ProjectEdit {
-        let before = Snapshot::capture(self);
-        let doomed = self.with_grace_notes(ids);
-        self.remove_note_set(&doomed);
-        ProjectEdit {
-            label: "Delete notes".to_owned(),
-            before,
-            after: Snapshot::capture(self),
-        }
+        self.transact_infallible("Delete notes", |p| {
+            let doomed = p.with_grace_notes(ids);
+            p.remove_note_set(&doomed);
+        })
     }
 
     pub(crate) fn with_grace_notes(&self, seeds: &[u64]) -> HashSet<u64> {
@@ -524,7 +515,7 @@ impl Project {
 mod tests {
     use super::*;
     use crate::measures::tests::close;
-    use crate::model::{GraceKind, GraceNote, Legato, LegatoLink, TrackRole};
+    use crate::model::{GraceKind, GraceNote, Legato, LegatoLink, Note, Track, TrackRole};
     use crate::tempo::NoteTimes;
     use NotePolicy::{FollowGrid as Follow, KeepAudioPosition as Keep};
 
