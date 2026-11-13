@@ -109,3 +109,7 @@ Modules are not re-exported at the crate root.
 
 - `UiState` gains `focus_enabled` (false), `focus_strength` (0.5), `spectro_black` (0.0), `spectro_white` (1.0), `spectro_gamma` (1.0), `lut_name` ("Classic"), all `#[serde(default)]`; `UiState::sanitise` (called by `from_json`) clamps them (`LEVELS_MIN_GAP`, `GAMMA_RANGE` mirror the analysis constants). They are not undoable. The identity defaults keep old files unchanged; the app starts NEW projects from `analysis::APP_WHITE` / `APP_GAMMA`.
 - `Track::audio_rel_path` (serde default): path relative to the project file, tried before `audio_path`; the app fills it on save.
+
+## 2026-11-13 - audio: tag reading (Prompt 11)
+
+- `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
