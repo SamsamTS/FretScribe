@@ -406,7 +406,7 @@ fn field(ui: &mut Ui, width: f32, invalid: bool, leading: impl FnOnce(&mut Ui), 
             ui.spacing_mut().item_spacing.x = 8.0;
             leading(ui);
             let w = (ui.available_width() - trailing_w - 8.0).max(24.0);
-            let edit = ui.add(TextEdit::singleline(text).frame(false).desired_width(w).vertical_align(Align::Center));
+            let edit = ui.add(TextEdit::singleline(text).frame(false).margin(Margin::ZERO).desired_width(w).vertical_align(Align::Center));
             trailing(ui);
             edit
         })
@@ -419,7 +419,7 @@ fn field(ui: &mut Ui, width: f32, invalid: bool, leading: impl FnOnce(&mut Ui), 
 
 fn estimate_width(ui: &Ui, chip: Option<&String>, has_alts: bool, spinner: bool) -> f32 {
     match chip {
-        Some(t) => text_w(ui, t, 13.0) + 16.0 + if has_alts { 28.0 } else { 0.0 },
+        Some(t) => text_w(ui, t, 13.0) + 16.0 + if has_alts { 32.0 } else { 0.0 },
         None if spinner => 24.0,
         None => 0.0,
     }
@@ -477,8 +477,9 @@ fn track_row(ui: &mut Ui, inner: f32, path: &Path, role: Option<&mut TrackRole>,
             if main {
                 ui.painter().circle_filled(icon.center(), 3.0, colour);
             }
-            let label_w = inner - 22.0 - 20.0 - 40.0 - 112.0 - 28.0 - 12.0 * 5.0;
+            let label_w = inner - 22.0 - 20.0 - 40.0 - 112.0 - 28.0 - 12.0 * 4.0;
             ui.allocate_ui_with_layout(Vec2::new(label_w, 30.0), Layout::left_to_right(Align::Center), |ui| {
+                fix_size(ui, Vec2::new(label_w, 30.0));
                 ui.add(egui::Label::new(RichText::new(path.to_string_lossy()).family(theme::mono()).size(12.5)).truncate());
             });
             let (tag, _) = ui.allocate_exact_size(Vec2::new(40.0, 20.0), Sense::hover());
