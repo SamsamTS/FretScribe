@@ -6,5 +6,5 @@ Plan (tick when committed+pushed):
 - [x] 2 ui::theme (+ Inter / JetBrains Mono assets) and apply()  (existing widgets keep their own styles; not refactored)
 - [x] 3 app pure logic modules (paths, luts, settings, autosave, player_sync, form) + tests
 - [x] 4 audio::read_tags
-- [ ] 5 app shell: DONE loader/store/jobs; TODO home.rs+form_ui.rs (agent, one at a time), then app.rs/editor.rs/toolbar.rs/main.rs (me)
+- [ ] 5 app shell: DONE loader/store/jobs/home/form_ui; TODO (me, in this order, commit each) editor.rs (layout+widgets), toolbar.rs, app.rs (screens, loading, jobs, save/autosave), main.rs
 - [ ] 6 integration test (notes -> tab -> staff), README, final clippy/test
