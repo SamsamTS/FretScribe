@@ -3,3 +3,4 @@ Sections: 1 form, 2 general, 3 note editor, 4 grid, 5 grid menu, 6 sheet. Mark d
 1 form: done+pushed (spacing unverified visually)
 4,5 grid+menu: done
 3 note editor: done (visibility, press snap, tied). Remaining: general (seek line, focus->spectro), track waveform LUT, sheet (independent quantise, dotted, tie merge), tab grace overlap, shift+scroll, remove sheet/tab measure lines + grid thickness
+2 general: seek line + focus dimming done. waveform LUT done.

@@ -21,8 +21,18 @@ pub fn format_time(sec: f64, step: f64) -> String {
     format!("{minutes:.0}:{rest:0width$.prec$}", prec = decimals as usize)
 }
 
-/// `playhead_sec` is drawn as a marker; a click or drag on the strip emits `SeekRequested`.
-pub fn show_time_ruler(ui: &mut Ui, view: &TimelineView, height: f32, playhead_sec: f64) -> Option<SpectroEvent> {
+/// Draws the play position as one continuous line from `top` to the bottom of the window, above
+/// every panel and popup; it takes no input, so everything under it stays usable.
+pub fn paint_seek_line(ctx: &egui::Context, x: f32, top: f32) {
+    let screen = ctx.screen_rect();
+    if x >= screen.left() && x <= screen.right() {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("seek_line")));
+        painter.vline(x, top..=screen.bottom(), Stroke::new(2.0_f32, Color32::from_rgb(255, 90, 80)));
+    }
+}
+
+/// A click or drag on the strip emits `SeekRequested`.
+pub fn show_time_ruler(ui: &mut Ui, view: &TimelineView, height: f32) -> Option<SpectroEvent> {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::click_and_drag());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, Color32::from_gray(34));
@@ -36,8 +46,6 @@ pub fn show_time_ruler(ui: &mut Ui, view: &TimelineView, height: f32, playhead_s
         painter.vline(x, rect.bottom() - 6.0..=rect.bottom(), Stroke::new(1.0_f32, white(110)));
         painter.text(pos2(x + 3.0, rect.top() + 2.0), Align2::LEFT_TOP, format_time(sec, step), FontId::monospace(10.0), white(160));
     }
-    let x = rect.left() + view.sec_to_x(playhead_sec);
-    painter.vline(x, rect.y_range(), Stroke::new(2.0_f32, Color32::from_rgb(255, 90, 80)));
     let pos = response.interact_pointer_pos().filter(|_| response.clicked() || response.dragged())?;
     Some(SpectroEvent::SeekRequested(view.x_to_sec(pos.x - rect.left()).max(0.0)))
 }

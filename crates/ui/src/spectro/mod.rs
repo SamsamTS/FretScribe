@@ -17,7 +17,7 @@ use fretscribe_core::{midi_to_name, Note, NoteTimes, PitchRef, Tuning};
 pub use glyphs::{link_points, note_glyphs, Glyph, LinkPoint, NoteMetrics, Side};
 pub use notes::{hit_test, GhostGlyph, GhostShape, HitZone, LinkKind, SpectroGeometry};
 pub use readout::{is_natural, open_pitches, place_readout, readout, Readout};
-pub use ruler::{format_time, ruler_step, show_time_ruler};
+pub use ruler::{format_time, paint_seek_line, ruler_step, show_time_ruler};
 pub use waveform::{Peak, WaveformView};
 
 use crate::view::{PitchView, TimelineView};
@@ -113,6 +113,7 @@ pub struct SpectrogramView<'a> {
     height: f32,
     note_opacity: f32,
     audio_offset_sec: f64,
+    focus: Option<(f32, f32, f32)>,
 }
 
 impl<'a> SpectrogramView<'a> {
@@ -132,7 +133,14 @@ impl<'a> SpectrogramView<'a> {
             height: 160.0,
             note_opacity: 1.0,
             audio_offset_sec: 0.0,
+            focus: None,
         }
+    }
+
+    /// Guitar focus: `(low_midi, high_midi, strength)`; everything outside the range is dimmed.
+    pub fn focus(mut self, focus: Option<(f32, f32, f32)>) -> Self {
+        self.focus = focus;
+        self
     }
 
     pub fn capo(mut self, capo: u8) -> Self {
@@ -282,6 +290,14 @@ impl<'a> SpectrogramView<'a> {
             ui.ctx().request_repaint();
         }
         let cursor_midi = hover.map(|h| h.midi_float.round() as i32);
+        if let Some((low, high, strength)) = self.focus.filter(|f| f.2 > 0.0) {
+            let shade = Color32::from_black_alpha((strength.clamp(0.0, 1.0) * 150.0) as u8);
+            let (top, bottom) = (geo.midi_to_y(high + 0.5), geo.midi_to_y(low - 0.5));
+            let above = Rect::from_x_y_ranges(rect.x_range(), rect.top()..=top.clamp(rect.top(), rect.bottom()));
+            let below = Rect::from_x_y_ranges(rect.x_range(), bottom.clamp(rect.top(), rect.bottom())..=rect.bottom());
+            painter.rect_filled(above, 0.0, shade);
+            painter.rect_filled(below, 0.0, shade);
+        }
         self.draw_guides(&painter, &geo, cursor_midi);
         notes::draw_notes(&painter, &geo, self.notes, times, self.selected, self.note_opacity, hovered_id);
         if let Some(ghost) = self.ghost {

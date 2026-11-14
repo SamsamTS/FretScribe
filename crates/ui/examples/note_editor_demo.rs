@@ -297,7 +297,7 @@ impl eframe::App for Demo {
             let (spec_out, seek) = ui
                 .scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    let seek = show_time_ruler(ui, &view, RULER_H, self.playhead);
+                    let seek = show_time_ruler(ui, &view, RULER_H);
                     let out = SpectrogramView::new(spectrogram, &self.style, self.pitch_ref, &tuning)
                         .notes(&self.project.notes, &self.times, &self.editor.selection.ids)
                         .ghost(self.editor.ghost.as_ref())
