@@ -260,10 +260,11 @@ fn touching_notes_leave_no_rest() {
     assert!(l.events[..last].iter().all(|e| !e.rest), "{:?}", kinds(&l));
 }
 
-/// 300 random consecutive values (subdivision 1..64, straight or triplet) must come back from the quantiser unchanged.
+/// Stress test: 300 random monophonic notes whose edges sit on any straight (1/64) or triplet (1/64T) lattice position, touching or not.
+/// Starts and ends must survive quantisation exactly, and the layout must keep the sounding and silent totals.
 #[test]
-#[ignore = "known quantiser failures: 1/64 and 1/64T values (MIN_TICKS 3 > 2) and off-by-one ends before triplets; run with --ignored"]
-fn random_consecutive_values_round_trip() {
+#[ignore = "known quantiser failures; run with --ignored"]
+fn random_lattice_notes_survive_quantisation() {
     let mut seed = 0x2545_F491_4F6C_DD1Du64;
     let mut rand = |n: u64| {
         seed ^= seed << 13;
@@ -271,23 +272,35 @@ fn random_consecutive_values_round_trip() {
         seed ^= seed << 17;
         seed % n
     };
-    let values: Vec<(i64, bool)> = (0..300).map(|_| (1 << rand(7), rand(2) == 1)).collect();
-    let ticks = |&(div, trip): &(i64, bool)| if trip { 128 / div } else { 192 / div };
-    let total: i64 = values.iter().map(ticks).sum();
-    let ms = measures((total / 192 + 2) as usize, TimeSignature::COMMON);
-    let (mut at, mut notes) = (0, Vec::new());
-    for (i, v) in values.iter().enumerate() {
-        let beat = |t: i64| t as f64 / 48.0;
-        notes.push(note(&ms, i as u64 + 1, 60, beat(at), beat(at + ticks(v))));
-        at += ticks(v);
+    let on = |t: i64, step: i64| (t + step - 1) / step * step;
+    let (mut cursor, mut spans) = (0i64, Vec::new());
+    for _ in 0..300 {
+        let s = if rand(10) < 7 { cursor } else { cursor + rand(60) as i64 };
+        let s = on(s, [2, 3][rand(2) as usize]);
+        let step = [2, 3][rand(2) as usize];
+        let e = on(s + 1 + rand(100) as i64, step).max(s + step);
+        spans.push((s, e));
+        cursor = e;
     }
+    let ms = measures((cursor / 192 + 2) as usize, TimeSignature::COMMON);
+    let beat = |t: i64| t as f64 / 48.0;
+    let notes: Vec<Note> = spans.iter().enumerate().map(|(i, &(s, e))| note(&ms, i as u64 + 1, 60, beat(s), beat(e))).collect();
+
     let q = quant::quantise(&notes, &fretscribe_core::TempoMap::new(&ms));
-    let got: Vec<(i64, i64)> = q.notes.iter().map(|n| (n.s, n.e - n.s)).collect();
-    let (mut at, mut want) = (0, Vec::new());
-    for v in &values {
-        want.push((at, ticks(v)));
-        at += ticks(v);
-    }
-    let bad: Vec<_> = got.iter().zip(&want).enumerate().filter(|(_, (g, w))| g != w).collect();
-    assert!(got.len() == want.len() && bad.is_empty(), "{} of {} notes; {} mismatches, first (index, got, want): {:?}", got.len(), want.len(), bad.len(), &bad[..bad.len().min(8)]);
+    let got: Vec<(i64, i64)> = q.notes.iter().map(|n| (n.s, n.e)).collect();
+    let bad: Vec<_> = got.iter().zip(&spans).enumerate().filter(|(_, (g, w))| g != w).collect();
+
+    let l = layout(&notes, &ms, &StaffOptions::default());
+    let sum = |rest: bool| l.events.iter().filter(|e| e.rest == rest).map(|e| e.duration.ticks()).sum::<i64>();
+    let sound: i64 = spans.iter().map(|(s, e)| e - s).sum();
+    let silence = spans.iter().zip(spans.iter().skip(1)).map(|(a, b)| b.0 - a.1).sum::<i64>() + spans[0].0;
+    assert!(
+        got.len() == spans.len() && bad.is_empty() && sum(false) == sound && sum(true) == silence,
+        "{} of {} notes; sound {} vs {sound}, silence {} vs {silence}; first mismatches (index, got, want): {:?}",
+        bad.len(),
+        spans.len(),
+        sum(false),
+        sum(true),
+        &bad[..bad.len().min(8)]
+    );
 }
