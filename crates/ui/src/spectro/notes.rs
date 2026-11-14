@@ -7,7 +7,9 @@ use super::glyphs::{chevron, corner_radius, items, label_visible, layout, Glyph,
 pub use super::glyphs::{HitZone, LinkKind};
 use crate::view::{PitchView, TimelineView};
 
-const NOTE_COLOR: Color32 = Color32::from_rgb(100, 150, 200);
+const NOTE_COLOR: Color32 = Color32::from_rgb(120, 185, 255);
+/// Dark backing and outline so notes stay readable on any spectrogram palette.
+const BACKING: Color32 = Color32::BLACK;
 const SELECTED_COLOR: Color32 = Color32::from_rgb(190, 225, 255);
 const DASH: f32 = 4.0;
 const GAP: f32 = 3.0;
@@ -106,6 +108,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     let faded = |c: Color32, a: f32| c.gamma_multiply(a * look.opacity);
     let white = faded(Color32::WHITE, 1.0);
     let stroke = Stroke::new(m.stroke(), white);
+    let halo = Stroke::new(m.stroke() + 2.0, faded(BACKING, 0.6));
     let clip = painter.clip_rect();
 
     for g in &scene.glyphs {
@@ -115,24 +118,34 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         }
         let color = color_of(*id);
         let radius = corner_radius(m, r.width());
-        painter.rect_filled(*r, radius, faded(color, 0.25));
+        painter.rect_filled(*r, radius, faded(BACKING, 0.4));
+        painter.rect_filled(*r, radius, faded(color, 0.3));
+        painter.rect_stroke(r.expand(1.0), radius, Stroke::new(1.0_f32, faded(BACKING, 0.85)), egui::StrokeKind::Outside);
         if look.dashed || items.iter().any(|it| it.id == *id && it.grace) {
             let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-            stroke_path(painter, corners.to_vec(), Stroke::new(1.0_f32, faded(color, 0.5)), true);
+            stroke_path(painter, corners.to_vec(), Stroke::new(1.5_f32, faded(color, 0.95)), true);
         } else {
-            painter.rect_stroke(*r, radius, Stroke::new(1.0_f32, faded(color, 0.5)), egui::StrokeKind::Inside);
+            painter.rect_stroke(*r, radius, Stroke::new(1.5_f32, faded(color, 0.95)), egui::StrokeKind::Inside);
         }
     }
 
     for g in &scene.glyphs {
         match g {
             Glyph::Link { kind, path, arrow_tip, .. } => {
+                if !look.dashed {
+                    stroke_path(painter, path.clone(), halo, false);
+                }
                 stroke_path(painter, path.clone(), stroke, look.dashed || *kind == LinkKind::Dashed);
                 if let (Some(tip), [.., before, _]) = (arrow_tip, path.as_slice()) {
                     stroke_path(painter, chevron(*tip, tip.y < before.y, m).to_vec(), stroke, false);
                 }
             }
-            Glyph::Arc { path, .. } => stroke_path(painter, path.clone(), stroke, look.dashed),
+            Glyph::Arc { path, .. } => {
+                if !look.dashed {
+                    stroke_path(painter, path.clone(), halo, false);
+                }
+                stroke_path(painter, path.clone(), stroke, look.dashed);
+            }
             Glyph::Note(..) => {}
         }
     }
@@ -148,7 +161,9 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
             let name = midi_to_name(it.midi);
             let dots: Vec<Pos2> = points.iter().filter(|p| p.note_id == it.id).map(|p| p.pos).collect();
             if label_visible(r, name.chars().count(), &dots, m) {
-                painter.text(r.center(), Align2::CENTER_CENTER, name, FontId::monospace(m.font_px()), faded(color_of(it.id), 0.9));
+                let font = FontId::monospace(m.font_px());
+                painter.text(r.center() + egui::vec2(0.0, 1.0), Align2::CENTER_CENTER, &name, font.clone(), faded(BACKING, 0.9));
+                painter.text(r.center(), Align2::CENTER_CENTER, name, font, faded(color_of(it.id), 1.0));
             }
         }
     }
