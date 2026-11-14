@@ -54,6 +54,10 @@ impl Ctx<'_> {
         FontId::new(self.st.font * scale, FontFamily::Proportional)
     }
 
+    fn text_width(&self, text: &str, scale: f32) -> f32 {
+        self.p.layout_no_wrap(text.to_owned(), self.font(scale), Color32::WHITE).size().x
+    }
+
     /// Number centred on `at`, on a background patch that masks the line behind it.
     pub fn number(&self, at: Pos2, text: &str, scale: f32, color: Color32, halo: Option<Color32>) -> Rect {
         let galley = self.p.layout_no_wrap(text.to_owned(), self.font(scale), color);
@@ -148,6 +152,35 @@ fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, cha
     }
 }
 
+fn fret_text(n: &Note) -> String {
+    n.string_fret.map_or_else(|| "?".to_owned(), |(_, fret)| fret.to_string())
+}
+
+/// Grace notes that start on (or just before) their main note would print on top of it: each one
+/// is moved left until its number clears the main note's number and the graces after it.
+fn grace_xs(c: &Ctx) -> HashMap<u64, f32> {
+    const GAP: f32 = 2.5;
+    let mut by_main: HashMap<u64, Vec<&Note>> = HashMap::new();
+    for n in c.project.notes.iter().filter(|n| n.grace_of.is_some()) {
+        by_main.entry(n.grace_of.map_or(0, |g| g.main)).or_default().push(n);
+    }
+    let mut out = HashMap::new();
+    for (main, mut graces) in by_main {
+        let Some(main_note) = c.project.notes.iter().find(|n| n.id == main) else { continue };
+        let Some(main_start) = c.times.start_sec(main) else { continue };
+        let mut edge = c.geo.x(c.view, main_start) - c.text_width(&fret_text(main_note), 1.0) / 2.0 - GAP;
+        graces.sort_by(|a, b| c.times.start_sec(b.id).partial_cmp(&c.times.start_sec(a.id)).unwrap_or(std::cmp::Ordering::Equal));
+        for g in graces {
+            let Some(start) = c.times.start_sec(g.id) else { continue };
+            let half = c.text_width(&fret_text(g), GRACE_SCALE) / 2.0;
+            let x = c.geo.x(c.view, start).min(edge - half);
+            out.insert(g.id, x);
+            edge = x - half - GAP;
+        }
+    }
+    out
+}
+
 /// Draws every note and link in view; returns the hit rectangle of each fret number.
 pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
     let (t0, t1) = (c.view.x_to_sec(-40.0), c.view.x_to_sec(c.width + 40.0));
@@ -157,6 +190,7 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
     let has_outgoing: HashSet<u64> = all.iter().map(|l| l.from).collect();
     let mut rects: HashMap<u64, Rect> = HashMap::new();
     let mut order = Vec::new();
+    let graces = grace_xs(c);
     for n in &c.project.notes {
         let (Some(s), Some(e)) = (c.times.start_sec(n.id), c.times.end_sec(n.id)) else { continue };
         if e < t0 || s > t1 {
@@ -164,7 +198,7 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
         }
         let selected = c.selected.contains(&n.id);
         let flash = flashes.iter().find(|f| f.0 == n.id && f.1 > c.now).map(|f| c.st.flash.gamma_multiply(((f.1 - c.now) / FLASH_SEC) as f32));
-        let x = c.geo.x(c.view, s);
+        let x = graces.get(&n.id).copied().unwrap_or_else(|| c.geo.x(c.view, s));
         let scale = if n.grace_of.is_some() { GRACE_SCALE } else { 1.0 };
         let rect = match n.string_fret {
             Some((string, fret)) => {
