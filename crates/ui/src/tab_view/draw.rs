@@ -23,7 +23,12 @@ pub(super) fn links(notes: &[Note]) -> Vec<Link> {
     let mut out = Vec::new();
     for n in notes {
         if let Some(to) = n.link_to {
-            out.push(Link { from: n.id, to, kind: if n.technique == Some(Technique::Bend) { LinkType::Bend } else { LinkType::Slide } });
+            let kind = match n.technique {
+                Some(Technique::Bend) => LinkType::Bend,
+                Some(Technique::Tie) => LinkType::Tied,
+                _ => LinkType::Slide,
+            };
+            out.push(Link { from: n.id, to, kind });
         }
         if let Some(l) = n.legato {
             out.push(Link { from: l.from, to: n.id, kind: LinkType::Legato });
@@ -127,15 +132,17 @@ fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, cha
                 c.label(pos2(end.x, end.y - 6.0), &t, color);
             }
         }
-        LinkType::Legato => {
+        LinkType::Legato | LinkType::Tied => {
             let (p0, p1) = (pos2(a.center().x, a.top() - 2.0), pos2(b.center().x, b.top() - 2.0));
             if (p1.x - p0.x).abs() < 6.0 {
                 return;
             }
             let ctrl = pos2((p0.x + p1.x) / 2.0, p0.y.min(p1.y) - 0.8 * gap);
             curve(c, [p0, ctrl, p1], color);
-            let text = if to.legato.is_some_and(|l| l.kind == Legato::PullOff) { "P" } else { "H" };
-            c.label(pos2(ctrl.x, 0.5 * ctrl.y + 0.25 * (p0.y + p1.y) - 1.0), text, color);
+            if link.kind == LinkType::Legato {
+                let text = if to.legato.is_some_and(|l| l.kind == Legato::PullOff) { "P" } else { "H" };
+                c.label(pos2(ctrl.x, 0.5 * ctrl.y + 0.25 * (p0.y + p1.y) - 1.0), text, color);
+            }
         }
         LinkType::Dashed => {}
     }

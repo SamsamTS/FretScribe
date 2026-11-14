@@ -107,7 +107,15 @@ pub enum Technique {
     Bend,
     Harmonic,
     PalmMute,
+    /// With `link_to`: this note is tied to the next one (same pitch, no interruption).
     Tie,
+}
+
+impl Technique {
+    /// Whether the technique only makes sense together with `Note::link_to`.
+    pub fn is_link(self) -> bool {
+        matches!(self, Self::Slide | Self::Bend | Self::Tie)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

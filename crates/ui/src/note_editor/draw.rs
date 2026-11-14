@@ -286,7 +286,7 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
     for &(a, b, kind) in &creation.links {
         let (ia, ib) = (index_of(a, &mut glyphs), index_of(b, &mut glyphs));
         match kind {
-            LinkType::Legato => glyphs[ib].legato_from = Some(ia),
+            LinkType::Legato | LinkType::Tied => glyphs[ib].legato_from = Some(ia),
             LinkType::Bend => glyphs[ia].link_to = Some((ib, LinkKind::Bend)),
             LinkType::Slide => glyphs[ia].link_to = Some((ib, LinkKind::Slide)),
             LinkType::Dashed => glyphs[ia].link_to = Some((ib, LinkKind::Dashed)),

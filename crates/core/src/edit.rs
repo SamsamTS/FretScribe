@@ -546,7 +546,7 @@ impl Project {
         for n in &mut self.notes {
             if n.link_to.is_some_and(|id| doomed.contains(&id)) {
                 n.link_to = None;
-                if matches!(n.technique, Some(Technique::Slide | Technique::Bend)) {
+                if n.technique.is_some_and(Technique::is_link) {
                     n.technique = None;
                 }
             }

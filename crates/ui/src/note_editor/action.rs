@@ -68,6 +68,7 @@ fn type_name(kind: LinkType) -> &'static str {
         LinkType::Slide => "Slide",
         LinkType::Bend => "Bend",
         LinkType::Legato => "Legato",
+        LinkType::Tied => "Tie",
         LinkType::Dashed => "No link",
     }
 }

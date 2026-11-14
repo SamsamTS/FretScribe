@@ -136,9 +136,9 @@ impl GraceEntry {
             LinkType::Slide => Some((1, LinkKind::Slide)),
             LinkType::Bend => Some((1, LinkKind::Bend)),
             LinkType::Dashed => Some((1, LinkKind::Dashed)),
-            LinkType::Legato => None,
+            LinkType::Legato | LinkType::Tied => None,
         };
-        let glyphs = vec![glyph(id, to_main, None)?, glyph(self.main, None, (link == LinkType::Legato).then_some(0))?];
+        let glyphs = vec![glyph(id, to_main, None)?, glyph(self.main, None, matches!(link, LinkType::Legato | LinkType::Tied).then_some(0))?];
         let label = self.placement(project).and_then(|(s, f)| candidate_label(&project.tuning, s, f)).unwrap_or_else(|| "?".into());
         let feedback = DrawFeedback { labels: vec![(glyphs[0].start_sec, self.midi, label)], ..DrawFeedback::default() };
         Some((GhostShape { glyphs }, feedback))

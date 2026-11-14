@@ -90,8 +90,7 @@ impl Project {
         (tail.id, tail.start, tail.legato) = (id, p.end, None);
         self.edit_note(o.id, |n| {
             n.end = p.start;
-            if n.link_to.take().is_some()
-                && matches!(n.technique, Some(Technique::Slide | Technique::Bend))
+            if n.link_to.take().is_some() && n.technique.is_some_and(Technique::is_link)
             {
                 n.technique = None;
             }

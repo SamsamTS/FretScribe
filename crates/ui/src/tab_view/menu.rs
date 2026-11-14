@@ -11,6 +11,7 @@ pub fn link_name(kind: LinkType) -> &'static str {
         LinkType::Slide => "Slide",
         LinkType::Bend => "Bend",
         LinkType::Legato => "Hammer-on / pull-off",
+        LinkType::Tied => "Tie",
         LinkType::Dashed => "Dashed (grace)",
     }
 }

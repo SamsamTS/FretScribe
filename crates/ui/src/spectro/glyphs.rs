@@ -116,18 +116,20 @@ pub struct GlyphItem {
 
 pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
     let legato_sources: Vec<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
+    let tie_of = |id: u64| notes.iter().find(|n| n.link_to == Some(id) && n.technique == Some(Technique::Tie)).map(|n| n.id);
     notes
         .iter()
         .filter_map(|n| {
             let kind = if matches!(n.technique, Some(Technique::Bend)) { LinkKind::Bend } else { LinkKind::Slide };
+            let tied = n.technique == Some(Technique::Tie);
             let dashed = (n.grace_of.is_some() && n.link_to.is_none() && !legato_sources.contains(&n.id)).then(|| grace_target_of(notes, times, n.id)).flatten();
             Some(GlyphItem {
                 id: n.id,
                 midi: n.midi,
                 start_sec: times.start_sec(n.id)?,
                 end_sec: times.end_sec(n.id)?,
-                link: n.link_to.map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
-                legato_from: n.legato.map(|l| l.from),
+                link: n.link_to.filter(|_| !tied).map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
+                legato_from: n.legato.map(|l| l.from).or_else(|| tie_of(n.id)),
                 grace: n.grace_of.is_some(),
             })
         })
