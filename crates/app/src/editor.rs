@@ -72,6 +72,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         });
     });
     let notation_rect = panel.response.rect;
+    let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
+    GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);
 
     // Lanes: time ruler then one lane per track.
     let mut grid_events = Vec::new();
@@ -86,7 +88,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         seek_origin = ruler.left_top();
         let (_, content_px) = s.lanes.strips(ctx, &s.project);
         let nav = NavContext {
-            regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max), lanes },
+            // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
+            regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes },
             map: &tempo,
             audio_len_sec: audio_len,
             content_px,

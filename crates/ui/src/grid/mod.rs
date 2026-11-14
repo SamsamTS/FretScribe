@@ -141,6 +141,20 @@ impl<'a> GridOverlay<'a> {
         parts.into_iter().filter(|r| r.width() > 0.0 && r.height() > 0.0).collect()
     }
 
+    /// Only the measure lines, in the grid's own style and thickness, for panels that share the
+    /// timeline (sheet, tab) but draw no barlines of their own. Takes no input.
+    pub fn paint_measure_lines(painter: &egui::Painter, tempo: &TempoMap, view: &TimelineView, rect: Rect) {
+        let style = GridStyle::default();
+        let mut batch = LineBatch::new(painter.ctx().pixels_per_point());
+        for m in tempo.measures() {
+            let x = rect.left() + view.sec_to_x(m.start_sec);
+            if x >= rect.left() && x <= rect.right() {
+                batch.solid(x, rect.top(), rect.bottom(), 2.0, style.measure);
+            }
+        }
+        painter.add(batch.into_shape());
+    }
+
     fn x_of(&self, rect: Rect, sec: f64) -> f32 {
         rect.left() + self.view.sec_to_x(sec)
     }

@@ -254,12 +254,6 @@ impl TabView<'_> {
 
         // The first note sits on the left edge of the timeline: let its number overlap the label column.
         let painter = ui.painter_at(Rect::from_min_max(pos2(body.left() - 16.0, body.top()), body.max));
-        for m in &project.measures {
-            let x = geo.x(view, m.start_sec).round();
-            if x >= body.left() - 1.0 && x <= body.right() {
-                painter.vline(x, geo.y(n as u8 - 1)..=geo.y(0), Stroke::new(1.0_f32, st.ink.gamma_multiply(0.55)));
-            }
-        }
         let ctx = draw::Ctx { p: &painter, geo: &geo, view, st, project, times: self.times, selected: self.selected, now, width: body.width() };
         let heads = draw::notes(&ctx, &state.flashes);
         if let (true, Some(layout)) = (state.show_stems, self.staff) {
