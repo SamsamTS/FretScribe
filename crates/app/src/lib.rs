@@ -12,3 +12,15 @@ pub mod jobs;
 pub mod home;
 pub mod form_ui;
 pub mod session;
+pub mod editor;
+pub mod toolbar;
+
+/// What the editor asks the shell to do (dialogs and screen changes live there).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Request {
+    Home,
+    AddTrack,
+    Open,
+    Save,
+    SaveAs,
+}

@@ -92,6 +92,12 @@ pub struct Session {
     pub synced: Vec<PlayerCall>,
     pub audio_len_sec: f64,
     pub hints: Hints,
+    pub snap_on: bool,
+    pub ref_text: String,
+    pub synth_on: bool,
+    pub synth_synced: bool,
+    pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
+    pub pending_delete: Option<fretscribe_ui::GridEvent>,
     pub tempo_choices: Vec<(f64, f64)>,
     pub pitch_result: Option<fretscribe_analysis::pitchref::PitchRefEstimate>,
 }
@@ -162,6 +168,12 @@ impl Session {
             synced: Vec::new(),
             audio_len_sec,
             hints: Hints::default(),
+            snap_on: true,
+            ref_text: String::new(),
+            synth_on: false,
+            synth_synced: false,
+            exact: None,
+            pending_delete: None,
             tempo_choices: Vec::new(),
             pitch_result: None,
             ui,
@@ -441,6 +453,23 @@ impl Session {
         }
         self.shift_track(id, best.offset_sec, false, false);
         self.toast(format!("Track '{name}' aligned: {:+.1} ms (confidence {:.0}%)", best.offset_sec * 1000.0, best.confidence * 100.0), false);
+    }
+
+    pub fn jobs_running(&self) -> bool {
+        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty() || !self.loads.is_empty()
+    }
+
+    /// One undoable step: re-solves the string/fret of every note that is not locked.
+    pub fn reinfer_tab(&mut self) {
+        let opts = self.tab_opts.clone();
+        self.edit("Re-infer tab", |p| {
+            let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+            let (tuning, capo) = (p.tuning.clone(), p.capo);
+            let unplaced = assign_tabs(&mut p.notes, &times, &tuning, capo, &opts);
+            Ok::<_, std::convert::Infallible>(unplaced)
+        })
+        .filter(|u| !u.is_empty())
+        .map(|u| self.toast(format!("{} notes cannot be played in this tuning", u.len()), true));
     }
 
     // ---- player --------------------------------------------------------------------------
