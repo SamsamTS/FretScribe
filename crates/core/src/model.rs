@@ -27,7 +27,8 @@ impl TimeSignature {
     }
 
     pub fn is_valid(self) -> bool {
-        (1..=64).contains(&self.numerator) && matches!(self.denominator, 1 | 2 | 4 | 8 | 16 | 32 | 64)
+        (1..=64).contains(&self.numerator)
+            && matches!(self.denominator, 1 | 2 | 4 | 8 | 16 | 32 | 64)
     }
 
     pub fn beats(self) -> f64 {
@@ -182,6 +183,9 @@ pub struct Track {
     pub color: [u8; 3],
     pub role: TrackRole,
     pub audio_path: Option<PathBuf>,
+    /// Path relative to the project file, tried before `audio_path` (set on save).
+    #[serde(default)]
+    pub audio_rel_path: Option<PathBuf>,
     pub offset_sec: f64,
     pub volume: f32,
     pub muted: bool,
@@ -206,6 +210,7 @@ impl Track {
             color,
             role,
             audio_path: None,
+            audio_rel_path: None,
             offset_sec: 0.0,
             volume: 1.0,
             muted: false,
@@ -260,12 +265,7 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn new(
-        first_track: Track,
-        audio_len_sec: f64,
-        bpm: f64,
-        time_sig: TimeSignature,
-    ) -> Self {
+    pub fn new(first_track: Track, audio_len_sec: f64, bpm: f64, time_sig: TimeSignature) -> Self {
         let mut next_measure_id = 1;
         let measures = generate_measures(0.0, audio_len_sec, bpm, time_sig, &mut next_measure_id);
         Self {
@@ -324,7 +324,10 @@ impl Project {
                 return invalid(format!("measure id {} is not below next_measure_id", m.id));
             }
             if !m.time_sig.is_valid() || !(MIN_BPM..=MAX_BPM).contains(&m.tempo_bpm) {
-                return invalid(format!("measure {} has an invalid tempo or time signature", m.id));
+                return invalid(format!(
+                    "measure {} has an invalid tempo or time signature",
+                    m.id
+                ));
             }
         }
         let mut note_ids = HashSet::new();

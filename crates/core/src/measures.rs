@@ -24,8 +24,16 @@ pub fn generate_measures(
     time_sig: TimeSignature,
     next_measure_id: &mut u64,
 ) -> Vec<Measure> {
-    let bpm = if bpm.is_finite() { bpm.clamp(MIN_BPM, MAX_BPM) } else { 120.0 };
-    let time_sig = if time_sig.is_valid() { time_sig } else { TimeSignature::COMMON };
+    let bpm = if bpm.is_finite() {
+        bpm.clamp(MIN_BPM, MAX_BPM)
+    } else {
+        120.0
+    };
+    let time_sig = if time_sig.is_valid() {
+        time_sig
+    } else {
+        TimeSignature::COMMON
+    };
     let duration = time_sig.beats() * 60.0 / bpm;
     let span = (audio_len_sec - start_sec) / duration;
     let count = if span.is_finite() {
@@ -169,7 +177,10 @@ pub(crate) mod tests {
         let ms = generate_measures(0.5, 10.0, 120.0, TimeSignature::COMMON, &mut next);
         assert_eq!(ms.len(), 5);
         assert_eq!(next, 15);
-        assert_eq!(ms.iter().map(|m| m.id).collect::<Vec<_>>(), [10, 11, 12, 13, 14]);
+        assert_eq!(
+            ms.iter().map(|m| m.id).collect::<Vec<_>>(),
+            [10, 11, 12, 13, 14]
+        );
         close(ms[0].start_sec, 0.5);
         close(ms[4].start_sec, 8.5);
         assert!(ms.iter().all(|m| !m.anchored));
@@ -187,8 +198,14 @@ pub(crate) mod tests {
     #[test]
     fn generate_degenerate_inputs() {
         let mut next = 1;
-        assert_eq!(generate_measures(0.0, 0.0, 120.0, TimeSignature::COMMON, &mut next).len(), 1);
-        assert_eq!(generate_measures(5.0, 1.0, 120.0, TimeSignature::COMMON, &mut next).len(), 1);
+        assert_eq!(
+            generate_measures(0.0, 0.0, 120.0, TimeSignature::COMMON, &mut next).len(),
+            1
+        );
+        assert_eq!(
+            generate_measures(5.0, 1.0, 120.0, TimeSignature::COMMON, &mut next).len(),
+            1
+        );
         let ms = generate_measures(0.0, 4.0, 0.0, TimeSignature::new(0, 3), &mut next);
         assert_eq!(ms[0].time_sig, TimeSignature::COMMON);
         assert_eq!(ms[0].tempo_bpm, MIN_BPM);
@@ -231,12 +248,15 @@ pub(crate) mod tests {
     #[test]
     fn single_time_sig_edit_leaves_equal_followers_alone() {
         let mut ms = grid(&[120.0; 3]);
-        let range = set_time_sig_scoped(&mut ms, 1, TimeSignature::new(3, 4), Propagation::Single).unwrap();
+        let range =
+            set_time_sig_scoped(&mut ms, 1, TimeSignature::new(3, 4), Propagation::Single).unwrap();
         assert_eq!(range, 1..2);
         assert_eq!(ms[1].time_sig, TimeSignature::new(3, 4));
         assert_eq!(ms[2].time_sig, TimeSignature::COMMON);
         close(ms[2].start_sec, 3.5);
-        assert!(set_time_sig_scoped(&mut ms, 0, TimeSignature::new(4, 3), Propagation::Single).is_err());
+        assert!(
+            set_time_sig_scoped(&mut ms, 0, TimeSignature::new(4, 3), Propagation::Single).is_err()
+        );
     }
 
     #[test]
@@ -297,7 +317,10 @@ pub(crate) mod tests {
     #[test]
     fn tempo_validation() {
         let mut ms = grid(&[120.0]);
-        assert_eq!(set_tempo(&mut ms, 0, 0.0), Err(EditError::InvalidTempo(0.0)));
+        assert_eq!(
+            set_tempo(&mut ms, 0, 0.0),
+            Err(EditError::InvalidTempo(0.0))
+        );
         assert!(set_tempo(&mut ms, 0, f64::NAN).is_err());
         assert!(set_tempo(&mut ms, 0, 9.0).is_err());
         assert!(set_tempo(&mut ms, 0, 501.0).is_err());
@@ -315,7 +338,10 @@ pub(crate) mod tests {
         ms[4].time_sig = TimeSignature::new(4, 4);
         let range = set_time_sig(&mut ms, 1, TimeSignature::new(6, 8)).unwrap();
         assert_eq!(range, 1..3);
-        let sigs: Vec<(u8, u8)> = ms.iter().map(|m| (m.time_sig.numerator, m.time_sig.denominator)).collect();
+        let sigs: Vec<(u8, u8)> = ms
+            .iter()
+            .map(|m| (m.time_sig.numerator, m.time_sig.denominator))
+            .collect();
         assert_eq!(sigs, [(4, 4), (6, 8), (6, 8), (3, 4), (4, 4)]);
     }
 

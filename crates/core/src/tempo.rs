@@ -50,7 +50,11 @@ impl TempoMap {
                 }
             })
             .collect();
-        let ids = measures.iter().enumerate().map(|(i, m)| (m.id, i)).collect();
+        let ids = measures
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (m.id, i))
+            .collect();
         Self {
             measures: measures.to_vec(),
             beats,
@@ -147,7 +151,11 @@ impl TempoMap {
             beat = (beat - self.beats[i]).max(0.0);
             i += 1;
         }
-        let id = if beat < 0.0 { first.id } else { self.measures[i].id };
+        let id = if beat < 0.0 {
+            first.id
+        } else {
+            self.measures[i].id
+        };
         TimePos::new(id, crate::snap_note::on_lattice(beat))
     }
 
@@ -181,7 +189,8 @@ impl TempoMap {
     pub fn beat_lines(&self, i: usize) -> Vec<BeatLine> {
         let sig = self.measures[i].time_sig;
         let unit = 4.0 / f64::from(sig.denominator);
-        let group = if sig.denominator >= 8 && sig.numerator > 3 && sig.numerator.is_multiple_of(3) {
+        let group = if sig.denominator >= 8 && sig.numerator > 3 && sig.numerator.is_multiple_of(3)
+        {
             3
         } else {
             1
@@ -202,7 +211,14 @@ impl TempoMap {
             if beat >= len - BEAT_EPS {
                 break;
             }
-            lines.push(line(beat, if k == 0 { BeatKind::Measure } else { BeatKind::MainBeat }));
+            lines.push(line(
+                beat,
+                if k == 0 {
+                    BeatKind::Measure
+                } else {
+                    BeatKind::MainBeat
+                },
+            ));
             if group > 1 {
                 for g in 1..group {
                     lines.push(line(beat + f64::from(g) * unit, BeatKind::Subdivision));
@@ -388,7 +404,16 @@ mod tests {
         use BeatKind::*;
         assert_eq!(
             kinds,
-            [Measure, Subdivision, MainBeat, Subdivision, MainBeat, Subdivision, MainBeat, Subdivision]
+            [
+                Measure,
+                Subdivision,
+                MainBeat,
+                Subdivision,
+                MainBeat,
+                Subdivision,
+                MainBeat,
+                Subdivision
+            ]
         );
         close(lines[0].time_sec, 0.0);
         close(lines[1].time_sec, 0.25);
@@ -409,7 +434,13 @@ mod tests {
             .collect();
         assert_eq!(mains.len(), 2);
         close(mains[1], 0.75);
-        assert_eq!(lines.iter().filter(|l| l.kind == BeatKind::Subdivision).count(), 4);
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|l| l.kind == BeatKind::Subdivision)
+                .count(),
+            4
+        );
         close(lines[1].time_sec, 0.25);
     }
 

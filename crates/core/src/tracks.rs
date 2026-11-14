@@ -113,7 +113,8 @@ mod tests {
     use super::*;
     use crate::measures::tests::close;
     use crate::model::{
-        GraceKind, GraceNote, Legato, LegatoLink, Note, TimePos, TimeSignature, Technique, TrackRole,
+        GraceKind, GraceNote, Legato, LegatoLink, Note, Technique, TimePos, TimeSignature,
+        TrackRole,
     };
 
     fn project() -> Project {
@@ -189,7 +190,9 @@ mod tests {
     #[test]
     fn note_ids_are_unique_across_the_project() {
         let mut p = project();
-        let ids: Vec<u64> = (0..5).map(|_| add_note(&mut p, (1, 0.0), (1, 1.0))).collect();
+        let ids: Vec<u64> = (0..5)
+            .map(|_| add_note(&mut p, (1, 0.0), (1, 1.0)))
+            .collect();
         assert_eq!(ids, [1, 2, 3, 4, 5]);
         assert_eq!(next_note_id(&p), 6);
         p.validate().unwrap();
@@ -257,7 +260,10 @@ mod tests {
         let mut p = project();
         let main = add_note(&mut p, (2, 1.0), (2, 2.0));
         let grace = add_note(&mut p, (2, 0.9), (2, 1.0));
-        p.notes[1].grace_of = Some(GraceNote { main, kind: GraceKind::Acciaccatura });
+        p.notes[1].grace_of = Some(GraceNote {
+            main,
+            kind: GraceKind::Acciaccatura,
+        });
         let before = [secs(&p, main), secs(&p, grace)];
         let edit = shift_track(&mut p, 1, 0.3, true).unwrap();
         close(p.tracks[0].offset_sec, 0.3);
@@ -333,7 +339,10 @@ mod tests {
     fn shift_rejects_bad_input_without_side_effects() {
         let mut p = project();
         let before = p.clone();
-        assert_eq!(shift_track(&mut p, 9, 1.0, true).unwrap_err(), EditError::UnknownTrack(9));
+        assert_eq!(
+            shift_track(&mut p, 9, 1.0, true).unwrap_err(),
+            EditError::UnknownTrack(9)
+        );
         assert!(shift_track(&mut p, 1, f64::NAN, true).is_err());
         assert!(shift_track(&mut p, 1, f64::INFINITY, true).is_err());
         assert_eq!(p, before);
@@ -359,18 +368,33 @@ mod tests {
         p.notes[1].link_to = Some(c);
         p.notes[1].string_fret = Some((2, 7));
         p.notes[1].locked_fret = true;
-        p.notes[2].grace_of = Some(GraceNote { main: c, kind: GraceKind::Appoggiatura });
-        p.notes[3].legato = Some(LegatoLink { kind: Legato::PullOff, from: g });
+        p.notes[2].grace_of = Some(GraceNote {
+            main: c,
+            kind: GraceKind::Appoggiatura,
+        });
+        p.notes[3].legato = Some(LegatoLink {
+            kind: Legato::PullOff,
+            from: g,
+        });
         p.notes[0].technique = Some(Technique::PalmMute);
         assert!(p.note(a).is_some() && p.note(b).is_some());
 
         let json = serde_json::to_string_pretty(&p).unwrap();
         let back: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(back, p);
-        assert_eq!(back.notes[3].legato, Some(LegatoLink { kind: Legato::PullOff, from: g }));
+        assert_eq!(
+            back.notes[3].legato,
+            Some(LegatoLink {
+                kind: Legato::PullOff,
+                from: g
+            })
+        );
         assert_eq!(
             back.notes[2].grace_of,
-            Some(GraceNote { main: c, kind: GraceKind::Appoggiatura })
+            Some(GraceNote {
+                main: c,
+                kind: GraceKind::Appoggiatura
+            })
         );
         back.validate().unwrap();
     }

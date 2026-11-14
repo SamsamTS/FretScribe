@@ -104,3 +104,16 @@ Modules are not re-exported at the crate root.
 - `Project::set_reference(hz) -> Result<ProjectEdit, CoreError>` (validated); `UndoError::Diverged`; `ProjectEdit::{try_undo, try_redo, weight}` (`undo`/`redo` apply nothing on divergence). `UndoStack::undo/redo` clear the history on divergence and return `None`; `take_diverged()` is true once so the app can toast.
 - `UndoPolicy { min_entries: 20, per_level: 3, max_entries: 200 }` (serde; keep it in the app settings): `UndoStack::{with_policy, set_policy}` (applies at the next push), `with_limit(n)` sets `max_entries` (`min_entries` is lowered below it when needed). Old history is thinned on a log scale; `undo_weight()` / `redo_weight()` give the steps an entry covers.
 - `UndoStack::{to_saved, from_saved(saved, &project, policy)}`, `SavedHistory`, `ProjectFile::history` (optional, no version bump; the app sets it before saving only if the history is kept with the project, and takes it after loading; autosave carries it too). `from_saved` never fails: it keeps the newest run that replays and validates; an unreadable `history` is dropped by `from_json`.
+
+## 2026-11-12 - core: UiState display/focus fields, relative audio path (Prompt 11)
+
+- `UiState` gains `focus_enabled` (false), `focus_strength` (0.5), `spectro_black` (0.0), `spectro_white` (1.0), `spectro_gamma` (1.0), `lut_name` ("Classic"), all `#[serde(default)]`; `UiState::sanitise` (called by `from_json`) clamps them (`LEVELS_MIN_GAP`, `GAMMA_RANGE` mirror the analysis constants). They are not undoable. The identity defaults keep old files unchanged; the app starts NEW projects from `analysis::APP_WHITE` / `APP_GAMMA`.
+- `Track::audio_rel_path` (serde default): path relative to the project file, tried before `audio_path`; the app fills it on save.
+
+## 2026-11-13 - audio: tag reading (Prompt 11)
+
+- `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
+
+## 2026-11-14 - app crate (Prompt 11)
+
+No contract change in other crates beyond the 2026-11-12 entry and `audio::read_tags` (Prompt 11/11a). The app adds `fretscribe_app` (lib: settings, autosave, luts, paths, player_sync, form, form_ui, home, store, loader, jobs, session, editor, toolbar, app) and the `fretscribe` binary. Project files use the `.fretscribe` extension.

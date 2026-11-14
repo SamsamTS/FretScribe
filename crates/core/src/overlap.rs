@@ -23,7 +23,10 @@ impl Project {
         let mut placed = placed.to_vec();
         let moved = self.tie_links(&placed);
         for id in placed.clone() {
-            let partners = [self.outgoing(id), self.incoming(id)].into_iter().flatten().map(|(p, _)| p);
+            let partners = [self.outgoing(id), self.incoming(id)]
+                .into_iter()
+                .flatten()
+                .map(|(p, _)| p);
             placed.extend(partners);
         }
         placed.extend(moved);
@@ -34,7 +37,9 @@ impl Project {
         let keep: HashSet<u64> = placed.iter().copied().collect();
         let mut doomed = HashSet::new();
         for &pid in &placed {
-            let Some(p) = self.note(pid).cloned() else { continue };
+            let Some(p) = self.note(pid).cloned() else {
+                continue;
+            };
             let (ps, pe) = (beats(p.start), beats(p.end));
             let hits: Vec<Note> = self
                 .notes
@@ -85,7 +90,9 @@ impl Project {
         (tail.id, tail.start, tail.legato) = (id, p.end, None);
         self.edit_note(o.id, |n| {
             n.end = p.start;
-            if n.link_to.take().is_some() && matches!(n.technique, Some(Technique::Slide | Technique::Bend)) {
+            if n.link_to.take().is_some()
+                && matches!(n.technique, Some(Technique::Slide | Technique::Bend))
+            {
                 n.technique = None;
             }
         });
@@ -105,17 +112,32 @@ mod tests {
     use crate::LinkType;
 
     fn project() -> Project {
-        Project::new(Track::new(1, "Guitar", TrackRole::Guitar), 8.0, 120.0, TimeSignature::COMMON)
+        Project::new(
+            Track::new(1, "Guitar", TrackRole::Guitar),
+            8.0,
+            120.0,
+            TimeSignature::COMMON,
+        )
     }
 
     fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
         let id = next_note_id(p);
-        p.notes.push(Note::new(id, midi, TimePos::new(1, start), TimePos::new(1, end)));
+        p.notes.push(Note::new(
+            id,
+            midi,
+            TimePos::new(1, start),
+            TimePos::new(1, end),
+        ));
         id
     }
 
     fn spans(p: &Project, midi: u8) -> Vec<(f64, f64)> {
-        let mut v: Vec<_> = p.notes.iter().filter(|n| n.midi == midi).map(|n| (n.start.beat, n.end.beat)).collect();
+        let mut v: Vec<_> = p
+            .notes
+            .iter()
+            .filter(|n| n.midi == midi)
+            .map(|n| (n.start.beat, n.end.beat))
+            .collect();
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         v
     }
@@ -123,11 +145,18 @@ mod tests {
     #[test]
     fn overlapped_notes_are_cut_split_or_removed_and_other_pitches_stay() {
         let mut p = project();
-        let (a, b, c) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 60, 1.0, 2.0), add(&mut p, 60, 3.0, 3.5));
+        let (a, b, c) = (
+            add(&mut p, 60, 0.0, 1.0),
+            add(&mut p, 60, 1.0, 2.0),
+            add(&mut p, 60, 3.0, 3.5),
+        );
         let other = add(&mut p, 64, 0.0, 4.0);
         let by_end = add(&mut p, 60, 0.5, 1.5);
         p.resolve_overlaps(&[by_end]);
-        assert_eq!(spans(&p, 60), [(0.0, 0.5), (0.5, 1.5), (1.5, 2.0), (3.0, 3.5)]);
+        assert_eq!(
+            spans(&p, 60),
+            [(0.0, 0.5), (0.5, 1.5), (1.5, 2.0), (3.0, 3.5)]
+        );
         assert!(p.note(a).is_some() && p.note(b).is_some() && p.note(c).is_some());
         assert_eq!(p.note(other).unwrap().end.beat, 4.0);
 
@@ -140,13 +169,22 @@ mod tests {
     #[test]
     fn a_note_in_the_middle_splits_the_one_under_it_and_the_tail_keeps_the_links() {
         let mut p = project();
-        let (a, long, next) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 4.0), add(&mut p, 65, 4.0, 5.0));
+        let (a, long, next) = (
+            add(&mut p, 60, 0.0, 1.0),
+            add(&mut p, 62, 1.0, 4.0),
+            add(&mut p, 65, 4.0, 5.0),
+        );
         p.link_notes(a, long, LinkType::Legato).unwrap();
         p.link_notes(long, next, LinkType::Legato).unwrap();
         let mid = add(&mut p, 62, 2.0, 3.0);
         p.resolve_overlaps(&[mid]);
         assert_eq!(spans(&p, 62), [(1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]);
-        let tail = p.notes.iter().find(|n| n.midi == 62 && n.start.beat == 3.0).unwrap().id;
+        let tail = p
+            .notes
+            .iter()
+            .find(|n| n.midi == 62 && n.start.beat == 3.0)
+            .unwrap()
+            .id;
         assert_eq!(p.note(next).unwrap().legato.map(|l| l.from), Some(tail));
         assert_eq!(p.note(long).unwrap().legato.map(|l| l.from), Some(a));
         assert!(p.note(tail).unwrap().legato.is_none());

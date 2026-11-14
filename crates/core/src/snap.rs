@@ -105,7 +105,9 @@ impl SnapGrid {
 
 impl Default for SnapGrid {
     fn default() -> Self {
-        Self { divisions: vec![4, 3] }
+        Self {
+            divisions: vec![4, 3],
+        }
     }
 }
 
@@ -118,7 +120,11 @@ impl TempoMap {
         }
         let (i, beat) = self.sec_to_beat_position(sec);
         let len = self.beats[i];
-        let limit = if i + 1 == self.len() { len.max(beat.ceil()) } else { len };
+        let limit = if i + 1 == self.len() {
+            len.max(beat.ceil())
+        } else {
+            len
+        };
 
         let mut best = (f64::INFINITY, 0.0);
         let mut consider = |candidate: f64| {
@@ -163,7 +169,12 @@ impl TempoMap {
         let spb = self.sec_per_beat[i];
         by_position
             .into_iter()
-            .map(|(units, d)| (start + f64::from(units) / f64::from(UNITS_PER_BEAT) * spb, d))
+            .map(|(units, d)| {
+                (
+                    start + f64::from(units) / f64::from(UNITS_PER_BEAT) * spb,
+                    d,
+                )
+            })
             .collect()
     }
 }
@@ -194,12 +205,34 @@ mod tests {
         let names: Vec<&str> = presets.iter().map(|p| p.name).collect();
         assert_eq!(
             names,
-            ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T", "1/8 + 1/8T", "1/16 + 1/8T", "1/16 + 1/16T"]
+            [
+                "1/4",
+                "1/8",
+                "1/8T",
+                "1/16",
+                "1/16T",
+                "1/32",
+                "1/32T",
+                "1/8 + 1/8T",
+                "1/16 + 1/8T",
+                "1/16 + 1/16T"
+            ]
         );
         let divisions: Vec<Vec<u8>> = presets.iter().map(|p| p.grid.divisions.clone()).collect();
         assert_eq!(
             divisions,
-            [vec![1], vec![2], vec![3], vec![4], vec![6], vec![8], vec![12], vec![2, 3], vec![4, 3], vec![4, 6]]
+            [
+                vec![1],
+                vec![2],
+                vec![3],
+                vec![4],
+                vec![6],
+                vec![8],
+                vec![12],
+                vec![2, 3],
+                vec![4, 3],
+                vec![4, 6]
+            ]
         );
         assert!(presets.iter().any(|p| p.grid == SnapGrid::default()));
     }

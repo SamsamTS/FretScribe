@@ -62,7 +62,11 @@ impl<T> Change<T> {
     }
 
     fn expected(&self, undo: bool) -> &T {
-        if undo { &self.after } else { &self.before }
+        if undo {
+            &self.after
+        } else {
+            &self.before
+        }
     }
 
     fn target(&self, undo: bool) -> &T {
@@ -70,7 +74,11 @@ impl<T> Change<T> {
     }
 
     /// First `before`, last `after`; `None` when they end up equal.
-    fn compose(first: Option<Self>, later: Option<Self>, same: impl Fn(&T, &T) -> bool) -> Option<Self> {
+    fn compose(
+        first: Option<Self>,
+        later: Option<Self>,
+        same: impl Fn(&T, &T) -> bool,
+    ) -> Option<Self> {
         match (first, later) {
             (Some(a), Some(b)) => Self::new(a.before, b.after, same),
             (a, b) => a.or(b),
@@ -123,10 +131,21 @@ impl Delta {
             .into_iter()
             .filter_map(|id| {
                 let (b, a) = (old.get(&id).copied(), new.get(&id).copied());
-                (a != b).then(|| (id, Change { before: b.cloned(), after: a.cloned() }))
+                (a != b).then(|| {
+                    (
+                        id,
+                        Change {
+                            before: b.cloned(),
+                            after: a.cloned(),
+                        },
+                    )
+                })
             })
             .collect();
-        let grid = |measures: &[Measure], next_id| Grid { measures: measures.to_vec(), next_id };
+        let grid = |measures: &[Measure], next_id| Grid {
+            measures: measures.to_vec(),
+            next_id,
+        };
         Self {
             notes,
             tracks: Change::new(before.tracks.clone(), after.tracks.clone(), same_tracks),
@@ -147,7 +166,9 @@ impl Delta {
         let mut notes: BTreeMap<u64, Change<Option<Note>>> = self.notes.into_iter().collect();
         for (id, c) in later.notes {
             match notes.remove(&id) {
-                Some(first) => notes.extend(Change::new(first.before, c.after, Option::eq).map(|c| (id, c))),
+                Some(first) => {
+                    notes.extend(Change::new(first.before, c.after, Option::eq).map(|c| (id, c)))
+                }
                 None => {
                     notes.insert(id, c);
                 }
@@ -166,11 +187,20 @@ impl Delta {
 
     /// Every touched item must currently equal what the delta expects.
     fn expects(&self, p: &Project, undo: bool) -> bool {
-        let note_at = |id: u64| p.notes.binary_search_by_key(&id, |n| n.id).ok().map(|i| &p.notes[i]);
-        self.notes.iter().all(|(id, c)| note_at(*id) == c.expected(undo).as_ref())
+        let note_at = |id: u64| {
+            p.notes
+                .binary_search_by_key(&id, |n| n.id)
+                .ok()
+                .map(|i| &p.notes[i])
+        };
+        self.notes
+            .iter()
+            .all(|(id, c)| note_at(*id) == c.expected(undo).as_ref())
             && holds(&self.tracks, undo, |t| same_tracks(&p.tracks, t))
             && holds(&self.source_track, undo, |s| p.source_track == *s)
-            && holds(&self.grid, undo, |g| p.measures == g.measures && p.next_measure_id == g.next_id)
+            && holds(&self.grid, undo, |g| {
+                p.measures == g.measures && p.next_measure_id == g.next_id
+            })
             && holds(&self.tuning, undo, |t| p.tuning == *t)
             && holds(&self.capo, undo, |c| p.capo == *c)
             && holds(&self.reference_hz, undo, |r| p.reference_hz == *r)
@@ -196,7 +226,12 @@ impl Delta {
             p.tracks = c
                 .target(undo)
                 .iter()
-                .map(|t| current.iter().find(|x| x.id == t.id).map_or_else(|| t.clone(), |x| t.with_live_of(x)))
+                .map(|t| {
+                    current
+                        .iter()
+                        .find(|x| x.id == t.id)
+                        .map_or_else(|| t.clone(), |x| t.with_live_of(x))
+                })
                 .collect();
         }
         if let Some(c) = &self.source_track {
@@ -227,7 +262,12 @@ pub(crate) mod tests {
     use crate::tracks::{next_note_id, shift_track};
 
     pub fn project() -> Project {
-        let mut p = Project::new(Track::new(1, "Guitar", TrackRole::Guitar), 8.0, 120.0, TimeSignature::COMMON);
+        let mut p = Project::new(
+            Track::new(1, "Guitar", TrackRole::Guitar),
+            8.0,
+            120.0,
+            TimeSignature::COMMON,
+        );
         p.add_track(Track::new(0, "Drums", TrackRole::Drums));
         p.add_track(Track::new(0, "Bass", TrackRole::Bass));
         p
@@ -236,7 +276,12 @@ pub(crate) mod tests {
     pub fn add_note(p: &mut Project, midi: u8) -> ProjectEdit {
         p.edit_notes("Add note", |p| {
             let id = next_note_id(p);
-            p.notes.push(Note::new(id, midi, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+            p.notes.push(Note::new(
+                id,
+                midi,
+                TimePos::new(1, 0.0),
+                TimePos::new(1, 1.0),
+            ));
             Ok(())
         })
         .unwrap()
@@ -274,7 +319,11 @@ pub(crate) mod tests {
         p.tracks[2].solo = true;
         p.tracks[0].spectrogram_collapsed = true;
         let live_now = |p: &Project| -> Vec<_> {
-            let mut v: Vec<_> = p.tracks.iter().map(|t| (t.id, t.volume, t.muted, t.solo, t.spectrogram_collapsed)).collect();
+            let mut v: Vec<_> = p
+                .tracks
+                .iter()
+                .map(|t| (t.id, t.volume, t.muted, t.solo, t.spectrogram_collapsed))
+                .collect();
             v.sort_by_key(|t| t.0);
             v
         };
@@ -309,7 +358,10 @@ pub(crate) mod tests {
         assert_eq!(p.source_track, 2);
         edit.undo(&mut p);
         assert_eq!(p.source_track, 1);
-        assert_eq!((p.tracks[0].id, p.tracks[0].volume, p.tracks[0].muted), (1, 0.7, true));
+        assert_eq!(
+            (p.tracks[0].id, p.tracks[0].volume, p.tracks[0].muted),
+            (1, 0.7, true)
+        );
     }
 
     #[test]
@@ -318,7 +370,10 @@ pub(crate) mod tests {
         add_note(&mut p, 60);
         let before = p.clone();
         let edit = p.set_reference(432.0).unwrap();
-        assert_eq!((p.reference_hz, p.notes.clone()), (432.0, before.notes.clone()));
+        assert_eq!(
+            (p.reference_hz, p.notes.clone()),
+            (432.0, before.notes.clone())
+        );
         edit.undo(&mut p);
         assert_eq!(p, before);
         edit.redo(&mut p);
@@ -352,15 +407,19 @@ pub(crate) mod tests {
     #[test]
     fn deltas_are_a_small_fraction_of_a_snapshot() {
         let mut p = project();
-        p.notes = (1..=3000).map(|id| Note::new(id, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0))).collect();
+        p.notes = (1..=3000)
+            .map(|id| Note::new(id, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0)))
+            .collect();
         let snapshot = serde_json::to_string(&p).unwrap().len();
         let total: usize = (0..200u64)
             .map(|k| {
                 let at = (1 + k * 10) as usize - 1;
-                let edit = p.edit_notes("Transpose", |p| {
-                    p.notes[at].midi = 61 + (k % 5) as u8;
-                    Ok(())
-                }).unwrap();
+                let edit = p
+                    .edit_notes("Transpose", |p| {
+                        p.notes[at].midi = 61 + (k % 5) as u8;
+                        Ok(())
+                    })
+                    .unwrap();
                 serde_json::to_string(&edit).unwrap().len()
             })
             .sum();
@@ -371,7 +430,10 @@ pub(crate) mod tests {
 
     impl Lcg {
         fn next(&mut self, n: usize) -> usize {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (self.0 >> 33) as usize % n
         }
     }
@@ -385,10 +447,19 @@ pub(crate) mod tests {
             let m = rng.next(p.measures.len());
             let edit = match rng.next(9) {
                 0..=2 => {
-                    let (id, beat, midi) = (p.measures[m].id, rng.next(4) as f64, 40 + rng.next(40) as u8);
+                    let (id, beat, midi) = (
+                        p.measures[m].id,
+                        rng.next(4) as f64,
+                        40 + rng.next(40) as u8,
+                    );
                     p.edit_notes("Add note", |p| {
                         let n = next_note_id(p);
-                        p.notes.push(Note::new(n, midi, TimePos::new(id, beat), TimePos::new(id, beat + 0.5)));
+                        p.notes.push(Note::new(
+                            n,
+                            midi,
+                            TimePos::new(id, beat),
+                            TimePos::new(id, beat + 0.5),
+                        ));
                         Ok(())
                     })
                     .unwrap()
@@ -397,9 +468,13 @@ pub(crate) mod tests {
                     let id = p.notes[rng.next(p.notes.len())].id;
                     p.remove_notes(&[id])
                 }
-                4 => p.set_tempo(m, 60.0 + rng.next(100) as f64, NotePolicy::FollowGrid).unwrap(),
+                4 => p
+                    .set_tempo(m, 60.0 + rng.next(100) as f64, NotePolicy::FollowGrid)
+                    .unwrap(),
                 5 => p.insert_measure(m, NotePolicy::KeepAudioPosition).unwrap(),
-                6 if p.measures.len() > 2 => p.delete_measure(m, NotePolicy::KeepAudioPosition, true).unwrap(),
+                6 if p.measures.len() > 2 => p
+                    .delete_measure(m, NotePolicy::KeepAudioPosition, true)
+                    .unwrap(),
                 7 if p.tracks.len() < 5 => p.transact_infallible("Add track", |p| {
                     p.add_track(Track::new(0, "T", TrackRole::Other));
                 }),
