@@ -17,10 +17,10 @@ pub enum Instrument {
 }
 
 impl Instrument {
-    fn top_string(self) -> i32 {
+    fn bottom_string(self) -> i32 {
         match self {
-            Self::Guitar => 64,
-            Self::Bass => 43,
+            Self::Guitar => 40,
+            Self::Bass => 28,
         }
     }
 }
@@ -54,32 +54,54 @@ fn parse_note(token: &str) -> Result<(i32, Option<i32>), String> {
     Ok((pitch_class, octave))
 }
 
-/// Note names highest string first; open strings come back low first.
+/// Splits "EADGBe" or "E A D G B e" into note tokens: a lowercase `b` is a flat only inside a
+/// separated token ("Bb"), a bare run of letters treats it as the note B.
+fn tokenize(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    for chunk in text.split(|c: char| c.is_whitespace() || c == ',').filter(|t| !t.is_empty()) {
+        if parse_note(chunk).is_ok() {
+            tokens.push(chunk.to_owned());
+            continue;
+        }
+        let mut current = String::new();
+        for c in chunk.chars() {
+            let continues = c == '#' || c.is_ascii_digit();
+            if !continues && !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            current.push(c);
+        }
+        tokens.extend((!current.is_empty()).then_some(current));
+    }
+    tokens
+}
+
+/// Note names lowest string first (DADGAD); open strings come back in the same order.
 pub fn parse_tuning(text: &str, instrument: Instrument) -> Result<Tuning, String> {
-    let tokens: Vec<&str> = text.split(|c: char| c.is_whitespace() || c == ',').filter(|t| !t.is_empty()).collect();
+    let tokens = tokenize(text);
     if !(4..=8).contains(&tokens.len()) {
-        return Err("Enter 4 to 8 notes, highest string first (e.g. e B G D A E)".to_owned());
+        return Err("Enter 4 to 8 notes, lowest string first (e.g. E A D G B E)".to_owned());
     }
     let mut midis: Vec<i32> = Vec::new();
-    for token in tokens {
+    for token in &tokens {
         let (class, octave) = parse_note(token)?;
         let midi = match (octave, midis.last()) {
             (Some(m), _) => m,
-            (None, Some(&prev)) => prev - 1 - (prev - 1 - class).rem_euclid(12),
+            (None, Some(&prev)) => prev + 1 + (class - prev - 1).rem_euclid(12),
             (None, None) => {
-                let top = instrument.top_string();
-                top + (class - top + 5).rem_euclid(12) - 5
+                let bottom = instrument.bottom_string();
+                bottom + (class - bottom + 5).rem_euclid(12) - 5
             }
         };
         if !(0..=127).contains(&midi) {
             return Err(format!("'{token}' is out of range"));
         }
-        if midis.last().is_some_and(|&prev| midi < prev - 24 || midi > prev) {
-            return Err(format!("'{token}' must be lower than the string before it"));
+        if midis.last().is_some_and(|&prev| midi < prev || midi > prev + 24) {
+            return Err(format!("'{token}' must be higher than the string before it"));
         }
         midis.push(midi);
     }
-    let open_strings: Vec<u8> = midis.iter().rev().map(|&m| m as u8).collect();
+    let open_strings: Vec<u8> = midis.iter().map(|&m| m as u8).collect();
     let name = presets()
         .into_iter()
         .find(|p| p.open_strings == open_strings)
@@ -91,11 +113,10 @@ pub fn tuning_text(tuning: &Tuning) -> String {
     tuning
         .open_strings
         .iter()
-        .rev()
         .enumerate()
         .map(|(i, &m)| {
             let name = NAMES[usize::from(m % 12)];
-            if i == 0 { name.to_lowercase() } else { name.to_owned() }
+            if i + 1 == tuning.open_strings.len() { name.to_lowercase() } else { name.to_owned() }
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -115,7 +136,7 @@ pub fn preset_texts(instrument: Instrument) -> Vec<(&'static str, String)> {
         ]
         .map(|(label, name)| (label, text(name)))
         .to_vec(),
-        Instrument::Bass => vec![("Standard", text("Bass 4-string")), ("Drop D", "g D A D".to_owned())],
+        Instrument::Bass => vec![("Standard", text("Bass 4-string")), ("Drop D", "D A D g".to_owned())],
     }
 }
 
@@ -275,7 +296,7 @@ mod tests {
             bpm: "120".into(),
             time_sig: "4/4".into(),
             reference_hz: "440".into(),
-            tuning: "e B G D A E".into(),
+            tuning: "E A D G B e".into(),
             instrument: Instrument::Guitar,
             capo: 0,
             main_path: "/a/song.wav".into(),
@@ -295,22 +316,25 @@ mod tests {
 
     #[test]
     fn tuning_parse_and_names() {
-        let t = guitar("e B G D A E").unwrap();
+        let t = guitar("E A D G B e").unwrap();
         assert_eq!((t.name.as_str(), t.open_strings.clone()), ("Standard", Tuning::standard().open_strings));
-        assert_eq!(guitar("D A D G B E").unwrap().open_strings, [28, 35, 43, 50, 57, 62]);
-        assert_eq!(guitar("e B G D A D").unwrap().name, "Drop D");
-        assert_eq!(guitar("e B G D A C").unwrap().name, "Custom");
-        assert_eq!(guitar("E4 B3 G3 D3 A2 E2").unwrap().name, "Standard");
-        assert_eq!(guitar("eb Bb Gb Db Ab Eb").unwrap().name, "Half-step down");
-        assert_eq!(guitar("d# a# f# c# g# d#").unwrap().name, "Half-step down");
-        let bass = parse_tuning("G D A E", Instrument::Bass).unwrap();
+        assert_eq!(guitar("EADGBE").unwrap().name, "Standard");
+        assert_eq!(guitar("DADGAD").unwrap().open_strings, [38, 45, 50, 55, 57, 62]);
+        assert_eq!(guitar("DADGAD").unwrap().name, "DADGAD");
+        assert_eq!(guitar("D A D G B e").unwrap().name, "Drop D");
+        assert_eq!(guitar("E A D G B C").unwrap().name, "Custom");
+        assert_eq!(guitar("E2 A2 D3 G3 B3 E4").unwrap().name, "Standard");
+        assert_eq!(guitar("Eb Ab Db Gb Bb eb").unwrap().name, "Half-step down");
+        assert_eq!(guitar("d# g# c# f# a# d#").unwrap().name, "Half-step down");
+        assert_eq!(guitar("EADGBb").unwrap().open_strings.len(), 6);
+        let bass = parse_tuning("E A D G", Instrument::Bass).unwrap();
         assert_eq!(bass.open_strings, [28, 33, 38, 43]);
         assert_eq!(bass.name, "Bass 4-string");
     }
 
     #[test]
     fn tuning_parse_errors() {
-        for bad in ["", "e B G", "e B G D A X", "e B G D A E E E E E", "e B G D A E#9x", "E2 A2 D3 G3"] {
+        for bad in ["", "E A D", "E A D G B X", "E A D G B E E E E", "E A D G B E#9x", "e2 a2 d3 g3"] {
             assert!(guitar(bad).is_err(), "{bad}");
         }
     }
@@ -324,7 +348,8 @@ mod tests {
             }
         }
         assert_eq!(preset_texts(Instrument::Guitar).len(), 6);
-        assert_eq!(preset_texts(Instrument::Guitar)[0].1, "e B G D A E");
+        assert_eq!(preset_texts(Instrument::Guitar)[0].1, "E A D G B e");
+        assert_eq!(tuning_text(&guitar("EADGBE").unwrap()), "E A D G B e");
     }
 
     #[test]
