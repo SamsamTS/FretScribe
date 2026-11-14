@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use fretscribe_analysis::{discover_luts, Lut};
 
+#[derive(Clone)]
 pub struct LutSet {
     pub luts: Vec<Arc<Lut>>,
     pub dir: Option<PathBuf>,
