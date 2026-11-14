@@ -26,13 +26,16 @@ const MIDDLE_LINE: i32 = 4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaffOptions {
     pub key: KeySignature,
+    /// Strict engraving: a note may only cross a main beat when it starts on one (a syncopated
+    /// quarter is written as tied notes). Off: split only what no single value can express.
+    pub beat_rule: bool,
     /// Guitar music is written an octave above its sound (treble clef with an 8 below).
     pub guitar_octave: bool,
 }
 
 impl Default for StaffOptions {
     fn default() -> Self {
-        Self { key: KeySignature::default(), guitar_octave: true }
+        Self { key: KeySignature::default(), beat_rule: true, guitar_octave: true }
     }
 }
 
@@ -182,7 +185,7 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
         let m = measure_of(a);
         let active: Vec<_> = q.notes.iter().filter(|n| n.s <= a && n.e >= b).collect();
         let sig = measures[m].time_sig;
-        let ctx = Context { beat: main_beat_ticks(sig.numerator, sig.denominator), half: (q.bounds[m + 1] - q.bounds[m]) / 2, triplet: &q.triplet[m] };
+        let ctx = Context { beat_rule: opts.beat_rule, beat: main_beat_ticks(sig.numerator, sig.denominator), half: (q.bounds[m + 1] - q.bounds[m]) / 2, triplet: &q.triplet[m] };
         let whole = active.is_empty() && a == q.bounds[m] && b == q.bounds[m + 1];
         let pieces = if whole { vec![(0, Duration::WHOLE)] } else { split(&ctx, a - q.bounds[m], b - q.bounds[m], active.is_empty()) };
         let count = pieces.len();

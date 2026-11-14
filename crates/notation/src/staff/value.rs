@@ -5,6 +5,8 @@
 //! A value may cross a main-beat boundary only when it starts on a beat, is aligned to its own
 //! undotted length and lands on a half beat (half note on beat 1 of 4/4, dotted quarter...). Rests
 //! never cross a beat. Straight values avoid triplet beats, triplet values stay inside one.
+//! With `beat_rule` off, a note is only split when no single value (dotted or double-dotted
+//! included) has its length; rests keep the rule.
 
 use std::sync::LazyLock;
 
@@ -94,6 +96,8 @@ pub fn main_beat_ticks(numerator: u8, denominator: u8) -> i64 {
 }
 
 pub struct Context<'a> {
+    /// Notes obey the beat-crossing rule (rests always do).
+    pub beat_rule: bool,
     pub beat: i64,
     /// Middle of the measure in ticks; a long value that does not start the measure stays on one side.
     pub half: i64,
@@ -128,7 +132,7 @@ impl Context<'_> {
 pub fn split(ctx: &Context, from: i64, to: i64, rest: bool) -> Vec<(i64, Duration)> {
     let n = (to - from).max(0) as usize;
     for pass in 0..3 {
-        let strict = pass == 0;
+        let strict = pass == 0 && (rest || ctx.beat_rule);
         let mut best: Vec<Option<(u32, Duration)>> = vec![None; n + 1];
         best[n] = Some((0, Duration::WHOLE));
         for i in (0..n).rev() {

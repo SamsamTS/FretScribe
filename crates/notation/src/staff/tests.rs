@@ -237,3 +237,17 @@ fn tied_notes_resolve_into_the_fewest_values() {
         assert_eq!(l.note_ref(notes.len() as u64).map(|r| r.first), Some(0), "followers point at the merged event");
     }
 }
+
+#[test]
+fn beat_rule_off_keeps_a_syncopated_quarter_whole() {
+    let ms = measures(1, TimeSignature::COMMON);
+    let n = [note(&ms, 1, 67, 0.75, 1.75)];
+    let strict = layout(&n, &ms, &StaffOptions::default());
+    assert_eq!(ticks_of(&strict), vec![(12, 0, false), (36, 1, false)]);
+    let loose = layout(&n, &ms, &StaffOptions { beat_rule: false, ..Default::default() });
+    assert_eq!(ticks_of(&loose), vec![(48, 0, false)]);
+    // Still split when no single value has the length (2.5 beats), and rests keep the rule.
+    let long = layout(&[note(&ms, 1, 67, 0.0, 2.5)], &ms, &StaffOptions { beat_rule: false, ..Default::default() });
+    assert!(ticks_of(&long).len() >= 2);
+    assert!(loose.events.iter().filter(|e| e.rest).all(|e| e.duration.ticks() <= 48 || e.beat_pos % 1.0 == 0.0));
+}

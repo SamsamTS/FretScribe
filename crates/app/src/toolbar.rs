@@ -103,6 +103,9 @@ fn grid_and_zoom(ui: &mut Ui, s: &mut Session) {
             }
         });
     }
+    if ui.checkbox(&mut s.ui.strict_beats, "Strict beats").on_hover_text("Sheet: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits").changed() {
+        s.staff_dirty = true;
+    }
     ui.checkbox(&mut s.snap_to_onsets, "Snap to onsets").on_hover_text("Adds the detected onsets of the beat-analysis tracks as snap targets");
     for (label, factor) in [("-", 1.0 / 1.25), ("+", 1.25)] {
         if ui.small_button(label).on_hover_text("Zoom").clicked() {

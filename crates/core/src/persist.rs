@@ -46,6 +46,8 @@ pub struct UiState {
     pub loop_enabled: bool,
     pub note_policy: NotePolicy,
     pub snap_grid: SnapGrid,
+    /// Sheet: notes may only cross a main beat when they start on it.
+    pub strict_beats: bool,
     pub focus_enabled: bool,
     pub focus_strength: f32,
     pub spectro_black: f32,
@@ -94,6 +96,7 @@ impl Default for UiState {
             loop_enabled: false,
             note_policy: NotePolicy::default(),
             snap_grid: SnapGrid::default(),
+            strict_beats: true,
             focus_enabled: false,
             focus_strength: 0.5,
             spectro_black: 0.0,
