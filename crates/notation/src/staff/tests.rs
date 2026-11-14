@@ -1,4 +1,4 @@
-use fretscribe_core::{GraceKind, GraceNote, Legato, LegatoLink, Measure, Note, SnapGrid, TimePos, TimeSignature};
+use fretscribe_core::{GraceKind, GraceNote, Legato, LegatoLink, Measure, Note, TimePos, TimeSignature};
 
 use super::*;
 
@@ -13,9 +13,8 @@ fn note(ms: &[Measure], id: u64, midi: u8, from: f64, to: f64) -> Note {
     Note::new(id, midi, pos(from), pos(to))
 }
 
-fn run(notes: &[Note], n: usize, grid: &[u8]) -> StaffLayout {
-    let opts = StaffOptions { grid: SnapGrid { divisions: grid.to_vec() }, ..Default::default() };
-    layout(notes, &measures(n, TimeSignature::COMMON), &opts)
+fn run(notes: &[Note], n: usize) -> StaffLayout {
+    layout(notes, &measures(n, TimeSignature::COMMON), &StaffOptions::default())
 }
 
 fn kinds(l: &StaffLayout) -> Vec<(bool, i64)> {
@@ -34,17 +33,17 @@ fn whole_measure_rest_only_up_to_last_note() {
 fn quarter_notes_and_rests() {
     let ms = measures(1, TimeSignature::COMMON);
     let l = layout(&[note(&ms, 1, 60, 0.0, 1.0), note(&ms, 2, 62, 2.0, 3.0)], &ms, &StaffOptions::default());
-    assert_eq!(kinds(&l), vec![(false, 24), (true, 24), (false, 24), (true, 24)]);
+    assert_eq!(kinds(&l), vec![(false, 48), (true, 48), (false, 48), (true, 48)]);
 }
 
 #[test]
 fn half_note_may_cross_the_middle_but_not_off_beat() {
     let ms = measures(1, TimeSignature::COMMON);
     let l = layout(&[note(&ms, 1, 60, 0.0, 2.0)], &ms, &StaffOptions::default());
-    assert_eq!(kinds(&l), vec![(false, 48), (true, 24), (true, 24)]);
+    assert_eq!(kinds(&l), vec![(false, 96), (true, 48), (true, 48)]);
     let l = layout(&[note(&ms, 1, 60, 1.0, 3.0)], &ms, &StaffOptions::default());
-    assert!(!l.events.iter().any(|e| !e.rest && e.duration.ticks() == 48));
-    assert!(l.events.iter().filter(|e| !e.rest).all(|e| e.duration.ticks() == 24));
+    assert!(!l.events.iter().any(|e| !e.rest && e.duration.ticks() == 96));
+    assert!(l.events.iter().filter(|e| !e.rest).all(|e| e.duration.ticks() == 48));
 }
 
 #[test]
@@ -65,7 +64,7 @@ fn triplet_beat_and_bracket() {
     let l = layout(&notes, &ms, &StaffOptions::default());
     let held: Vec<_> = l.events.iter().filter(|e| !e.rest).collect();
     assert_eq!(held.len(), 3);
-    assert!(held.iter().all(|e| e.duration.triplet && e.duration.ticks() == 8));
+    assert!(held.iter().all(|e| e.duration.triplet && e.duration.ticks() == 16));
     assert_eq!(l.tuplets.len(), 1);
     assert_eq!(l.tuplets[0].events.len(), 3);
 }
@@ -74,7 +73,7 @@ fn triplet_beat_and_bracket() {
 fn sixteenths_are_beamed_per_beat() {
     let ms = measures(1, TimeSignature::COMMON);
     let notes: Vec<Note> = (0..8).map(|i| note(&ms, i + 1, 60, f64::from(i as u32) * 0.25, f64::from(i as u32) * 0.25 + 0.25)).collect();
-    let l = run(&notes, 1, &[4]);
+    let l = run(&notes, 1);
     let beamed: Vec<_> = l.events.iter().filter(|e| !e.rest).collect();
     assert_eq!(beamed.len(), 8);
     assert_eq!(l.beams.len(), 2);
@@ -107,7 +106,7 @@ fn spelling_and_guitar_octave() {
 fn accidental_once_per_measure_and_natural_after() {
     let ms = measures(2, TimeSignature::COMMON);
     let notes = [note(&ms, 1, 61, 0.0, 1.0), note(&ms, 2, 61, 1.0, 2.0), note(&ms, 3, 60, 2.0, 3.0)];
-    let l = run(&notes, 1, &[4]);
+    let l = run(&notes, 1);
     let held: Vec<_> = l.events.iter().filter(|e| !e.rest).collect();
     assert_eq!(held[0].notes[0].accidental, Some(Accidental::Sharp));
     assert_eq!(held[1].notes[0].accidental, None);
@@ -124,7 +123,7 @@ fn grace_notes_take_no_time() {
     assert_eq!(main.graces.len(), 1);
     assert!(main.graces[0].slashed);
     assert!(l.note_ref(2).unwrap().grace);
-    assert_eq!(l.events.iter().map(|e| e.duration.ticks()).sum::<i64>(), 96);
+    assert_eq!(l.events.iter().map(|e| e.duration.ticks()).sum::<i64>(), 192);
 }
 
 #[test]
@@ -141,8 +140,8 @@ fn links_are_reported() {
 
 #[test]
 fn compound_meter_beat_is_dotted_quarter() {
-    assert_eq!(value::main_beat_ticks(6, 8), 36);
-    assert_eq!(value::main_beat_ticks(3, 4), 24);
+    assert_eq!(value::main_beat_ticks(6, 8), 72);
+    assert_eq!(value::main_beat_ticks(3, 4), 48);
 }
 
 #[test]
@@ -157,7 +156,7 @@ fn five_eighths_is_tied_components() {
     let ms = measures(1, TimeSignature::COMMON);
     let l = layout(&[note(&ms, 1, 60, 0.0, 2.5)], &ms, &StaffOptions::default());
     let held: Vec<_> = l.events.iter().filter(|e| !e.rest).collect();
-    assert_eq!(held.iter().map(|e| e.duration.ticks()).sum::<i64>(), 60);
+    assert_eq!(held.iter().map(|e| e.duration.ticks()).sum::<i64>(), 120);
     assert!(held.len() >= 2 && held[..held.len() - 1].iter().all(|e| e.notes[0].tie_next));
 }
 
@@ -165,7 +164,7 @@ fn five_eighths_is_tied_components() {
 fn quarter_on_beat_two_gets_quarter_rests() {
     let ms = measures(1, TimeSignature::COMMON);
     let l = layout(&[note(&ms, 1, 60, 1.0, 2.0)], &ms, &StaffOptions::default());
-    assert_eq!(kinds(&l), vec![(true, 24), (false, 24), (true, 24), (true, 24)]);
+    assert_eq!(kinds(&l), vec![(true, 48), (false, 48), (true, 48), (true, 48)]);
 }
 
 #[test]
@@ -175,7 +174,7 @@ fn empty_middle_measure_is_one_whole_rest_and_trailing_has_none() {
     let in_measure = |m: usize| l.events.iter().filter(|e| e.measure == m).collect::<Vec<_>>();
     assert!(in_measure(1)[0].whole_measure && in_measure(1).len() == 1);
     assert!(in_measure(3).is_empty());
-    assert_eq!(in_measure(2).iter().map(|e| e.duration.ticks()).sum::<i64>(), 96);
+    assert_eq!(in_measure(2).iter().map(|e| e.duration.ticks()).sum::<i64>(), 192);
 }
 
 #[test]
@@ -187,4 +186,54 @@ fn grace_notes_do_not_change_rests() {
     g.grace_of = Some(GraceNote { main: 1, kind: GraceKind::Acciaccatura });
     let with = layout(&[main, g], &ms, &StaffOptions::default());
     assert_eq!(kinds(&plain), kinds(&with));
+}
+
+fn ticks_of(l: &StaffLayout) -> Vec<(i64, u8, bool)> {
+    l.events.iter().filter(|e| !e.rest).map(|e| (e.duration.ticks(), e.duration.dots, e.duration.triplet)).collect()
+}
+
+#[test]
+fn half_plus_quarter_is_one_dotted_half_and_double_dots_exist() {
+    let ms = measures(1, TimeSignature::COMMON);
+    assert_eq!(ticks_of(&run(&[note(&ms, 1, 60, 0.0, 3.0)], 1)), vec![(144, 1, false)]);
+    assert_eq!(ticks_of(&run(&[note(&ms, 1, 60, 0.0, 3.5)], 1)), vec![(168, 2, false)]);
+    assert_eq!(ticks_of(&run(&[note(&ms, 1, 60, 0.0, 1.5)], 1)), vec![(72, 1, false)]);
+}
+
+#[test]
+fn the_length_of_a_note_not_the_grid_decides_its_value() {
+    let ms = measures(1, TimeSignature::COMMON);
+    // A 1/32 triplet (1/12 beat) starting on a sixteenth position, nowhere near a triplet line.
+    let l = run(&[note(&ms, 1, 60, 0.25, 0.25 + 1.0 / 12.0)], 1);
+    assert_eq!(ticks_of(&l), vec![(4, 0, true)]);
+    // A 1/64 note.
+    assert_eq!(ticks_of(&run(&[note(&ms, 1, 60, 0.0, 1.0 / 16.0)], 1)), vec![(3, 0, false)]);
+}
+
+fn tied(a: Note, b: &Note) -> Note {
+    let mut a = a;
+    a.link_to = Some(b.id);
+    a.technique = Some(fretscribe_core::Technique::Tie);
+    a
+}
+
+#[test]
+fn tied_notes_resolve_into_the_fewest_values() {
+    let ms = measures(1, TimeSignature::COMMON);
+    let cases: [(&[(f64, f64)], (i64, u8)); 3] = [
+        (&[(0.0, 0.25), (0.25, 0.5)], (24, 0)),
+        (&[(0.0, 0.5), (0.5, 1.0), (1.0, 2.0)], (96, 0)),
+        (&[(0.0, 0.5), (0.5, 1.0), (1.0, 1.5)], (72, 1)),
+    ];
+    for (spans, (ticks, dots)) in cases {
+        let mut notes: Vec<Note> = spans.iter().enumerate().map(|(i, &(a, b))| note(&ms, i as u64 + 1, 60, a, b)).collect();
+        for i in 0..notes.len() - 1 {
+            let next = notes[i + 1].clone();
+            notes[i] = tied(notes[i].clone(), &next);
+        }
+        let l = run(&notes, 1);
+        assert_eq!(ticks_of(&l), vec![(ticks, dots, false)], "{spans:?}");
+        assert!(!l.events[0].notes[0].tie_next);
+        assert_eq!(l.note_ref(notes.len() as u64).map(|r| r.first), Some(0), "followers point at the merged event");
+    }
 }

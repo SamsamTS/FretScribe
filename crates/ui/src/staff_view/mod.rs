@@ -178,7 +178,7 @@ fn head_char(b: Base) -> &'static str {
 }
 
 fn rest_char(b: Base) -> char {
-    ['\u{E4E3}', '\u{E4E4}', '\u{E4E5}', '\u{E4E6}', '\u{E4E7}', '\u{E4E8}'][b as usize]
+    ['\u{E4E3}', '\u{E4E4}', '\u{E4E5}', '\u{E4E6}', '\u{E4E7}', '\u{E4E8}', '\u{E4E9}'][b as usize]
 }
 
 fn flag_char(flags: u8, up: bool) -> char {

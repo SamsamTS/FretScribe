@@ -317,7 +317,7 @@ impl Session {
     }
 
     pub fn recompute_staff(&mut self) {
-        let opts = StaffOptions { grid: self.ui.snap_grid.clone(), ..StaffOptions::default() };
+        let opts = StaffOptions::default();
         self.staff = staff::layout(&self.project.notes, &self.project.measures, &opts);
         self.staff_dirty = false;
     }

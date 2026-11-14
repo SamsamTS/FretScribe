@@ -1,6 +1,6 @@
 //! Staff layout: the notes and the measure grid become engraving data, with no drawing.
 //!
-//! Notes are quantised (`quant`), cut where the set of sounding notes changes and at barlines, and
+//! Notes are quantised (`quant`, from their length and start, never from the grid), cut where the set of sounding notes changes and at barlines, and
 //! each span is split into engraved values (`value`). Rests are derived, never stored: every
 //! silence up to the last measure holding notes, and nothing after it. Grace notes take no time and
 //! hang on their main note. Horizontal position is TIME: `x_sec` is the note's real start (the
@@ -14,7 +14,7 @@ mod value;
 
 use std::collections::{HashMap, HashSet};
 
-use fretscribe_core::{GraceKind, Legato, Measure, Note, SnapGrid, TempoMap, TimePos, TimeSignature};
+use fretscribe_core::{GraceKind, Legato, Measure, Note, TempoMap, TimePos, TimeSignature};
 
 pub use spell::{spell, Accidental, KeySignature, Spelled};
 pub use value::{Base, Duration, TICKS_PER_BEAT};
@@ -25,7 +25,6 @@ const MIDDLE_LINE: i32 = 4;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaffOptions {
-    pub grid: SnapGrid,
     pub key: KeySignature,
     /// Guitar music is written an octave above its sound (treble clef with an 8 below).
     pub guitar_octave: bool,
@@ -33,7 +32,7 @@ pub struct StaffOptions {
 
 impl Default for StaffOptions {
     fn default() -> Self {
-        Self { grid: SnapGrid::default(), key: KeySignature::default(), guitar_octave: true }
+        Self { key: KeySignature::default(), guitar_octave: true }
     }
 }
 
@@ -161,7 +160,7 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
         return out;
     }
     let tempo = TempoMap::new(measures);
-    let q = quant::quantise(notes, &tempo, &opts.grid);
+    let q = quant::quantise(notes, &tempo);
     let measure_of = |tick: i64| q.bounds[..measures.len()].partition_point(|&b| b <= tick).saturating_sub(1);
     let tick_sec = |tick: i64| {
         let m = measure_of(tick);
@@ -224,6 +223,11 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
     stems(&mut out);
     group(&mut out, &q.triplet, &measures.iter().map(|m| main_beat_ticks(m.time_sig.numerator, m.time_sig.denominator)).collect::<Vec<_>>());
     index_notes(&mut out);
+    for &(follower, leader) in &q.aliases {
+        if let Some(r) = out.refs.get(&leader).copied() {
+            out.refs.insert(follower, r);
+        }
+    }
     links(&mut out, notes);
 
     out.measures = measures
