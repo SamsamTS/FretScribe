@@ -84,12 +84,12 @@ pub fn min_subdivision_beats(grid: &SnapGrid) -> f64 {
 /// would be closer than about 6 px. The coarsest always remains.
 pub fn effective_divisions(grid: &SnapGrid, sec_per_beat: f64, px_per_sec: f64) -> Vec<u8> {
     let mut divisions = grid.sorted_divisions();
-    while divisions.len() > 1
-        && divisions
-            .last()
-            .is_some_and(|&d| sec_per_beat / f64::from(d) * px_per_sec < MIN_SPACING_PX)
-    {
-        divisions.pop();
+    while divisions.len() > 1 {
+        let finest = divisions.iter().copied().max().unwrap_or(1);
+        if sec_per_beat / f64::from(finest) * px_per_sec >= MIN_SPACING_PX {
+            break;
+        }
+        divisions.retain(|&d| d != finest);
     }
     divisions
 }
