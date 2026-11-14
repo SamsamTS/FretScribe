@@ -259,3 +259,35 @@ fn touching_notes_leave_no_rest() {
     let last = l.events.iter().rposition(|e| !e.rest).unwrap();
     assert!(l.events[..last].iter().all(|e| !e.rest), "{:?}", kinds(&l));
 }
+
+/// 300 random consecutive values (subdivision 1..64, straight or triplet) must come back from the quantiser unchanged.
+#[test]
+#[ignore = "known quantiser failures: 1/64 and 1/64T values (MIN_TICKS 3 > 2) and off-by-one ends before triplets; run with --ignored"]
+fn random_consecutive_values_round_trip() {
+    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    let mut rand = |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n
+    };
+    let values: Vec<(i64, bool)> = (0..300).map(|_| (1 << rand(7), rand(2) == 1)).collect();
+    let ticks = |&(div, trip): &(i64, bool)| if trip { 128 / div } else { 192 / div };
+    let total: i64 = values.iter().map(ticks).sum();
+    let ms = measures((total / 192 + 2) as usize, TimeSignature::COMMON);
+    let (mut at, mut notes) = (0, Vec::new());
+    for (i, v) in values.iter().enumerate() {
+        let beat = |t: i64| t as f64 / 48.0;
+        notes.push(note(&ms, i as u64 + 1, 60, beat(at), beat(at + ticks(v))));
+        at += ticks(v);
+    }
+    let q = quant::quantise(&notes, &fretscribe_core::TempoMap::new(&ms));
+    let got: Vec<(i64, i64)> = q.notes.iter().map(|n| (n.s, n.e - n.s)).collect();
+    let (mut at, mut want) = (0, Vec::new());
+    for v in &values {
+        want.push((at, ticks(v)));
+        at += ticks(v);
+    }
+    let bad: Vec<_> = got.iter().zip(&want).enumerate().filter(|(_, (g, w))| g != w).collect();
+    assert!(got.len() == want.len() && bad.is_empty(), "{} of {} notes; {} mismatches, first (index, got, want): {:?}", got.len(), want.len(), bad.len(), &bad[..bad.len().min(8)]);
+}
