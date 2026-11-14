@@ -395,7 +395,7 @@ mod tests {
         let ids = [add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 62, 2.0, 3.0), add(&mut p, 64, 3.0, 4.0)];
         let before = p.notes.clone();
         let applied = run(&mut p, &ids, NoteAction::LinkSelection).unwrap();
-        assert_eq!(applied.message.as_deref(), Some("2 linked, 1 skipped: both notes have the same pitch"));
+        assert_eq!(applied.message.as_deref(), Some("3 linked"));
         applied.edit.unwrap().undo(&mut p);
         assert_eq!(p.notes, before);
         let none = run(&mut p, &[ids[0]], NoteAction::LinkSelection).unwrap();

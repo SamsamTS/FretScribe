@@ -60,6 +60,12 @@ fn step_beats(ctx: &EditCtx) -> f64 {
     (1.0 / f64::from(finest)).max(min_subdivision_beats(ctx.grid))
 }
 
+/// Length of the finest grid division that has a line at `pos`: the shortest note started there.
+fn min_len_at(ctx: &EditCtx, pos: TimePos) -> f64 {
+    let on = |d: u8| (pos.beat * f64::from(d) - (pos.beat * f64::from(d)).round()).abs() < 1e-6;
+    ctx.grid.divisions.iter().copied().filter(|&d| d > 0 && on(d)).max().map_or_else(|| min_subdivision_beats(ctx.grid), |d| 1.0 / f64::from(d))
+}
+
 /// The press is one end and the pointer the other; the earlier in time is the start. A pitch more
 /// than 0.75 semitone from the press row (0.5 once away) makes it a slide of two linked notes.
 pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &EditCtx) -> Option<DrawPlan> {
@@ -73,17 +79,37 @@ pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &Edit
 
     let (raw_start, raw_end) = (ctx.tempo.sec_to_pos(first.sec), ctx.tempo.sec_to_pos(second.sec));
     let opts = ctx.opts(sticky);
-    let (s, e) = snap_note(raw_start, raw_end, ctx.tempo, &ctx.project.notes, &opts);
-    let free_end = snap_edge(raw_end, Edge::End, ctx.tempo, &ctx.project.notes, &opts);
-    let min = min_subdivision_beats(ctx.grid);
-    if beats(ctx, free_end) - beats(ctx, s) < min - EPS {
-        return None;
-    }
+    let (s, e, min) = if ctx.grid.divisions.is_empty() || ctx.alt {
+        let (s, e) = snap_note(raw_start, raw_end, ctx.tempo, &ctx.project.notes, &opts);
+        let free_end = snap_edge(raw_end, Edge::End, ctx.tempo, &ctx.project.notes, &opts);
+        let min = min_subdivision_beats(ctx.grid);
+        if beats(ctx, free_end) - beats(ctx, s) < min - EPS {
+            return None;
+        }
+        (s, e, min)
+    } else {
+        // The press always lands on the closest grid line, whatever the zoom; the other end
+        // follows the usual snapping but the note is never shorter than that line's division.
+        let anchor = ctx.tempo.snap_to_pos(press.sec, ctx.grid);
+        let min = min_len_at(ctx, anchor);
+        if beats(ctx, raw_end) - beats(ctx, raw_start) < min / 2.0 {
+            return None;
+        }
+        if forward {
+            let end = snap_edge(raw_end, Edge::End, ctx.tempo, &ctx.project.notes, &opts);
+            let floor = add_beats(ctx.tempo, anchor, min);
+            (anchor, if beats(ctx, end) < beats(ctx, floor) - EPS { floor } else { end }, min)
+        } else {
+            let start = snap_edge(raw_start, Edge::Start, ctx.tempo, &ctx.project.notes, &opts);
+            let floor = add_beats(ctx.tempo, anchor, -min);
+            (if beats(ctx, start) > beats(ctx, floor) + EPS { floor } else { start }, anchor, min)
+        }
+    };
     let creation = if slide {
         Creation {
             notes: vec![
                 NewNote { midi: p_first, start: s, end: e },
-                NewNote { midi: p_second, start: e, end: add_beats(ctx.tempo, e, step_beats(ctx)) },
+                NewNote { midi: p_second, start: e, end: add_beats(ctx.tempo, e, min) },
             ],
             links: vec![(Ref::New(0), Ref::New(1), LinkType::Slide)],
         }
@@ -412,6 +438,19 @@ mod tests {
         assert!(draw(&p, pt(1.0, 60.0), pt(1.0, 60.0), false, false).is_none());
         assert!(draw(&p, pt(1.0, 60.0), pt(1.04, 60.0), false, false).is_none());
         assert!(draw(&p, pt(1.0, 60.0), pt(1.32, 60.0), false, false).is_some());
+    }
+
+    #[test]
+    fn the_press_snaps_to_the_closest_line_and_the_note_is_at_least_one_division_long() {
+        let p = project();
+        let plan = draw(&p, pt(1.03, 60.0), pt(1.09, 60.0), false, false);
+        assert!(plan.is_none(), "less than half a division is still a click");
+        let plan = draw(&p, pt(1.03, 60.0), pt(1.2, 60.0), false, false).unwrap();
+        let n = &plan.creation.notes[0];
+        assert_eq!(n.start, at(1.0));
+        assert!((n.end.beat - n.start.beat - 0.25).abs() < 1e-9, "one 1/16 long: {n:?}");
+        let back = draw(&p, pt(1.03, 60.0), pt(0.9, 60.0), false, false).unwrap();
+        assert_eq!(back.creation.notes[0].end, at(1.0));
     }
 
     #[test]
