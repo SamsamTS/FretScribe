@@ -123,14 +123,14 @@ pub fn set_tempo_scoped(
         return Err(EditError::InvalidTempo(new_bpm));
     }
     let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in &mut measures[index..end] {
-        m.tempo_bpm = new_bpm;
+    for m in measures[index..end].iter_mut().filter(|m| m.tempo_bpm != new_bpm) {
+        (m.tempo_bpm, m.anchored) = (new_bpm, false);
     }
-    recompute_starts(measures, index + 1);
+    recompute_starts(measures, index);
     Ok(index..end)
 }
 
-/// Same propagation rule as `set_tempo`, applied to the time signature.
+/// Same propagation rule as `set_tempo`, applied to the time signature. A manual change of either drops the fit (anchor) of every measure it changes.
 pub fn set_time_sig(
     measures: &mut [Measure],
     index: usize,
@@ -150,10 +150,10 @@ pub fn set_time_sig_scoped(
         return Err(EditError::InvalidTimeSignature(new_sig));
     }
     let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in &mut measures[index..end] {
-        m.time_sig = new_sig;
+    for m in measures[index..end].iter_mut().filter(|m| m.time_sig != new_sig) {
+        (m.time_sig, m.anchored) = (new_sig, false);
     }
-    recompute_starts(measures, index + 1);
+    recompute_starts(measures, index);
     Ok(index..end)
 }
 
@@ -319,13 +319,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_manual_tempo_or_time_signature_change_drops_the_fit() {
+        let mut ms = grid(&[120.0; 4]);
+        ms.iter_mut().for_each(|m| m.anchored = true);
+        set_tempo_scoped(&mut ms, 1, 120.0, Propagation::Following).unwrap();
+        assert!(ms.iter().all(|m| m.anchored), "unchanged value keeps the fit");
+        set_tempo_scoped(&mut ms, 1, 90.0, Propagation::Single).unwrap();
+        assert_eq!(ms.iter().map(|m| m.anchored).collect::<Vec<_>>(), [true, false, true, true]);
+        set_time_sig(&mut ms, 2, TimeSignature::new(3, 4)).unwrap();
+        assert_eq!(ms.iter().map(|m| m.anchored).collect::<Vec<_>>(), [true, false, false, false]);
+    }
+
+    #[test]
     fn anchored_measures_keep_their_start() {
         let mut ms = grid(&[120.0, 120.0, 120.0, 120.0]);
         ms[2].anchored = true;
-        set_tempo(&mut ms, 0, 60.0).unwrap();
+        set_tempo_scoped(&mut ms, 0, 60.0, Propagation::Single).unwrap();
         close(ms[1].start_sec, 4.0);
         close(ms[2].start_sec, 4.0);
-        close(ms[3].start_sec, 4.0 + 4.0 * 60.0 / 60.0);
+        close(ms[3].start_sec, 6.0);
     }
 
     #[test]
@@ -381,8 +393,8 @@ pub(crate) mod tests {
     fn time_sig_edit_respects_anchors() {
         let mut ms = grid(&[120.0; 4]);
         ms[3].anchored = true;
-        set_time_sig(&mut ms, 0, TimeSignature::new(3, 4)).unwrap();
-        close(ms[2].start_sec, 3.0);
+        set_time_sig_scoped(&mut ms, 0, TimeSignature::new(3, 4), Propagation::Single).unwrap();
+        close(ms[2].start_sec, 3.5);
         close(ms[3].start_sec, 6.0);
     }
 
