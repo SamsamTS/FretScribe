@@ -56,7 +56,12 @@ impl<T: Send + 'static> Job<T> {
 pub fn auto_fit(inputs: Vec<EnvelopeInput>, measures: Vec<Measure>, from: usize) -> Job<Vec<FittedMeasure>> {
     Job::spawn(move || {
         let env = combine_envelopes(&inputs);
-        let mut fits = fit_measures(&env, &measures, MAX_SHIFT_BEATS);
+        // The fit starts from the grid the defined tempos give, not from an earlier fit's effective tempos, so repeated fits cannot drift away from them.
+        let mut nominal = measures.clone();
+        for j in from.max(1)..nominal.len() {
+            nominal[j].start_sec = nominal[j - 1].start_sec + nominal[j - 1].nominal_duration_sec();
+        }
+        let mut fits = fit_measures(&env, &nominal, MAX_SHIFT_BEATS);
         for (fit, m) in fits.iter_mut().zip(&measures).take(from) {
             fit.new_start_sec = m.start_sec;
         }
