@@ -332,7 +332,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let pitch_ref = s.project.pitch_ref();
     let source_id = s.project.source_track;
     let hovered = pointer.hovered_note.map(|h| h.0);
-    let geometry = pointer.geometry.clone();
+    let geometry = pointer.geometry;
     let collected = {
         let spec = s.store.tracks.get(&source_id).map(|t| &t.spectrogram);
         let refine = |sec: f64, midi: f32| spec.map_or(midi, |sp| refine_pitch(sp, &pitch_ref, sec, midi));

@@ -113,3 +113,7 @@ Modules are not re-exported at the crate root.
 ## 2026-11-13 - audio: tag reading (Prompt 11)
 
 - `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
+
+## 2026-11-14 - app crate (Prompt 11)
+
+No contract change in other crates beyond the 2026-11-12 entry and `audio::read_tags` (Prompt 11/11a). The app adds `fretscribe_app` (lib: settings, autosave, luts, paths, player_sync, form, form_ui, home, store, loader, jobs, session, editor, toolbar, app) and the `fretscribe` binary. Project files use the `.fretscribe` extension.

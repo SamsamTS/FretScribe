@@ -640,11 +640,10 @@ impl eframe::App for App {
         self.confirm_ui(ctx);
         self.toasts_ui(ctx);
         self.update_title(ctx);
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
-            if matches!(&self.screen, Screen::Editor(s) if s.dirty) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.confirm = Some(Confirm::Close);
-            }
+        let dirty = matches!(&self.screen, Screen::Editor(s) if s.dirty);
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && dirty {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirm = Some(Confirm::Close);
         }
     }
 

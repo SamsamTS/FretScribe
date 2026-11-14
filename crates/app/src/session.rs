@@ -462,14 +462,14 @@ impl Session {
     /// One undoable step: re-solves the string/fret of every note that is not locked.
     pub fn reinfer_tab(&mut self) {
         let opts = self.tab_opts.clone();
-        self.edit("Re-infer tab", |p| {
+        let unplaced = self.edit("Re-infer tab", |p| {
             let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
             let (tuning, capo) = (p.tuning.clone(), p.capo);
-            let unplaced = assign_tabs(&mut p.notes, &times, &tuning, capo, &opts);
-            Ok::<_, std::convert::Infallible>(unplaced)
-        })
-        .filter(|u| !u.is_empty())
-        .map(|u| self.toast(format!("{} notes cannot be played in this tuning", u.len()), true));
+            Ok::<_, std::convert::Infallible>(assign_tabs(&mut p.notes, &times, &tuning, capo, &opts))
+        });
+        if let Some(u) = unplaced.filter(|u| !u.is_empty()) {
+            self.toast(format!("{} notes cannot be played in this tuning", u.len()), true);
+        }
     }
 
     // ---- player --------------------------------------------------------------------------
