@@ -188,7 +188,7 @@ fn transcription(ui: &mut Ui, s: &mut Session) {
     }
     reference_control(ui, s);
     if ui.button("Auto-fit grid").on_hover_text("Fits the measures to the onsets of the beat-analysis tracks").clicked() {
-        s.start_auto_fit();
+        s.start_auto_fit(0);
     }
     if ui.button("Auto tempo").clicked() {
         s.start_auto_tempo();

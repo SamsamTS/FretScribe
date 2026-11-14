@@ -1,4 +1,4 @@
-use fretscribe_core::{valid_tempo, BeatKind, FittedMeasure, Measure, TempoMap};
+use fretscribe_core::{BeatKind, FittedMeasure, Measure, TempoMap};
 
 use super::OnsetEnvelope;
 
@@ -150,23 +150,12 @@ pub fn fit_measures(
         .collect()
 }
 
-/// Grid for `Project::auto_fit`: every tempo is refitted to the span between fitted starts (the
-/// last measure keeps its tempo).
+/// Grid for `Project::auto_fit`: fitted starts with the nominal tempos untouched; the span between
+/// fitted starts is the effective tempo (`TempoMap::effective_bpm`), which the grid shows beside it.
 pub fn fitted_grid(measures: &[Measure], fits: &[MeasureFit]) -> Vec<FittedMeasure> {
     measures
         .iter()
         .zip(fits)
-        .enumerate()
-        .map(|(i, (m, fit))| {
-            let refit = fits
-                .get(i + 1)
-                .map(|next| m.time_sig.beats() * 60.0 / (next.new_start_sec - fit.new_start_sec))
-                .filter(|&bpm| valid_tempo(bpm));
-            FittedMeasure {
-                start_sec: fit.new_start_sec,
-                tempo_bpm: refit.unwrap_or(m.tempo_bpm),
-                time_sig: m.time_sig,
-            }
-        })
+        .map(|(m, fit)| FittedMeasure { start_sec: fit.new_start_sec, tempo_bpm: m.tempo_bpm, time_sig: m.time_sig })
         .collect()
 }

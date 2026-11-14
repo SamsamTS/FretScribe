@@ -342,6 +342,19 @@ impl Project {
         })
     }
 
+    /// Adds or removes measures at the end so the grid covers the audio; `None` when it already does.
+    pub fn cover_audio(&mut self, audio_len_sec: f64) -> Option<ProjectEdit> {
+        let used: HashSet<u64> = self.notes.iter().flat_map(|n| [n.start.measure, n.end.measure]).collect();
+        let (mut measures, mut next) = (self.measures.clone(), self.next_measure_id);
+        if !measures::cover_audio(&mut measures, audio_len_sec, &mut next, |m| used.contains(&m.id)) {
+            return None;
+        }
+        Some(self.transact_infallible("Cover audio with measures", |p| {
+            p.measures = measures;
+            p.next_measure_id = next;
+        }))
+    }
+
     /// Inserts a measure (tempo and signature of the previous one) at `index`; every later measure,
     /// anchored or not, moves later by its duration.
     pub fn insert_measure(

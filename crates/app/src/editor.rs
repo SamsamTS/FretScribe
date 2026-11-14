@@ -115,7 +115,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             }
         }
         let timeline = Rect::from_min_max(pos2(lanes.left() + LANE_HEADER_WIDTH, ruler.top()), area.max);
-        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).show(ui, timeline));
+        let note_drawing = source_pointer.as_ref().map(|p| p.geometry.rect);
+        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).show(ui, timeline));
     });
     // The grid continues through the notation panel with the same time axis.
     let notation_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
@@ -286,7 +287,7 @@ fn handle_grid(s: &mut Session, e: GridEvent) {
             s.policy = p;
             return;
         }
-        GridEvent::AutoFitRequested { .. } => return s.start_auto_fit(),
+        GridEvent::AutoFitRequested { index } => return s.start_auto_fit(index),
         _ => {}
     }
     match e.apply(&mut s.project, false) {

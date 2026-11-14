@@ -45,6 +45,7 @@ pub struct GridOverlay<'a> {
     policy: NotePolicy,
     style: GridStyle,
     autofit: bool,
+    passthrough: Option<Rect>,
 }
 
 impl<'a> GridOverlay<'a> {
@@ -56,6 +57,7 @@ impl<'a> GridOverlay<'a> {
             policy: NotePolicy::default(),
             style: GridStyle::default(),
             autofit: false,
+            passthrough: None,
         }
     }
 
@@ -70,10 +72,17 @@ impl<'a> GridOverlay<'a> {
         self
     }
 
-    /// Adds "Snap grid to detected beats" to the context menu, reported as
-    /// `GridEvent::AutoFitRequested`.
+    /// Adds the auto-fit entries (whole grid: index 0, or from the clicked measure) to the menus,
+    /// reported as `GridEvent::AutoFitRequested`.
     pub fn autofit(mut self, available: bool) -> Self {
         self.autofit = available;
+        self
+    }
+
+    /// An area (the note-drawing spectrogram) where the grid takes no mouse input at all, so notes
+    /// can be drawn across measure lines.
+    pub fn passthrough(mut self, area: Option<Rect>) -> Self {
+        self.passthrough = area;
         self
     }
 
@@ -95,16 +104,15 @@ impl<'a> GridOverlay<'a> {
                 pos2(x + HIT_HALF_WIDTH, rect.bottom()),
             )
             .intersect(rect);
-            if hit.width() <= 0.0 {
-                continue;
+            for (k, hit) in self.hit_parts(hit).into_iter().enumerate() {
+                let response = ui.interact(hit, id.with(("line", measure.id, k)), Sense::click_and_drag());
+                if response.hovered() || response.dragged() {
+                    hovered = Some(line.measure);
+                    ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
+                }
+                self.track_drag(ui, id, rect, &response, line.measure, &mut events);
+                response.context_menu(|ui| self.context_menu(ui, line.measure, &mut events));
             }
-            let response = ui.interact(hit, id.with(("line", measure.id)), Sense::click_and_drag());
-            if response.hovered() || response.dragged() {
-                hovered = Some(line.measure);
-                ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
-            }
-            self.track_drag(ui, id, rect, &response, line.measure, &mut events);
-            response.context_menu(|ui| self.context_menu(ui, line.measure, &mut events));
         }
         let drag = ctx.data(|d| d.get_temp::<DragState>(id.with("drag")));
         if !ui.input(|i| i.pointer.any_down()) {
@@ -119,6 +127,18 @@ impl<'a> GridOverlay<'a> {
         }
         self.settings_popup(&ctx, id, &mut events);
         events
+    }
+
+    /// `hit` minus the passthrough area: up to two vertical pieces.
+    fn hit_parts(&self, hit: Rect) -> Vec<Rect> {
+        let parts = match self.passthrough.filter(|p| p.intersects(hit)) {
+            None => vec![hit],
+            Some(p) => vec![
+                Rect::from_min_max(hit.min, pos2(hit.max.x, p.top().max(hit.top()))),
+                Rect::from_min_max(pos2(hit.min.x, p.bottom().min(hit.bottom())), hit.max),
+            ],
+        };
+        parts.into_iter().filter(|r| r.width() > 0.0 && r.height() > 0.0).collect()
     }
 
     fn x_of(&self, rect: Rect, sec: f64) -> f32 {
@@ -243,7 +263,8 @@ impl<'a> GridOverlay<'a> {
                 measure.start_sec + self.tempo.measure_duration_sec(line.measure),
                 |next| next.start_sec,
             );
-            let galley = painter.layout_no_wrap(measure_label(measure), font.clone(), self.style.label_text);
+            let effective = self.tempo.effective_bpm(line.measure);
+            let galley = painter.layout_job(label_job(measure, effective, font.clone(), self.style.label_text));
             if (end - measure.start_sec) * pps < f64::from(galley.size().x) + LABEL_MARGIN_PX {
                 continue;
             }
@@ -252,6 +273,11 @@ impl<'a> GridOverlay<'a> {
                 .expand2(vec2(LABEL_PADDING, LABEL_PADDING / 2.0));
             let hit = label_rect.intersect(rect);
             if hit.width() <= 0.0 || hit.height() <= 0.0 {
+                continue;
+            }
+            if self.passthrough.is_some_and(|p| p.contains_rect(hit)) {
+                painter.rect_filled(label_rect, 3.0, self.style.label_background);
+                painter.galley(origin, galley, self.style.label_text);
                 continue;
             }
             let response = ui.interact(hit, id.with(("label", measure.id)), Sense::click());
@@ -293,6 +319,10 @@ impl<'a> GridOverlay<'a> {
                 ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id));
             }
             PopupOutcome::Cancel => ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id)),
+            PopupOutcome::AutoFit => {
+                events.push(GridEvent::AutoFitRequested { index });
+                ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id));
+            }
         }
     }
 
@@ -325,6 +355,10 @@ impl<'a> GridOverlay<'a> {
         if self.autofit {
             ui.separator();
             if ui.button("Snap grid to detected beats").clicked() {
+                events.push(GridEvent::AutoFitRequested { index: 0 });
+                ui.close_menu();
+            }
+            if ui.button("Auto-fit from this measure").clicked() {
                 events.push(GridEvent::AutoFitRequested { index });
                 ui.close_menu();
             }
@@ -353,6 +387,21 @@ pub fn measure_label(measure: &Measure) -> String {
         measure.time_sig.denominator,
         format_bpm(measure.tempo_bpm)
     )
+}
+
+/// The realised tempo as " (55.3)", only when it differs visibly from the nominal one.
+pub fn effective_suffix(measure: &Measure, effective_bpm: f64) -> Option<String> {
+    let shown = format_bpm(effective_bpm);
+    (shown != format_bpm(measure.tempo_bpm)).then(|| format!(" ({shown})"))
+}
+
+fn label_job(measure: &Measure, effective_bpm: f64, font: egui::FontId, color: egui::Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&measure_label(measure), 0.0, egui::TextFormat::simple(font.clone(), color));
+    if let Some(suffix) = effective_suffix(measure, effective_bpm) {
+        job.append(&suffix, 0.0, egui::TextFormat::simple(font, color.gamma_multiply(0.55)));
+    }
+    job
 }
 
 pub fn format_bpm(bpm: f64) -> String {
@@ -395,6 +444,13 @@ mod tests {
         assert_eq!(measure_label(&m), "6/8 \u{2669}=97.5");
         assert_eq!(format_bpm(119.99), "120");
         assert_eq!(format_bpm(120.04), "120");
+    }
+
+    #[test]
+    fn effective_tempo_is_shown_only_when_it_differs() {
+        let m = Measure::new(1, 0.0, 56.0, TimeSignature::COMMON);
+        assert_eq!(effective_suffix(&m, 55.3).as_deref(), Some(" (55.3)"));
+        assert_eq!(effective_suffix(&m, 56.01), None);
     }
 
     #[test]

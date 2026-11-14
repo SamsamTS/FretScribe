@@ -1,6 +1,6 @@
 //! The tempo / time-signature popup opened from a measure label.
 
-use egui::{Area, Button, ComboBox, Context, DragValue, Frame, Id, Key, Order, Pos2};
+use egui::{Area, Button, ComboBox, Context, DragValue, Frame, Id, Key, Order, Pos2, Sense};
 use fretscribe_core::{valid_tempo, Measure, NotePolicy, Propagation, TimeSignature, MAX_BPM, MIN_BPM};
 
 use super::event::GridEvent;
@@ -92,10 +92,21 @@ pub enum PopupOutcome {
     Open,
     Confirm,
     Cancel,
+    /// Fit the grid to the detected beats from this measure on.
+    AutoFit,
 }
 
 pub fn show(ctx: &Context, id: Id, popup: &mut SettingsPopup) -> PopupOutcome {
     let mut outcome = PopupOutcome::Open;
+    // Full-screen catcher under the popup: a left or right click anywhere else cancels and is not
+    // seen by the rest of the app.
+    let screen = ctx.screen_rect();
+    let catcher = Area::new(id.with("outside")).order(Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
+        ui.allocate_response(screen.size(), Sense::click_and_drag())
+    });
+    if catcher.inner.clicked() || catcher.inner.secondary_clicked() || catcher.inner.drag_started() {
+        outcome = PopupOutcome::Cancel;
+    }
     let s = &mut popup.settings;
     Area::new(id)
         .order(Order::Foreground)
@@ -142,7 +153,7 @@ pub fn show(ctx: &Context, id: Id, popup: &mut SettingsPopup) -> PopupOutcome {
                             });
                         ui.end_row();
                     });
-                ui.checkbox(&mut s.apply_to_following, "apply to following identical measures");
+                ui.checkbox(&mut s.apply_to_following, "apply to following measures");
                 ui.horizontal(|ui| {
                     let can_confirm = s.is_valid() && s.is_changed();
                     if ui.add_enabled(can_confirm, Button::new("OK")).clicked() {
@@ -150,6 +161,10 @@ pub fn show(ctx: &Context, id: Id, popup: &mut SettingsPopup) -> PopupOutcome {
                     }
                     if ui.button("Cancel").clicked() {
                         outcome = PopupOutcome::Cancel;
+                    }
+                    ui.separator();
+                    if ui.button("Auto-fit from this measure").clicked() {
+                        outcome = PopupOutcome::AutoFit;
                     }
                 });
             });

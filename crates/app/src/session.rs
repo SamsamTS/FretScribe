@@ -268,6 +268,11 @@ impl Session {
 
     pub fn push(&mut self, edit: ProjectEdit, merge: bool) {
         if merge { self.undo.push_merged(edit) } else { self.undo.push(edit) }
+        // Tempo, signature or position edits can leave the end of the audio without grid.
+        let loaded = self.store.shared_audio_end(&self.project);
+        if let Some(cover) = (loaded > 0.0).then(|| self.project.cover_audio(loaded)).flatten() {
+            self.undo.push_merged(cover);
+        }
         self.after_edit();
     }
 
@@ -370,12 +375,12 @@ impl Session {
 
     // ---- background jobs -----------------------------------------------------------------
 
-    pub fn start_auto_fit(&mut self) {
+    pub fn start_auto_fit(&mut self, from: usize) {
         let inputs = self.store.onset_inputs(&self.project);
         if inputs.is_empty() {
             return self.toast("No track is enabled for beat analysis", true);
         }
-        self.jobs.autofit = Some(jobs::auto_fit(inputs, self.project.measures.clone()));
+        self.jobs.autofit = Some(jobs::auto_fit(inputs, self.project.measures.clone(), from));
     }
 
     pub fn start_auto_tempo(&mut self) {

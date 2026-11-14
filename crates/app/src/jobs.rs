@@ -52,10 +52,15 @@ impl<T: Send + 'static> Job<T> {
     }
 }
 
-pub fn auto_fit(inputs: Vec<EnvelopeInput>, measures: Vec<Measure>) -> Job<Vec<FittedMeasure>> {
+/// Fits the measures from index `from` on; the earlier ones keep their start.
+pub fn auto_fit(inputs: Vec<EnvelopeInput>, measures: Vec<Measure>, from: usize) -> Job<Vec<FittedMeasure>> {
     Job::spawn(move || {
         let env = combine_envelopes(&inputs);
-        fitted_grid(&measures, &fit_measures(&env, &measures, MAX_SHIFT_BEATS))
+        let mut fits = fit_measures(&env, &measures, MAX_SHIFT_BEATS);
+        for (fit, m) in fits.iter_mut().zip(&measures).take(from) {
+            fit.new_start_sec = m.start_sec;
+        }
+        fitted_grid(&measures, &fits)
     })
 }
 
@@ -263,7 +268,7 @@ mod tests {
         let env = onset_envelope(&clicks(22_050, 12.0, 0.5), 22_050);
         let inputs = vec![EnvelopeInput { env, offset_sec: 0.0, weight: 1.0 }];
         let measures = fretscribe_analysis::beatfit::synth::rough_grid(110.0, 12.0);
-        let mut fit = auto_fit(inputs.clone(), measures.clone());
+        let mut fit = auto_fit(inputs.clone(), measures.clone(), 0);
         assert_eq!(wait(&mut fit).unwrap().len(), measures.len());
         let mut tempo = auto_tempo(inputs);
         assert!(!wait(&mut tempo).unwrap().is_empty());

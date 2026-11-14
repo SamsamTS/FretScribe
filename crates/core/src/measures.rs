@@ -50,6 +50,31 @@ pub fn generate_measures(
         .collect()
 }
 
+/// Appends unanchored copies of the last measure until the grid covers `audio_len_sec`, then drops
+/// trailing measures that start at or after it, as long as `keep` accepts them (e.g. no note on them).
+/// Returns whether anything changed.
+pub fn cover_audio(measures: &mut Vec<Measure>, audio_len_sec: f64, next_id: &mut u64, keep: impl Fn(&Measure) -> bool) -> bool {
+    if !audio_len_sec.is_finite() || measures.is_empty() {
+        return false;
+    }
+    let before = measures.len();
+    while measures.len() > 1 && measures.last().is_some_and(|m| m.start_sec >= audio_len_sec - SAME_VALUE_EPS && !keep(m)) {
+        measures.pop();
+    }
+    while measures.len() < MAX_GENERATED_MEASURES {
+        let Some(last) = measures.last() else { break };
+        let end = last.start_sec + last.nominal_duration_sec();
+        if end >= audio_len_sec - SAME_VALUE_EPS {
+            break;
+        }
+        let mut next = Measure::new(*next_id, end, last.tempo_bpm, last.time_sig);
+        next.anchored = false;
+        *next_id += 1;
+        measures.push(next);
+    }
+    measures.len() != before
+}
+
 pub(crate) fn recompute_starts(measures: &mut [Measure], from: usize) {
     for j in from.max(1)..measures.len() {
         if !measures[j].anchored {
@@ -72,14 +97,13 @@ fn check_index(measures: &[Measure], index: usize) -> Result<(), EditError> {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Propagation {
-    /// The edit also applies to the contiguous following measures that had the same old value.
+    /// The edit also applies to every following measure.
     #[default]
     Following,
     Single,
 }
 
-/// Edits `index` and every contiguous following measure that had the same tempo as `index`
-/// before the edit, stopping at the first that differs. Returns the edited range.
+/// Edits `index` and every following measure. Returns the edited range.
 pub fn set_tempo(
     measures: &mut [Measure],
     index: usize,
@@ -98,17 +122,7 @@ pub fn set_tempo_scoped(
     if !valid_tempo(new_bpm) {
         return Err(EditError::InvalidTempo(new_bpm));
     }
-    let old = measures[index].tempo_bpm;
-    let end = match propagation {
-        Propagation::Following => {
-            index
-                + measures[index..]
-                    .iter()
-                    .take_while(|m| (m.tempo_bpm - old).abs() < SAME_VALUE_EPS)
-                    .count()
-        }
-        Propagation::Single => index + 1,
-    };
+    let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
     for m in &mut measures[index..end] {
         m.tempo_bpm = new_bpm;
     }
@@ -135,17 +149,7 @@ pub fn set_time_sig_scoped(
     if !new_sig.is_valid() {
         return Err(EditError::InvalidTimeSignature(new_sig));
     }
-    let old = measures[index].time_sig;
-    let end = match propagation {
-        Propagation::Following => {
-            index
-                + measures[index..]
-                    .iter()
-                    .take_while(|m| m.time_sig == old)
-                    .count()
-        }
-        Propagation::Single => index + 1,
-    };
+    let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
     for m in &mut measures[index..end] {
         m.time_sig = new_sig;
     }
@@ -169,6 +173,20 @@ pub(crate) mod tests {
             .collect();
         recompute_starts(&mut ms, 1);
         ms
+    }
+
+    #[test]
+    fn cover_adds_and_removes_trailing_measures() {
+        let mut ms = grid(&[120.0, 120.0]);
+        let mut id = 10;
+        assert!(cover_audio(&mut ms, 7.0, &mut id, |_| false));
+        assert_eq!((ms.len(), id), (4, 12));
+        close(ms[3].start_sec, 6.0);
+        assert!(!cover_audio(&mut ms, 7.0, &mut id, |_| false));
+        assert!(cover_audio(&mut ms, 3.0, &mut id, |m| m.id == 10));
+        assert_eq!(ms.len(), 3);
+        assert!(cover_audio(&mut ms, 0.5, &mut id, |_| false));
+        assert_eq!(ms.len(), 1);
     }
 
     #[test]
@@ -222,12 +240,12 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn tempo_edit_propagates_to_contiguous_equal_measures() {
+    fn tempo_edit_propagates_to_all_following_measures() {
         let mut ms = grid(&[120.0, 120.0, 120.0, 90.0, 120.0]);
         let range = set_tempo(&mut ms, 0, 60.0).unwrap();
-        assert_eq!(range, 0..3);
+        assert_eq!(range, 0..5);
         let tempos: Vec<f64> = ms.iter().map(|m| m.tempo_bpm).collect();
-        assert_eq!(tempos, [60.0, 60.0, 60.0, 90.0, 120.0]);
+        assert_eq!(tempos, [60.0; 5]);
     }
 
     #[test]
@@ -241,7 +259,7 @@ pub(crate) mod tests {
         close(ms[2].start_sec, 6.0);
         assert_eq!(
             set_tempo_scoped(&mut ms, 0, 60.0, Propagation::Following).unwrap(),
-            0..1
+            0..3
         );
     }
 
@@ -260,11 +278,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn tempo_edit_stops_at_first_difference_even_if_a_later_one_matches() {
+    fn tempo_edit_overrides_different_followers() {
         let mut ms = grid(&[120.0, 120.0, 90.0, 120.0]);
         set_tempo(&mut ms, 0, 100.0).unwrap();
         let tempos: Vec<f64> = ms.iter().map(|m| m.tempo_bpm).collect();
-        assert_eq!(tempos, [100.0, 100.0, 90.0, 120.0]);
+        assert_eq!(tempos, [100.0; 4]);
     }
 
     #[test]
@@ -279,9 +297,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn tempo_edit_on_single_measure_between_different_neighbours() {
+    fn single_tempo_edit_between_different_neighbours() {
         let mut ms = grid(&[90.0, 120.0, 100.0]);
-        assert_eq!(set_tempo(&mut ms, 1, 60.0).unwrap(), 1..2);
+        assert_eq!(set_tempo_scoped(&mut ms, 1, 60.0, Propagation::Single).unwrap(), 1..2);
         let tempos: Vec<f64> = ms.iter().map(|m| m.tempo_bpm).collect();
         assert_eq!(tempos, [90.0, 60.0, 100.0]);
     }
@@ -292,7 +310,7 @@ pub(crate) mod tests {
         set_tempo(&mut ms, 0, 60.0).unwrap();
         close(ms[1].start_sec, 4.0);
         close(ms[2].start_sec, 8.0);
-        close(ms[3].start_sec, 8.0 + 4.0 * 60.0 / 90.0);
+        close(ms[3].start_sec, 12.0);
     }
 
     #[test]
@@ -332,17 +350,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn time_sig_edit_propagates_and_stops_at_first_difference() {
+    fn time_sig_edit_propagates_to_all_following_measures() {
         let mut ms = grid(&[120.0; 5]);
         ms[3].time_sig = TimeSignature::new(3, 4);
         ms[4].time_sig = TimeSignature::new(4, 4);
         let range = set_time_sig(&mut ms, 1, TimeSignature::new(6, 8)).unwrap();
-        assert_eq!(range, 1..3);
+        assert_eq!(range, 1..5);
         let sigs: Vec<(u8, u8)> = ms
             .iter()
             .map(|m| (m.time_sig.numerator, m.time_sig.denominator))
             .collect();
-        assert_eq!(sigs, [(4, 4), (6, 8), (6, 8), (3, 4), (4, 4)]);
+        assert_eq!(sigs, [(4, 4), (6, 8), (6, 8), (6, 8), (6, 8)]);
     }
 
     #[test]
