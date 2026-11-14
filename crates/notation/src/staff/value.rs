@@ -10,7 +10,7 @@
 
 use std::sync::LazyLock;
 
-pub const TICKS_PER_BEAT: i64 = 48;
+pub use fretscribe_core::TICKS_PER_BEAT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Base {
@@ -76,14 +76,6 @@ static VALUES: LazyLock<Vec<Duration>> = LazyLock::new(|| {
     all.sort_by_key(|d| std::cmp::Reverse(d.ticks()));
     all
 });
-
-/// The single value whose length is closest to `ticks` (simpler values win near-ties), or `None`
-/// beyond the longest one. How long a note was played decides its value, not where a grid is.
-pub fn nearest(ticks: f64) -> Option<Duration> {
-    let cost = |d: &Duration| (d.ticks() as f64 - ticks).abs() + 0.05 * f64::from(d.dots) + if d.triplet { 0.1 } else { 0.0 };
-    let longest = VALUES.first()?.ticks() as f64;
-    (ticks <= longest * 1.1).then(|| VALUES.iter().copied().min_by(|a, b| cost(a).total_cmp(&cost(b)))).flatten()
-}
 
 /// Main-beat length in ticks: the written beat, or a group of three for compound meters.
 pub fn main_beat_ticks(numerator: u8, denominator: u8) -> i64 {

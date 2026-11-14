@@ -261,11 +261,13 @@ fn touching_notes_leave_no_rest() {
 }
 
 /// Stress test: 300 random monophonic notes whose edges sit on any straight (1/64) or triplet (1/64T) lattice position, touching or not.
-/// Starts and ends must survive quantisation exactly, and the layout must keep the sounding and silent totals.
+/// Starts and ends must survive quantisation exactly, the layout must keep the sounding and silent totals and no event crosses a bar line (20 seeds, beat rule on and off).
 #[test]
-#[ignore = "known quantiser failures; run with --ignored"]
 fn random_lattice_notes_survive_quantisation() {
-    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    (1..=20).for_each(|seed| lattice_case(0x2545_F491_4F6C_DD1D ^ (seed << 20), seed % 2 == 0));
+}
+
+fn lattice_case(mut seed: u64, beat_rule: bool) {
     let mut rand = |n: u64| {
         seed ^= seed << 13;
         seed ^= seed >> 7;
@@ -277,6 +279,8 @@ fn random_lattice_notes_survive_quantisation() {
     for _ in 0..300 {
         let s = if rand(10) < 7 { cursor } else { cursor + rand(60) as i64 };
         let s = on(s, [2, 3][rand(2) as usize]);
+        // Edges closer than the shortest value (2 ticks) cannot be written; they are merged.
+        let s = if s - cursor == 1 { cursor } else { s };
         let step = [2, 3][rand(2) as usize];
         let e = on(s + 1 + rand(100) as i64, step).max(s + step);
         spans.push((s, e));
@@ -290,10 +294,11 @@ fn random_lattice_notes_survive_quantisation() {
     let got: Vec<(i64, i64)> = q.notes.iter().map(|n| (n.s, n.e)).collect();
     let bad: Vec<_> = got.iter().zip(&spans).enumerate().filter(|(_, (g, w))| g != w).collect();
 
-    let l = layout(&notes, &ms, &StaffOptions::default());
+    let l = layout(&notes, &ms, &StaffOptions { beat_rule, ..Default::default() });
+    assert!(l.events.iter().all(|e| e.beat_pos + e.duration_beats <= 4.0 + 1e-9), "an event crosses a bar line");
     let sum = |rest: bool| l.events.iter().filter(|e| e.rest == rest).map(|e| e.duration.ticks()).sum::<i64>();
     let sound: i64 = spans.iter().map(|(s, e)| e - s).sum();
-    let silence = spans.iter().zip(spans.iter().skip(1)).map(|(a, b)| b.0 - a.1).sum::<i64>() + spans[0].0;
+    let silence = spans.iter().zip(spans.iter().skip(1)).map(|(a, b)| b.0 - a.1).sum::<i64>() + spans[0].0 + (cursor - 1) / 192 * 192 + 192 - cursor;
     assert!(
         got.len() == spans.len() && bad.is_empty() && sum(false) == sound && sum(true) == silence,
         "{} of {} notes; sound {} vs {sound}, silence {} vs {silence}; first mismatches (index, got, want): {:?}",

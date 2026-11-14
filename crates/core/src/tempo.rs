@@ -98,6 +98,11 @@ impl TempoMap {
             .map_or(audio_len_sec, |next| next.start_sec)
     }
 
+    /// Length of measure `i` in ticks.
+    pub fn measure_ticks(&self, i: usize) -> i64 {
+        self.ticks[i]
+    }
+
     /// Quarter-note beats.
     pub fn beats_in_measure(&self, i: usize) -> f64 {
         self.beats[i]
