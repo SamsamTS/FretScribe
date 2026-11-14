@@ -98,10 +98,10 @@ pub enum PopupOutcome {
 
 pub fn show(ctx: &Context, id: Id, popup: &mut SettingsPopup) -> PopupOutcome {
     let mut outcome = PopupOutcome::Open;
-    // Full-screen catcher under the popup: a left or right click anywhere else cancels and is not
+    // Full-screen catcher under the popup (a lower layer, so it can never be raised over it): a left or right click anywhere else cancels and is not
     // seen by the rest of the app.
     let screen = ctx.screen_rect();
-    let catcher = Area::new(id.with("outside")).order(Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
+    let catcher = Area::new(id.with("outside")).order(Order::Middle).fixed_pos(screen.min).show(ctx, |ui| {
         ui.allocate_response(screen.size(), Sense::click_and_drag())
     });
     if catcher.inner.clicked() || catcher.inner.secondary_clicked() || catcher.inner.drag_started() {
