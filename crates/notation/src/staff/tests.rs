@@ -251,3 +251,11 @@ fn beat_rule_off_keeps_a_syncopated_quarter_whole() {
     assert!(ticks_of(&long).len() >= 2);
     assert!(loose.events.iter().filter(|e| e.rest).all(|e| e.duration.ticks() <= 48 || e.beat_pos % 1.0 == 0.0));
 }
+
+#[test]
+fn touching_notes_leave_no_rest() {
+    let ms = measures(1, TimeSignature::COMMON);
+    let l = layout(&[note(&ms, 1, 60, 0.0, 3.3), note(&ms, 2, 67, 3.3, 3.8)], &ms, &StaffOptions::default());
+    let last = l.events.iter().rposition(|e| !e.rest).unwrap();
+    assert!(l.events[..last].iter().all(|e| !e.rest), "{:?}", kinds(&l));
+}

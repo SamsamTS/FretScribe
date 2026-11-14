@@ -11,6 +11,8 @@ use super::value::{nearest, TICKS_PER_BEAT};
 
 const EPS: f64 = 1e-9;
 /// A finer lattice must be better than a coarser one by more than this many beats per edge.
+/// Largest gap (beats) between a note's end and another start for the two to count as touching.
+const TOUCH: f64 = 0.1;
 const TOLERANCE: f64 = 0.01;
 /// Silences shorter than half of this many beats are absorbed into the previous note.
 const GAP_UNIT: f64 = 0.25;
@@ -150,7 +152,9 @@ pub fn quantise(notes: &[Note], tempo: &TempoMap) -> Quantised {
         .iter()
         .filter_map(|r| {
             let s = tick(r.s);
-            let e = value_of(r).map_or_else(|| tick(r.e), |v| s + v.ticks()).max(s + MIN_TICKS);
+            // An end touching another note's start is that start's tick (no rest or overlap); otherwise the length picks the value.
+            let next = raws.iter().filter(|o| o.s > r.s + EPS && (o.s - r.e).abs() <= TOUCH).min_by(|a, b| (a.s - r.e).abs().total_cmp(&(b.s - r.e).abs()));
+            let e = next.map_or_else(|| value_of(r).map_or_else(|| tick(r.e), |v| s + v.ticks()), |o| tick(o.s)).max(s + MIN_TICKS);
             (s < total).then(|| QNote { id: r.note.id, midi: r.note.midi, s, e: e.min(total), actual_sec: times.start_sec(r.note.id).unwrap_or(0.0) })
         })
         .collect();
