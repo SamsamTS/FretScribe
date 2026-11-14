@@ -38,6 +38,7 @@ pub use logic::{
 };
 pub use ruler::{format_time, tick_step, ticks};
 pub use waveform::{lighten, WaveformPalette, WAVEFORM_GAMMA};
+pub(crate) use waveform::build_mesh;
 
 const RULER_HEIGHT: f32 = 16.0;
 const DEFAULT_WAVEFORM_HEIGHT: f32 = 44.0;

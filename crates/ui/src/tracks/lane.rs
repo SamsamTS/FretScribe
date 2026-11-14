@@ -243,7 +243,8 @@ impl TrackLane<'_> {
             }
         }
 
-        let wave = WaveformView::new(px(WAVE_H_PX)).playhead(shared.playhead_sec).audio_offset(offset);
+        let palette = crate::overview::WaveformPalette::from_rgba(&shared.style.lut.colors);
+        let wave = WaveformView::new(px(WAVE_H_PX)).palette(&palette).playhead(shared.playhead_sec).audio_offset(offset);
         wave.paint(ui, Rect::from_min_size(wave_rect.min, vec2(wave_rect.width(), px(WAVE_H_PX))), &view, |range, n| shared.source.peaks(id, range, n));
         let painter = ui.painter_at(wave_rect);
         painter.rect_filled(Rect::from_min_max(pos2(wave_rect.left(), wave_rect.bottom() - px(BORDER_PX)), wave_rect.max), 0.0, BORDER_COLOR);
