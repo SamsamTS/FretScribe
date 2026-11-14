@@ -26,7 +26,7 @@ fn project() -> Project {
     let melody = [(52, 0.0, 0.5), (55, 0.5, 1.0), (57, 1.0, 1.5), (59, 1.5, 2.0), (64, 2.0, 3.0), (66, 3.0, 4.0), (64, 4.0, 5.0), (62, 5.0, 5.5), (60, 5.5, 6.0), (45, 6.0, 7.0), (50, 7.0, 8.0)];
     for (midi, s, e) in melody {
         let id = next_note_id(&p);
-        p.notes.push(Note::new(id, midi, TimePos::new(1, s), TimePos::new(1, e)));
+        p.notes.push(Note::new(id, midi, TimePos::at(1, s), TimePos::at(1, e)));
     }
     let _ = p.link_notes(5, 6, LinkType::Bend);
     let _ = p.link_notes(6, 7, LinkType::Bend);

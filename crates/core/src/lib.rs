@@ -27,7 +27,7 @@ pub use measures::{
     generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped, valid_tempo,
     Propagation,
 };
-pub use model::{
+pub use model::{TICKS_PER_BEAT, 
     GraceKind, GraceNote, Legato, LegatoLink, Measure, Note, Project, Technique, TimePos,
     TimeSignature, Track, TrackRole, Tuning, MAX_BPM, MIN_BPM,
 };

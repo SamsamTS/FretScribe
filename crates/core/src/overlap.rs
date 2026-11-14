@@ -124,8 +124,8 @@ mod tests {
         p.notes.push(Note::new(
             id,
             midi,
-            TimePos::new(1, start),
-            TimePos::new(1, end),
+            TimePos::at(1, start),
+            TimePos::at(1, end),
         ));
         id
     }
@@ -135,7 +135,7 @@ mod tests {
             .notes
             .iter()
             .filter(|n| n.midi == midi)
-            .map(|n| (n.start.beat, n.end.beat))
+            .map(|n| (n.start.beat(), n.end.beat()))
             .collect();
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         v
@@ -157,7 +157,7 @@ mod tests {
             [(0.0, 0.5), (0.5, 1.5), (1.5, 2.0), (3.0, 3.5)]
         );
         assert!(p.note(a).is_some() && p.note(b).is_some() && p.note(c).is_some());
-        assert_eq!(p.note(other).unwrap().end.beat, 4.0);
+        assert_eq!(p.note(other).unwrap().end.beat(), 4.0);
 
         let big = add(&mut p, 60, 0.25, 3.25);
         p.resolve_overlaps(&[big]);
@@ -181,7 +181,7 @@ mod tests {
         let tail = p
             .notes
             .iter()
-            .find(|n| n.midi == 62 && n.start.beat == 3.0)
+            .find(|n| n.midi == 62 && n.start.beat() == 3.0)
             .unwrap()
             .id;
         assert_eq!(p.note(next).unwrap().legato.map(|l| l.from), Some(tail));
@@ -194,9 +194,9 @@ mod tests {
         let mut p = project();
         let (a, b) = (add(&mut p, 60, 0.0, 2.0), add(&mut p, 64, 2.0, 3.0));
         p.link_notes(a, b, LinkType::Slide).unwrap();
-        let mid = add(&mut p, 60, 0.02, 1.0);
+        let mid = add(&mut p, 60, 1.0 / 48.0, 1.0);
         p.resolve_overlaps(&[mid]);
-        assert_eq!(spans(&p, 60), [(0.02, 1.0), (1.0, 2.0)]);
+        assert_eq!(spans(&p, 60), [(1.0 / 48.0, 1.0), (1.0, 2.0)]);
         let cover = add(&mut p, 60, 0.0, 3.0);
         p.resolve_overlaps(&[cover]);
         assert_eq!(spans(&p, 60), [(0.0, 3.0)]);

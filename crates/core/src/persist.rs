@@ -279,8 +279,8 @@ mod tests {
         p.notes.push(Note::new(
             1,
             64,
-            TimePos::new(1, seed),
-            TimePos::new(1, seed + 1.0),
+            TimePos::at(1, seed),
+            TimePos::at(1, seed + 1.0),
         ));
         let mut f = ProjectFile::new(p);
         f.ui.selected_region = Some((1.0, 2.5));
@@ -510,7 +510,7 @@ mod tests {
             dir_names(dir.path()),
             ["recovery.json", "recovery.json.1", "recovery.json.2"]
         );
-        let beat = |p: &Path| load_project(p).unwrap().project.notes[0].start.beat;
+        let beat = |p: &Path| load_project(p).unwrap().project.notes[0].start.beat();
         assert_eq!(beat(&path), 4.0);
         assert_eq!(beat(&generation_path(&path, 1)), 3.0);
         assert_eq!(beat(&generation_path(&path, 2)), 2.0);
@@ -527,21 +527,21 @@ mod tests {
         assert_eq!(
             load_autosave(&path).unwrap().unwrap().project.notes[0]
                 .start
-                .beat,
+                .beat(),
             2.0
         );
         fs::write(&path, b"{ truncated").unwrap();
         assert_eq!(
             load_autosave(&path).unwrap().unwrap().project.notes[0]
                 .start
-                .beat,
+                .beat(),
             1.0
         );
         fs::remove_file(&path).unwrap();
         assert_eq!(
             load_autosave(&path).unwrap().unwrap().project.notes[0]
                 .start
-                .beat,
+                .beat(),
             1.0
         );
     }
@@ -575,10 +575,10 @@ mod tests {
         let mut f = file(0.0);
         f.project
             .notes
-            .push(Note::new(3, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+            .push(Note::new(3, 60, TimePos::at(1, 0.0), TimePos::at(1, 1.0)));
         f.project
             .notes
-            .push(Note::new(2, 62, TimePos::new(1, 0.0), TimePos::new(1, 1.0)));
+            .push(Note::new(2, 62, TimePos::at(1, 0.0), TimePos::at(1, 1.0)));
         let mut value: Value = serde_json::from_str(&to_json(&f).unwrap()).unwrap();
         value["history"] = serde_json::json!({ "done": "garbage" });
         let loaded = from_json(&value.to_string()).unwrap();

@@ -11,7 +11,7 @@ fn project() -> Project {
 
 fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
     let id = next_note_id(p);
-    p.notes.push(Note::new(id, midi, TimePos::new(1, start), TimePos::new(1, end)));
+    p.notes.push(Note::new(id, midi, TimePos::at(1, start), TimePos::at(1, end)));
     id
 }
 

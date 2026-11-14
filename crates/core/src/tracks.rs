@@ -111,7 +111,7 @@ pub fn shift_track(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measures::tests::close;
+    use crate::measures::tests::{close, near};
     use crate::model::{
         GraceKind, GraceNote, Legato, LegatoLink, Note, Technique, TimePos, TimeSignature,
         TrackRole,
@@ -134,8 +134,8 @@ mod tests {
         p.notes.push(Note::new(
             id,
             60,
-            TimePos::new(start.0, start.1),
-            TimePos::new(end.0, end.1),
+            TimePos::at(start.0, start.1),
+            TimePos::at(end.0, end.1),
         ));
         id
     }
@@ -266,16 +266,16 @@ mod tests {
         });
         let before = [secs(&p, main), secs(&p, grace)];
         let edit = shift_track(&mut p, 1, 0.3, true).unwrap();
-        close(p.tracks[0].offset_sec, 0.3);
+        near(p.tracks[0].offset_sec, 0.3);
         for (id, (s, e)) in [main, grace].into_iter().zip(before) {
             let (s2, e2) = secs(&p, id);
-            close(s2, s + 0.3);
-            close(e2, e + 0.3);
+            near(s2, s + 0.3);
+            near(e2, e + 0.3);
         }
         let shifted = p.clone();
         edit.undo(&mut p);
-        close(p.tracks[0].offset_sec, 0.0);
-        close(secs(&p, main).0, before[0].0);
+        near(p.tracks[0].offset_sec, 0.0);
+        near(secs(&p, main).0, before[0].0);
         edit.redo(&mut p);
         assert_eq!(p, shifted);
     }
@@ -287,11 +287,11 @@ mod tests {
         let (s, e) = secs(&p, n);
         shift_track(&mut p, 1, -1.2, true).unwrap();
         let (s2, e2) = secs(&p, n);
-        close(s2, s - 1.2);
-        close(e2, e - 1.2);
+        near(s2, s - 1.2);
+        near(e2, e - 1.2);
         shift_track(&mut p, 1, 0.0, true).unwrap();
-        close(secs(&p, n).0, s);
-        close(secs(&p, n).1, e);
+        near(secs(&p, n).0, s);
+        near(secs(&p, n).1, e);
         p.validate().unwrap();
     }
 
@@ -311,7 +311,7 @@ mod tests {
         let n = add_note(&mut p, (1, 0.0), (1, 1.0));
         shift_track(&mut p, 1, -1.0, true).unwrap();
         close(secs(&p, n).0, -1.0);
-        assert!(p.note(n).unwrap().start.beat < 0.0);
+        assert!(p.note(n).unwrap().start.beat() < 0.0);
     }
 
     #[test]

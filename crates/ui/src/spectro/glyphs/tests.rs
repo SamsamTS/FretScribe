@@ -99,10 +99,10 @@ fn the_band_is_squished_to_half_the_way_to_the_destination_and_ignores_the_real_
         rect_of(&glyphs(&notes, &times), 1).width()
     };
     let full = (1.0 + BAND_PAD) * H;
-    for (dest, expect) in [(1.2, 10.0), (1.1, 5.0), (1.5, 25.0), (3.0, full)] {
+    for (dest, expect) in [(1.25, 12.5), (1.125, 6.25), (1.5, 25.0), (3.0, full)] {
         assert!((width(dest, 1.05) - expect).abs() < 1e-3, "{dest}");
     }
-    assert!((width(1.2, 1.3) - 10.0).abs() < 1e-3 && (width(3.0, 2.9) - full).abs() < 1e-3, "a long real note is a band too");
+    assert!((width(1.25, 1.5) - 12.5).abs() < 1e-3 && (width(3.0, 2.9) - full).abs() < 1e-3, "a long real note is a band too");
 }
 
 #[test]
@@ -219,12 +219,12 @@ fn link_dots_sit_on_edges_for_slides_and_inset_for_legato() {
     near(pts[0].pos, rect_of(&g, 1).right_center());
     near(pts[1].pos, rect_of(&g, 2).left_center());
 
-    let (mut notes, times) = setup(&[(1, 50, 1.0, 2.0, None, None), (2, 52, 2.0, 2.05, None, None)]);
+    let (mut notes, times) = setup(&[(1, 50, 1.0, 2.0, None, None), (2, 52, 2.0, 2.0625, None, None)]);
     legato(&mut notes, 1, 1);
     let g = glyphs(&notes, &times);
     let pts = link_points(&geo(), &notes, &times, &metrics(), None);
     near(pts[0].pos, pos2(rect_of(&g, 1).right() - 0.4 * H, rect_of(&g, 1).center().y));
-    near(pts[1].pos, pos2(rect_of(&g, 2).left() + 2.5, rect_of(&g, 2).center().y));
+    near(pts[1].pos, pos2(rect_of(&g, 2).left() + 3.125, rect_of(&g, 2).center().y));
 }
 
 #[test]

@@ -9,7 +9,7 @@ fn measures(n: usize, sig: TimeSignature) -> Vec<Measure> {
 }
 
 fn note(ms: &[Measure], id: u64, midi: u8, from: f64, to: f64) -> Note {
-    let pos = |b: f64| TimePos::new(ms[0].id, b);
+    let pos = |b: f64| TimePos::at(ms[0].id, b);
     Note::new(id, midi, pos(from), pos(to))
 }
 
@@ -147,8 +147,8 @@ fn compound_meter_beat_is_dotted_quarter() {
 #[test]
 fn x_follows_real_time() {
     let ms = measures(1, TimeSignature::COMMON);
-    let l = layout(&[note(&ms, 1, 60, 0.02, 1.0)], &ms, &StaffOptions::default());
-    assert!((l.events[0].x_sec - 0.01).abs() < 1e-6, "{}", l.events[0].x_sec);
+    let l = layout(&[note(&ms, 1, 60, 1.0 / 48.0, 1.0)], &ms, &StaffOptions::default());
+    assert!((l.events[0].x_sec - 0.5 / 48.0).abs() < 1e-6, "{}", l.events[0].x_sec);
 }
 
 #[test]

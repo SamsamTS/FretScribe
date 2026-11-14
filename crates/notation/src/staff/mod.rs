@@ -167,7 +167,7 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
     let measure_of = |tick: i64| q.bounds[..measures.len()].partition_point(|&b| b <= tick).saturating_sub(1);
     let tick_sec = |tick: i64| {
         let m = measure_of(tick);
-        tempo.pos_to_sec(TimePos::new(measures[m].id, (tick - q.bounds[m]) as f64 / TICKS_PER_BEAT as f64))
+        tempo.pos_to_sec(TimePos::at(measures[m].id, (tick - q.bounds[m]) as f64 / TICKS_PER_BEAT as f64))
     };
 
     let last = q.notes.iter().map(|n| measure_of(n.e - 1)).max();

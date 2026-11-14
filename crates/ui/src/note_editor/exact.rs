@@ -35,7 +35,7 @@ fn bar_beat(project: &Project, pos: TimePos) -> (String, String) {
     let tempo = fretscribe_core::TempoMap::new(&project.measures);
     let pos = tempo.normalise(pos);
     let bar = project.measures.iter().position(|m| m.id == pos.measure).map_or(1, |i| i + 1);
-    (bar.to_string(), format!("{:.4}", pos.beat + 1.0).trim_end_matches('0').trim_end_matches('.').to_owned())
+    (bar.to_string(), format!("{:.4}", pos.beat() + 1.0).trim_end_matches('0').trim_end_matches('.').to_owned())
 }
 
 pub fn fields_for(project: &Project, id: u64) -> Option<ExactFields> {
@@ -85,7 +85,7 @@ fn position(project: &Project, (bar, beat): &(String, String)) -> Result<TimePos
     let index = bar.trim().parse::<usize>().ok().filter(|b| *b >= 1).ok_or_else(|| ExactError::Bar(bar.clone()))?;
     let measure = project.measures.get(index - 1).ok_or_else(|| ExactError::Bar(bar.clone()))?;
     let beat = parse_number(beat).filter(|b| *b >= 1.0).ok_or_else(|| ExactError::Beat(beat.clone()))?;
-    Ok(TimePos::new(measure.id, beat - 1.0))
+    Ok(TimePos::at(measure.id, beat - 1.0))
 }
 
 pub fn apply_exact(project: &mut Project, fields: &ExactFields) -> Result<ProjectEdit, ExactError> {
@@ -143,7 +143,7 @@ mod tests {
         let edit = apply_exact(&mut p, &f).unwrap();
         let n = p.note(id).unwrap();
         assert_eq!((n.start.measure, n.midi, n.string_fret, n.locked_fret), (p.measures[1].id, 54, Some((2, 4)), true));
-        assert!((n.start.beat - 1.0 / 3.0).abs() < 1e-9);
+        assert!((n.start.beat() - 1.0 / 3.0).abs() < 1e-9);
         edit.undo(&mut p);
         assert_eq!(p.note(id).unwrap().midi, 64);
     }

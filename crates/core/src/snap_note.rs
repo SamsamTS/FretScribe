@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 
 use crate::model::{Note, TimePos};
 use crate::snap::{SnapGrid, UNITS_PER_BEAT};
-use crate::tempo::{TempoMap, BEAT_EPS};
+use crate::model::TICKS_PER_BEAT;
+use crate::tempo::TempoMap;
 
 const NEIGHBOUR_CAP: f64 = 0.4;
 const HYSTERESIS: f64 = 0.8;
@@ -107,17 +108,8 @@ fn rank_division(division: u8) -> (u8, bool) {
     (division, division.is_multiple_of(3))
 }
 
-pub(crate) fn on_lattice(beat: f64) -> f64 {
-    let units = (beat * f64::from(UNITS_PER_BEAT)).round();
-    if (units / f64::from(UNITS_PER_BEAT) - beat).abs() < BEAT_EPS {
-        units / f64::from(UNITS_PER_BEAT)
-    } else {
-        beat
-    }
-}
-
 pub fn add_beats(tempo: &TempoMap, pos: TimePos, beats: f64) -> TimePos {
-    tempo.normalise(TimePos::new(pos.measure, on_lattice(pos.beat + beats)))
+    tempo.normalise(TimePos::new(pos.measure, pos.tick + (beats * TICKS_PER_BEAT as f64).round() as i64))
 }
 
 /// Grid positions around `sec`, one per lattice point even when several divisions share it,
@@ -127,7 +119,7 @@ fn grid_candidates(tempo: &TempoMap, divisions: &[u8], sec: f64) -> Vec<(TimePos
     let last = tempo.len() - 1;
     let mut out = Vec::new();
     for i in centre.saturating_sub(1)..=(centre + 1).min(last) {
-        let len_units = (tempo.beats[i] * f64::from(UNITS_PER_BEAT)).round() as u32;
+        let len_units = tempo.ticks[i] as u32;
         let end_units = if i == last {
             len_units + UNITS_PER_BEAT * 2
         } else {
@@ -143,10 +135,7 @@ fn grid_candidates(tempo: &TempoMap, divisions: &[u8], sec: f64) -> Vec<(TimePos
             }
         }
         for (units, division) in by_units {
-            let pos = TimePos::new(
-                tempo.measures[i].id,
-                f64::from(units) / f64::from(UNITS_PER_BEAT),
-            );
+            let pos = TimePos::new(tempo.measures[i].id, i64::from(units));
             out.push((pos, tempo.pos_to_sec(pos), division));
         }
     }
@@ -355,7 +344,7 @@ pub fn snap_note(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measures::tests::{close, grid};
+    use crate::measures::tests::{close, grid, near};
 
     const PX_PER_SEC: f64 = 200.0;
 
@@ -372,7 +361,7 @@ mod tests {
     }
 
     fn at(m: u64, beat: f64) -> TimePos {
-        TimePos::new(m, beat)
+        TimePos::at(m, beat)
     }
 
     fn start(tempo: &TempoMap, pos: TimePos, others: &[Note], o: &SnapOpts) -> TimePos {
@@ -401,8 +390,8 @@ mod tests {
         while beat < 3.9 {
             for (grid, per_beat) in [(&straight, 4.0), (&triplet, 3.0)] {
                 let p = start(&m, at(1, beat), &[], &opts(grid));
-                let snapped = p.beat != beat;
-                let on_grid = ((p.beat * per_beat).round() - p.beat * per_beat).abs() < 1e-9;
+                let snapped = p != at(1, beat);
+                let on_grid = ((p.beat() * per_beat).round() - p.beat() * per_beat).abs() < 1e-9;
                 assert!(!snapped || on_grid, "{beat} -> {p:?}");
             }
             beat += 0.0137;
@@ -412,21 +401,19 @@ mod tests {
     #[test]
     fn grid_results_are_exact_positions() {
         let (m, grid) = (map(), g(&[3]));
-        assert_eq!(start(&m, at(1, 0.34), &[], &opts(&grid)).beat, 1.0 / 3.0);
+        assert_eq!(start(&m, at(1, 0.34), &[], &opts(&grid)).beat(), 1.0 / 3.0);
         let p = start(&m, at(1, 3.99), &[], &opts(&g(&[1])));
-        assert_eq!((p.measure, p.beat), (2, 0.0));
+        assert_eq!((p.measure, p.beat()), (2, 0.0));
     }
 
     #[test]
     fn threshold_is_capped_at_forty_percent_of_the_gap() {
         let (m, grid) = (map(), g(&[4, 3]));
         let o = SnapOpts::new(&grid, 10_000.0, PX_PER_SEC);
-        let gap = 1.0 / 12.0;
-        assert_eq!(start(&m, at(1, 0.25 + 0.39 * gap), &[], &o), at(1, 0.25));
-        let midway = at(1, 0.25 + 0.5 * gap);
-        assert_eq!(start(&m, midway, &[], &o), midway);
-        let beyond = at(1, 0.25 + 0.45 * gap);
-        assert_eq!(start(&m, beyond, &[], &o), beyond);
+        // The gap between 1/16 and 1/8T is 4 ticks: 40% of it is 1.6 ticks.
+        let tick = |t| TimePos::new(1, t);
+        assert_eq!(start(&m, tick(13), &[], &o), tick(12));
+        assert_eq!(start(&m, tick(14), &[], &o), tick(14));
     }
 
     #[test]
@@ -515,9 +502,9 @@ mod tests {
         let hit = [0.185];
         let mut o = SnapOpts::new(&grid, 10.0, PX_PER_SEC);
         o.onset_targets = Some(&hit);
-        close(m.pos_to_sec(start(&m, m.sec_to_pos(0.18), &[], &o)), 0.185);
+        near(m.pos_to_sec(start(&m, m.sec_to_pos(0.18), &[], &o)), 0.185);
         o.onset_targets = None;
-        close(m.pos_to_sec(start(&m, m.sec_to_pos(0.18), &[], &o)), 0.18);
+        near(m.pos_to_sec(start(&m, m.sec_to_pos(0.18), &[], &o)), 0.18);
         let near_grid = [0.13];
         o.onset_targets = Some(&near_grid);
         assert_eq!(start(&m, m.sec_to_pos(0.135), &[], &o), at(1, 0.25));
@@ -533,7 +520,7 @@ mod tests {
         let mut o = opts(&grid);
         o.onset_targets = Some(&hits);
         o.enable_grid_snap = false;
-        close(m.pos_to_sec(start(&m, m.sec_to_pos(0.6), &[], &o)), 0.62);
+        near(m.pos_to_sec(start(&m, m.sec_to_pos(0.6), &[], &o)), 0.62);
     }
 
     #[test]
@@ -545,7 +532,7 @@ mod tests {
         assert_eq!((s, e), (at(1, 0.34), at(1, 1.337)));
         let (s, e) = snap_note(at(1, 0.34), at(1, 0.35), &m, &[], &o);
         assert_eq!(s, at(1, 0.34));
-        close(e.beat, 0.34 + 1.0 / 12.0);
+        near(e.beat(), 0.34 + 1.0 / 12.0);
     }
 
     #[test]
@@ -577,10 +564,11 @@ mod tests {
         let prev = [note(1, at(1, 0.0), at(1, 0.3))];
         let mut o = SnapOpts::new(&grid, 10_000.0, PX_PER_SEC);
         o.sticky_start = Some(at(1, 0.3));
-        assert_eq!(start(&m, at(1, 0.274), &prev, &o), at(1, 0.3));
-        assert_eq!(start(&m, at(1, 0.272), &prev, &o), at(1, 0.25));
+        let tick = |t| TimePos::new(1, t);
+        assert_eq!(start(&m, tick(13), &prev, &o), tick(14));
+        assert_eq!(start(&m, tick(12), &prev, &o), tick(12));
         o.sticky_start = None;
-        assert_eq!(start(&m, at(1, 0.274), &prev, &o), at(1, 0.25));
+        assert_eq!(start(&m, tick(13), &prev, &o), tick(12));
     }
 
     #[test]
@@ -607,7 +595,7 @@ mod tests {
         let m = TempoMap::new(&grid(&[120.0]));
         let grid = g(&[4]);
         let p = start(&m, m.sec_to_pos(2.13), &[], &opts(&grid));
-        close(p.beat, 4.25);
+        close(p.beat(), 4.25);
     }
 
     #[test]

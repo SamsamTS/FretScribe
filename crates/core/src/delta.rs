@@ -279,8 +279,8 @@ pub(crate) mod tests {
             p.notes.push(Note::new(
                 id,
                 midi,
-                TimePos::new(1, 0.0),
-                TimePos::new(1, 1.0),
+                TimePos::at(1, 0.0),
+                TimePos::at(1, 1.0),
             ));
             Ok(())
         })
@@ -408,7 +408,7 @@ pub(crate) mod tests {
     fn deltas_are_a_small_fraction_of_a_snapshot() {
         let mut p = project();
         p.notes = (1..=3000)
-            .map(|id| Note::new(id, 60, TimePos::new(1, 0.0), TimePos::new(1, 1.0)))
+            .map(|id| Note::new(id, 60, TimePos::at(1, 0.0), TimePos::at(1, 1.0)))
             .collect();
         let snapshot = serde_json::to_string(&p).unwrap().len();
         let total: usize = (0..200u64)
@@ -457,8 +457,8 @@ pub(crate) mod tests {
                         p.notes.push(Note::new(
                             n,
                             midi,
-                            TimePos::new(id, beat),
-                            TimePos::new(id, beat + 0.5),
+                            TimePos::at(id, beat),
+                            TimePos::at(id, beat + 0.5),
                         ));
                         Ok(())
                     })

@@ -62,7 +62,7 @@ fn step_beats(ctx: &EditCtx) -> f64 {
 
 /// Length of the finest grid division that has a line at `pos`: the shortest note started there.
 fn min_len_at(ctx: &EditCtx, pos: TimePos) -> f64 {
-    let on = |d: u8| (pos.beat * f64::from(d) - (pos.beat * f64::from(d)).round()).abs() < 1e-6;
+    let on = |d: u8| (pos.beat() * f64::from(d) - (pos.beat() * f64::from(d)).round()).abs() < 1e-6;
     ctx.grid.divisions.iter().copied().filter(|&d| d > 0 && on(d)).max().map_or_else(|| min_subdivision_beats(ctx.grid), |d| 1.0 / f64::from(d))
 }
 
@@ -448,8 +448,8 @@ mod tests {
         let plan = draw(&p, pt(1.03, 60.0), pt(1.2, 60.0), false, false).unwrap();
         let n = &plan.creation.notes[0];
         assert_eq!(n.start, at(1.0));
-        assert!((n.end.beat - n.start.beat - 0.25).abs() < 1e-9, "one 1/16 long: {n:?}");
-        let back = draw(&p, pt(1.03, 60.0), pt(0.9, 60.0), false, false).unwrap();
+        assert!((n.end.beat() - n.start.beat() - 0.25).abs() < 1e-9, "one 1/16 long: {n:?}");
+        let back = draw(&p, pt(1.03, 60.0), pt(0.85, 60.0), false, false).unwrap();
         assert_eq!(back.creation.notes[0].end, at(1.0));
     }
 
@@ -460,8 +460,8 @@ mod tests {
         assert_eq!(plan.creation.notes[0].start, at(1.0));
         assert_eq!(plan.creation.notes[0].end, at(2.25));
         let free = draw(&p, pt(1.03, 60.0), pt(2.27, 60.0), false, true).unwrap();
-        assert!((free.creation.notes[0].start.beat - 1.03).abs() < 1e-9);
-        assert!((free.creation.notes[0].end.beat - 2.27).abs() < 1e-9);
+        assert!((free.creation.notes[0].start.beat() - 1.03).abs() < 0.011);
+        assert!((free.creation.notes[0].end.beat() - 2.27).abs() < 0.011);
     }
 
     #[test]
@@ -472,10 +472,10 @@ mod tests {
         let tempo = TempoMap::new(&p.measures);
         let grid = fretscribe_core::SnapGrid::default();
         let ctx = EditCtx { project: &p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, alt: false };
-        let start = Pt { sec: tempo.pos_to_sec(TimePos::new(m1, 3.0)), midi: 60.0 };
-        let end = Pt { sec: tempo.pos_to_sec(TimePos::new(m2, 1.02)), midi: 60.0 };
+        let start = Pt { sec: tempo.pos_to_sec(TimePos::at(m1, 3.0)), midi: 60.0 };
+        let end = Pt { sec: tempo.pos_to_sec(TimePos::at(m2, 1.02)), midi: 60.0 };
         let c = plan_draw(start, end, false, (None, None), &ctx).unwrap().creation;
-        assert_eq!((c.notes[0].start, c.notes[0].end), (TimePos::new(m1, 3.0), TimePos::new(m2, 1.0)));
+        assert_eq!((c.notes[0].start, c.notes[0].end), (TimePos::at(m1, 3.0), TimePos::at(m2, 1.0)));
     }
 
     #[test]
@@ -533,11 +533,11 @@ mod tests {
         let mut p = project();
         let s = add(&mut p, 60, 2.0, 3.0);
         let fwd = start(&p, s, pt(4.02, 62.0));
-        assert_eq!((fwd.forward, fwd.kind, fwd.near), (true, LinkType::Slide, TimePos::new(2, 0.0)));
+        assert_eq!((fwd.forward, fwd.kind, fwd.near), (true, LinkType::Slide, TimePos::at(2, 0.0)));
         let rev = start(&p, s, pt(1.0, 58.0));
         assert_eq!((rev.forward, rev.kind, rev.near), (false, LinkType::Slide, at(1.0)));
         let LinkAim::Start { snapped, .. } = aim(&p, s, pt(4.02, 62.0), None) else { panic!() };
-        assert_eq!(snapped, (Some(TimePos::new(2, 0.0)), None));
+        assert_eq!(snapped, (Some(TimePos::at(2, 0.0)), None));
     }
 
     #[test]
@@ -557,9 +557,9 @@ mod tests {
         let fwd = start(&p, s, pt(2.8, 62.0));
         let run = |st: &LinkStart, sec: Option<f64>| with_ctx(&p, &[4, 3], false, |ctx| plan_extend(st, sec, (None, None), ctx));
         let plan = run(&fwd, Some(sec(5.0)));
-        assert_eq!(plan.creation.notes, [NewNote { midi: 62, start: at(3.0), end: TimePos::new(2, 1.0) }]);
+        assert_eq!(plan.creation.notes, [NewNote { midi: 62, start: at(3.0), end: TimePos::at(2, 1.0) }]);
         assert_eq!(plan.creation.links, [(Ref::Existing(s), Ref::New(0), LinkType::Legato)]);
-        assert_eq!(plan.snapped, (None, Some(TimePos::new(2, 1.0))));
+        assert_eq!(plan.snapped, (None, Some(TimePos::at(2, 1.0))));
         assert_eq!(run(&fwd, None).creation.notes[0].end, at(3.25));
         assert_eq!(run(&fwd, Some(sec(2.0))).creation.notes[0].end, at(3.25));
         let rev = start(&p, s, pt(2.2, 58.0));
@@ -590,7 +590,7 @@ mod tests {
         let plan = draw(&p, pt(0.0, 60.0), pt(2.0, 62.0), false, false).unwrap();
         let run = |sec| with_ctx(&p, &[4, 3], false, |ctx| plan_slide_end(&plan.creation, sec, (None, None), ctx));
         let (c, snapped) = run(sec(4.0));
-        let end = TimePos::new(2, 0.0);
+        let end = TimePos::at(2, 0.0);
         assert_eq!((c.notes[1].start, c.notes[1].end, snapped.1), (at(2.0), end, Some(end)));
         assert_eq!(c.notes[0], plan.creation.notes[0]);
         assert_eq!(run(sec(1.0)).0, plan.creation);

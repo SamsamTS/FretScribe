@@ -585,8 +585,8 @@ mod tests {
         p.notes.push(Note::new(
             id,
             midi,
-            TimePos::new(1, start),
-            TimePos::new(1, end),
+            TimePos::at(1, start),
+            TimePos::at(1, end),
         ));
         id
     }
@@ -704,7 +704,7 @@ mod tests {
         p.link_notes(a, b, LinkType::Slide).unwrap();
         assert_eq!(
             p.note(a).unwrap().end,
-            TimePos::new(1, 0.5),
+            TimePos::at(1, 0.5),
             "on-the-beat grace notes keep their length"
         );
         assert_eq!(p.link_notes(b, a, LinkType::Slide), Err(LinkError::Cycle));
@@ -721,13 +721,13 @@ mod tests {
         p.link_notes(a, b, LinkType::Slide).unwrap();
         assert_eq!(
             p.note(a).unwrap().end,
-            TimePos::new(1, 1.0),
+            TimePos::at(1, 1.0),
             "a long source is cut"
         );
         p.link_notes(b, c, LinkType::Slide).unwrap();
         assert_eq!(
             p.note(b).unwrap().end,
-            TimePos::new(1, 5.0),
+            TimePos::at(1, 5.0),
             "a short source is extended"
         );
         let d = add(&mut p, 65, 5.0, 6.0);
@@ -742,14 +742,14 @@ mod tests {
     fn tie_links_follows_the_end_that_was_not_touched_and_drops_links_that_cannot_hold() {
         let mut p = project();
         let [a, b, c] = chain3(&mut p);
-        p.notes.iter_mut().find(|n| n.id == b).unwrap().start = TimePos::new(1, 1.5);
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().start = TimePos::at(1, 1.5);
         assert_eq!(p.tie_links(&[b]), [a]);
-        assert_eq!(p.note(a).unwrap().end, TimePos::new(1, 1.5));
-        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::new(1, 2.5);
+        assert_eq!(p.note(a).unwrap().end, TimePos::at(1, 1.5));
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::at(1, 2.5);
         assert_eq!(p.tie_links(&[b]), [c]);
-        assert_eq!(p.note(c).unwrap().start, TimePos::new(1, 2.5));
-        p.notes.iter_mut().find(|n| n.id == c).unwrap().end = TimePos::new(1, 2.51);
-        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::new(1, 2.6);
+        assert_eq!(p.note(c).unwrap().start, TimePos::at(1, 2.5));
+        p.notes.iter_mut().find(|n| n.id == c).unwrap().end = TimePos::at(1, 2.51);
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::at(1, 2.6);
         assert!(p.tie_links(&[b]).is_empty());
         assert_eq!(p.outgoing(b), None, "c would be left under a lattice unit");
     }

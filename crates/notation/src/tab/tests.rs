@@ -19,7 +19,7 @@ fn fixture() -> Fixture {
 impl Fixture {
     fn add(&mut self, midi: u8, start: f64, end: f64) -> usize {
         let id = self.notes.len() as u64 + 1;
-        let pos = |b: f64| TimePos::new(self.measure, b);
+        let pos = |b: f64| TimePos::at(self.measure, b);
         self.notes.push(Note::new(id, midi, pos(start), pos(end)));
         self.notes.len() - 1
     }

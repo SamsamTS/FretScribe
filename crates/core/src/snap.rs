@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::TimePos;
+use crate::model::{TimePos, TICKS_PER_BEAT};
 use crate::tempo::{TempoMap, BEAT_EPS};
 
 pub const SNAP_DIVISIONS: [u8; 9] = [1, 2, 3, 4, 6, 8, 12, 16, 24];
@@ -13,7 +13,7 @@ pub const STRAIGHT_DIVISIONS: [u8; 5] = [1, 2, 4, 8, 16];
 pub const TRIPLET_DIVISIONS: [u8; 4] = [3, 6, 12, 24];
 
 /// Every allowed division divides 48, so all grid positions are integers in 1/48-beat units.
-pub(crate) const UNITS_PER_BEAT: u32 = 48;
+pub(crate) const UNITS_PER_BEAT: u32 = crate::model::TICKS_PER_BEAT as u32;
 const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,28 +144,22 @@ impl TempoMap {
             return self.sec_to_pos(sec);
         }
         let (i, beat) = self.sec_to_beat_position(sec);
-        let len = self.beats[i];
-        let limit = if i + 1 == self.len() {
-            len.max(beat.ceil())
-        } else {
-            len
-        };
+        let at = beat * TICKS_PER_BEAT as f64;
+        let len = self.ticks[i];
+        let limit = if i + 1 == self.len() { len.max((beat.ceil() as i64) * TICKS_PER_BEAT) } else { len };
 
-        let mut best = (f64::INFINITY, 0.0);
-        let mut consider = |candidate: f64| {
-            let distance = (candidate - beat).abs();
+        let mut best = (f64::INFINITY, 0);
+        let mut consider = |candidate: i64| {
+            let distance = (candidate as f64 - at).abs();
             if distance < best.0 - TIE_EPS {
                 best = (distance, candidate);
             }
         };
-        consider(0.0);
+        consider(0);
         consider(len);
         for division in grid.sorted_divisions() {
-            let d = f64::from(division);
-            let steps = (limit * d + BEAT_EPS).floor() as u32;
-            for k in 0..=steps {
-                consider(f64::from(k) / d);
-            }
+            let step = TICKS_PER_BEAT / i64::from(division);
+            (0..=limit / step).for_each(|k| consider(k * step));
         }
         self.normalise(TimePos::new(self.measures[i].id, best.1))
     }
@@ -331,7 +325,7 @@ mod tests {
         close(m.snap_to_grid(1.99, &g(&[2])), 2.0);
         let pos = m.snap_to_pos(1.99, &g(&[2]));
         assert_eq!(pos.measure, 2);
-        close(pos.beat, 0.0);
+        close(pos.beat(), 0.0);
     }
 
     #[test]
@@ -341,7 +335,7 @@ mod tests {
         close(m.snap_to_grid(4.31, &g(&[4])), 4.25);
         let pos = m.snap_to_pos(4.37, &g(&[4]));
         assert_eq!(pos.measure, 2);
-        close(pos.beat, 4.75);
+        close(pos.beat(), 4.75);
     }
 
     #[test]

@@ -102,7 +102,7 @@ pub fn quantise(notes: &[Note], tempo: &TempoMap) -> Quantised {
 
     let at = |abs: f64| {
         let pos = tempo.beats_to_pos(abs);
-        (tempo.index_of(pos.measure).unwrap_or(0), pos.beat)
+        (tempo.index_of(pos.measure).unwrap_or(0), pos.beat())
     };
     // A length within 12% of one value (3% of a triplet one, which sit close to the others) is that value; anything else (2.5 beats) is a span the
     // splitter writes as tied values, its end snapped like a start.

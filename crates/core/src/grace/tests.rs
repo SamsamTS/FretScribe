@@ -29,7 +29,7 @@ fn secs(p: &Project, id: u64) -> (f64, f64) {
 }
 
 fn close(a: f64, b: f64) {
-    assert!((a - b).abs() < 1e-9, "{a} != {b}");
+    assert!((a - b).abs() < 0.011, "{a} != {b}");
 }
 
 fn on_string(p: &mut Project, id: u64, string: u8, fret: u8) {
@@ -94,7 +94,7 @@ fn length_is_limited_by_half_the_gap_to_the_previous_note() {
         .unwrap();
     close(secs(&p, on_beat).1 - secs(&p, on_beat).0, APPOGGIATURA_SEC);
     let mut p = project();
-    add(&mut p, 55, 1.9985, 2.0);
+    add(&mut p, 55, 2.0 - 0.5 / 48.0, 2.0);
     let main = add(&mut p, 60, 2.0, 3.0);
     assert_eq!(
         p.add_grace_note(main, None, GraceKind::Acciaccatura),

@@ -10,12 +10,12 @@ pub fn project() -> Project {
 
 pub fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
     let id = next_note_id(p);
-    p.notes.push(Note::new(id, midi, TimePos::new(1, start), TimePos::new(1, end)));
+    p.notes.push(Note::new(id, midi, TimePos::at(1, start), TimePos::at(1, end)));
     id
 }
 
 pub fn at(beat: f64) -> TimePos {
-    TimePos::new(1, beat)
+    TimePos::at(1, beat)
 }
 
 /// Runs `f` with a context for `p` at 200 px/s (so one beat is 100 px) and a 12 px snap threshold.
@@ -32,5 +32,5 @@ pub fn sec(beat: f64) -> f64 {
 
 pub fn near(pos: TimePos, beat: f64) {
     assert_eq!(pos.measure, 1);
-    assert!((pos.beat - beat).abs() < 1e-9, "{pos:?} vs {beat}");
+    assert!((pos.beat() - beat).abs() < 0.011, "{pos:?} vs {beat}");
 }

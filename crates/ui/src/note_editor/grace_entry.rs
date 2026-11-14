@@ -209,7 +209,7 @@ mod tests {
             let times = fretscribe_core::NoteTimes::build(&s.notes, &fretscribe_core::TempoMap::new(&s.measures));
             (times.start_sec(id).unwrap(), times.end_sec(id).unwrap(), s.grace_link(id))
         };
-        let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-9, "{a} != {b}");
+        let near = |a: f64, b: f64| assert!((a - b).abs() < 0.011, "{a} != {b}");
         let (start, end, link) = placed(&e, &p);
         near(end, 1.5);
         assert_eq!((e.kind, link), (GraceKind::Acciaccatura, LinkType::Legato));

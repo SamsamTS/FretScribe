@@ -36,7 +36,7 @@ impl GridDemo {
         let id = project.measures[2].id;
         for (n, midi) in [(1_u64, 52), (2, 55)] {
             let beat = n as f64;
-            project.notes.push(Note::new(n, midi, TimePos::new(id, beat), TimePos::new(id, beat + 1.0)));
+            project.notes.push(Note::new(n, midi, TimePos::at(id, beat), TimePos::at(id, beat + 1.0)));
         }
         Self {
             project,

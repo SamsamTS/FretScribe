@@ -120,7 +120,7 @@ mod tests {
     fn delete_needs_confirmation_when_notes_would_go() {
         let mut p = project();
         let id = p.measures[1].id;
-        p.notes.push(Note::new(1, 60, TimePos::new(id, 0.0), TimePos::new(id, 1.0)));
+        p.notes.push(Note::new(1, 60, TimePos::at(id, 0.0), TimePos::at(id, 1.0)));
         let delete = GridEvent::DeleteMeasure { index: 1, policy: FOLLOW };
         assert_eq!(
             delete.apply(&mut p, false).unwrap().unwrap_err(),

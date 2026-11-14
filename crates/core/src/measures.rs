@@ -165,6 +165,11 @@ pub(crate) mod tests {
         assert!((a - b).abs() < 1e-9, "{a} != {b}");
     }
 
+    /// Equal to within half a tick (a position stored as ticks is at most that far from the time it came from).
+    pub fn near(a: f64, b: f64) {
+        assert!((a - b).abs() < 0.011, "{a} != {b}");
+    }
+
     pub fn grid(tempos: &[f64]) -> Vec<Measure> {
         let mut ms: Vec<Measure> = tempos
             .iter()
