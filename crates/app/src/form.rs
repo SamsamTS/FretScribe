@@ -122,6 +122,18 @@ pub fn tuning_text(tuning: &Tuning) -> String {
         .join(" ")
 }
 
+pub fn normalise_tuning(text: &str, instrument: Instrument) -> Option<String> {
+    parse_tuning(text, instrument).ok().map(|t| tuning_text(&t))
+}
+
+pub fn normalise_number(text: &str, decimals: usize) -> Option<String> {
+    text.trim().parse::<f64>().ok().filter(|v| v.is_finite()).map(|v| format!("{v:.decimals$}"))
+}
+
+pub fn normalise_time_sig(text: &str) -> Option<String> {
+    parse_time_sig(text).ok().map(|s| format!("{}/{}", s.numerator, s.denominator))
+}
+
 pub fn preset_texts(instrument: Instrument) -> Vec<(&'static str, String)> {
     let all = presets();
     let text = |name: &str| all.iter().find(|t| t.name == name).map(tuning_text).unwrap_or_default();
@@ -334,7 +346,7 @@ mod tests {
 
     #[test]
     fn tuning_parse_errors() {
-        for bad in ["", "E A D", "E A D G B X", "E A D G B E E E E", "E A D G B E#9x", "e2 a2 d3 g3"] {
+        for bad in ["", "E A D", "E A D G B X", "E A D G B E E E E", "E A D G B E#9x", "E4 B3 G3 D3 A2 E2"] {
             assert!(guitar(bad).is_err(), "{bad}");
         }
     }
@@ -350,6 +362,16 @@ mod tests {
         assert_eq!(preset_texts(Instrument::Guitar).len(), 6);
         assert_eq!(preset_texts(Instrument::Guitar)[0].1, "E A D G B e");
         assert_eq!(tuning_text(&guitar("EADGBE").unwrap()), "E A D G B e");
+    }
+
+    #[test]
+    fn commit_normalisers() {
+        assert_eq!(normalise_tuning("DADGAD", Instrument::Guitar).as_deref(), Some("D A D G A d"));
+        assert_eq!(normalise_tuning("zz", Instrument::Guitar), None);
+        assert_eq!(normalise_number(" 93 ", 1).as_deref(), Some("93.0"));
+        assert_eq!(normalise_number("abc", 1), None);
+        assert_eq!(normalise_time_sig("6 / 8").as_deref(), Some("6/8"));
+        assert_eq!(normalise_time_sig("4/3"), None);
     }
 
     #[test]
