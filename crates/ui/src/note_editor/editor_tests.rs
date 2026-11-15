@@ -153,7 +153,7 @@ fn a_different_pitch_makes_two_linked_notes_and_a_tiny_span_nothing() {
     h.mv(s(4.5, 62.0, None), NONE);
     assert_eq!(edits(&h.click(Button::Left, s(4.5, 62.0, None), NONE)), 1);
     assert_eq!(h.p.notes.len(), 2);
-    assert_eq!((h.p.notes[1].start.beat, h.p.notes[1].end.beat), (3.0, 0.5));
+    assert_eq!((h.p.notes[1].start.beat(), h.p.notes[1].end.beat()), (3.0, 0.5));
     assert_eq!(h.p.outgoing(h.p.notes[0].id), Some((h.p.notes[1].id, LinkType::Slide)));
     assert_eq!(h.ed.selection.ids.len(), 2);
     assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(2.0), NONE)).is_empty());
@@ -173,8 +173,8 @@ fn a_different_pitch_makes_two_linked_notes_and_a_tiny_span_nothing() {
 fn alt_disables_snapping_while_drawing() {
     let mut h = H::new();
     h.draw((1.03, 60.0), (2.27, 60.0), ALT);
-    assert!((h.p.notes[0].start.beat - 1.03).abs() < 1e-9);
-    assert!((h.p.notes[0].end.beat - 2.27).abs() < 1e-9);
+    assert!((h.p.notes[0].start.beat() - 1.03).abs() < 0.011);
+    assert!((h.p.notes[0].end.beat() - 2.27).abs() < 0.011);
 }
 
 fn two_notes() -> (H, u64, u64) {
@@ -392,7 +392,7 @@ fn moving_a_selection_keeps_lengths_and_a_non_selected_note_moves_alone() {
     assert_eq!(edits(&out), 1);
     let (na, nb) = (h.p.note(a).unwrap().clone(), h.p.note(b).unwrap().clone());
     assert_eq!((na.start, na.end, na.midi), (at(1.0), at(2.0), 62));
-    assert_eq!((nb.start, nb.end, nb.midi), (at(3.0), fretscribe_core::TimePos::new(2, 0.0), 64));
+    assert_eq!((nb.start, nb.end, nb.midi), (at(3.0), fretscribe_core::TimePos::at(2, 0.0), 64));
 
     let (mut h, a, b) = two_notes();
     h.ed.selection.set(vec![a]);
@@ -534,7 +534,7 @@ fn right_drag_past_the_end_aims_a_slide_then_a_left_click_sets_the_end() {
     assert_eq!(edits(&out), 1);
     let new = h.ed.selection.ids[0];
     let n = h.p.note(new).unwrap();
-    assert_eq!((n.midi, n.start, n.end), (62, TimePos::new(2, 0.0), TimePos::new(2, 2.0)));
+    assert_eq!((n.midi, n.start, n.end), (62, TimePos::at(2, 0.0), TimePos::at(2, 2.0)));
     assert_eq!(h.p.outgoing(src), Some((new, LinkType::Slide)));
     assert!(h.ed.ghost.is_none() && !h.ed.in_mode());
     assert!(h.send(Input::Spectro(SpectroEvent::SeekRequested(3.0), NONE)).is_empty(), "the click is not a seek");
@@ -566,7 +566,7 @@ fn right_drag_before_the_note_aims_a_reverse_slide() {
     h.click(Button::Left, s(0.5, 58.0, None), NONE);
     let new = h.ed.selection.ids[0];
     let n = h.p.note(new).unwrap();
-    assert_eq!((n.midi, n.start.beat, n.end.beat), (58, 0.5, 2.0));
+    assert_eq!((n.midi, n.start.beat(), n.end.beat()), (58, 0.5, 2.0));
     assert_eq!(h.p.outgoing(new), Some((src, LinkType::Slide)));
 }
 
@@ -611,7 +611,7 @@ fn cancelling_at_any_point_cancels_the_whole_link() {
 }
 
 fn same_pitch_overlaps(p: &Project) -> bool {
-    p.notes.iter().any(|a| p.notes.iter().any(|b| a.id < b.id && a.midi == b.midi && a.start.beat < b.end.beat && b.start.beat < a.end.beat))
+    p.notes.iter().any(|a| p.notes.iter().any(|b| a.id < b.id && a.midi == b.midi && a.start.beat() < b.end.beat() && b.start.beat() < a.end.beat()))
 }
 
 #[test]

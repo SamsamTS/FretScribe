@@ -117,7 +117,7 @@ mod tests {
         b.offset_sec = 0.5;
         p.add_track(b);
         p.tracks[0].solo = true;
-        p.notes.push(Note::new(1, 64, TimePos::new(p.measures[0].id, 0.0), TimePos::new(p.measures[0].id, 1.0)));
+        p.notes.push(Note::new(1, 64, TimePos::at(p.measures[0].id, 0.0), TimePos::at(p.measures[0].id, 1.0)));
         p
     }
 

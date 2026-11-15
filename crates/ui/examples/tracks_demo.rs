@@ -206,8 +206,8 @@ impl eframe::App for Demo {
             let view = self.ctl.current.timeline();
             let pitch = PitchView::from(self.ctl.pitch.current);
 
-            let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H, 0.0)).inner;
-            let out = TrackLanes { project: &self.project, source: &self.audio, style: &self.style, times: &self.times, selected: &[], ghost: None, playhead_sec: 0.0, reference_track: self.reference }
+            let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
+            let out = TrackLanes { project: &self.project, source: &self.audio, style: &self.style, times: &self.times, selected: &[], ghost: None, reference_track: self.reference, focus: None }
                 .show(ui, lanes, &view, &pitch, self.ctl.offset_y(ctx.pixels_per_point()), &mut self.lanes);
             for event in out.events {
                 self.apply(event);

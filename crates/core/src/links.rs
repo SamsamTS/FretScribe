@@ -25,12 +25,22 @@ pub enum LinkType {
     Slide,
     Bend,
     Legato,
+    /// Same pitch, adjacent notes: one sustained sound, so a slide can still follow it.
+    Tied,
     /// Grace notes only: no technique, a dashed connector. Stored as no link data.
     Dashed,
 }
 
 impl LinkType {
-    pub const CYCLE: [Self; 4] = [Self::Slide, Self::Bend, Self::Legato, Self::Dashed];
+    pub const CYCLE: [Self; 5] = [Self::Slide, Self::Bend, Self::Legato, Self::Tied, Self::Dashed];
+
+    fn of_technique(technique: Option<Technique>) -> Self {
+        match technique {
+            Some(Technique::Bend) => Self::Bend,
+            Some(Technique::Tie) => Self::Tied,
+            _ => Self::Slide,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
@@ -49,6 +59,8 @@ pub enum LinkError {
     Cycle,
     #[error("both notes have the same pitch")]
     SamePitch,
+    #[error("a tie needs two notes of the same pitch")]
+    TiedNeedsSamePitch,
     #[error("a bend spans 1 to 4 semitones")]
     BendInterval,
     #[error("no placement on one string")]
@@ -69,7 +81,9 @@ pub struct LinkReport {
 
 /// Legato when a same-string placement exists, slide otherwise.
 pub fn infer_link(tuning: &Tuning, capo: u8, from_midi: u8, to_midi: u8) -> LinkType {
-    if from_midi != to_midi && same_string_fit(tuning, capo, &[from_midi, to_midi]) {
+    if from_midi == to_midi {
+        LinkType::Tied
+    } else if same_string_fit(tuning, capo, &[from_midi, to_midi]) {
         LinkType::Legato
     } else {
         LinkType::Slide
@@ -116,12 +130,7 @@ impl Project {
     pub fn outgoing(&self, id: u64) -> Option<(u64, LinkType)> {
         let note = self.note(id)?;
         if let Some(to) = note.link_to {
-            let kind = if note.technique == Some(Technique::Bend) {
-                LinkType::Bend
-            } else {
-                LinkType::Slide
-            };
-            return Some((to, kind));
+            return Some((to, LinkType::of_technique(note.technique)));
         }
         self.notes
             .iter()
@@ -144,14 +153,10 @@ impl Project {
         if let Some(l) = self.note(id)?.legato {
             return Some((l.from, LinkType::Legato));
         }
-        self.notes.iter().find(|n| n.link_to == Some(id)).map(|n| {
-            let kind = if n.technique == Some(Technique::Bend) {
-                LinkType::Bend
-            } else {
-                LinkType::Slide
-            };
-            (n.id, kind)
-        })
+        self.notes
+            .iter()
+            .find(|n| n.link_to == Some(id))
+            .map(|n| (n.id, LinkType::of_technique(n.technique)))
     }
 
     /// The whole chain `id` belongs to, first note first.
@@ -247,11 +252,17 @@ impl Project {
             return Err(LinkError::Cycle);
         }
         let interval = a.midi.abs_diff(b.midi);
+        if kind == LinkType::Tied {
+            if interval != 0 || a.grace_of.is_some() {
+                return Err(LinkError::TiedNeedsSamePitch);
+            }
+            return if ties_end(a) && !adjacent(tempo, a, b) { Err(LinkError::NotAdjacent) } else { Ok(()) };
+        }
         if interval == 0 {
             return Err(LinkError::SamePitch);
         }
         match kind {
-            LinkType::Slide | LinkType::Dashed => {}
+            LinkType::Slide | LinkType::Dashed | LinkType::Tied => {}
             LinkType::Bend if !(1..=BEND_MAX_SEMITONES).contains(&interval) => {
                 return Err(LinkError::BendInterval)
             }
@@ -284,10 +295,10 @@ impl Project {
             if n.id == from {
                 if kind != LinkType::Legato {
                     n.link_to = Some(to);
-                    n.technique = Some(if kind == LinkType::Bend {
-                        Technique::Bend
-                    } else {
-                        Technique::Slide
+                    n.technique = Some(match kind {
+                        LinkType::Bend => Technique::Bend,
+                        LinkType::Tied => Technique::Tie,
+                        _ => Technique::Slide,
                     });
                 }
                 if ties_end(n) {
@@ -574,8 +585,8 @@ mod tests {
         p.notes.push(Note::new(
             id,
             midi,
-            TimePos::new(1, start),
-            TimePos::new(1, end),
+            TimePos::at(1, start),
+            TimePos::at(1, end),
         ));
         id
     }
@@ -693,7 +704,7 @@ mod tests {
         p.link_notes(a, b, LinkType::Slide).unwrap();
         assert_eq!(
             p.note(a).unwrap().end,
-            TimePos::new(1, 0.5),
+            TimePos::at(1, 0.5),
             "on-the-beat grace notes keep their length"
         );
         assert_eq!(p.link_notes(b, a, LinkType::Slide), Err(LinkError::Cycle));
@@ -710,13 +721,13 @@ mod tests {
         p.link_notes(a, b, LinkType::Slide).unwrap();
         assert_eq!(
             p.note(a).unwrap().end,
-            TimePos::new(1, 1.0),
+            TimePos::at(1, 1.0),
             "a long source is cut"
         );
         p.link_notes(b, c, LinkType::Slide).unwrap();
         assert_eq!(
             p.note(b).unwrap().end,
-            TimePos::new(1, 5.0),
+            TimePos::at(1, 5.0),
             "a short source is extended"
         );
         let d = add(&mut p, 65, 5.0, 6.0);
@@ -731,14 +742,14 @@ mod tests {
     fn tie_links_follows_the_end_that_was_not_touched_and_drops_links_that_cannot_hold() {
         let mut p = project();
         let [a, b, c] = chain3(&mut p);
-        p.notes.iter_mut().find(|n| n.id == b).unwrap().start = TimePos::new(1, 1.5);
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().start = TimePos::at(1, 1.5);
         assert_eq!(p.tie_links(&[b]), [a]);
-        assert_eq!(p.note(a).unwrap().end, TimePos::new(1, 1.5));
-        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::new(1, 2.5);
+        assert_eq!(p.note(a).unwrap().end, TimePos::at(1, 1.5));
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::at(1, 2.5);
         assert_eq!(p.tie_links(&[b]), [c]);
-        assert_eq!(p.note(c).unwrap().start, TimePos::new(1, 2.5));
-        p.notes.iter_mut().find(|n| n.id == c).unwrap().end = TimePos::new(1, 2.51);
-        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::new(1, 2.6);
+        assert_eq!(p.note(c).unwrap().start, TimePos::at(1, 2.5));
+        p.notes.iter_mut().find(|n| n.id == c).unwrap().end = TimePos::at(1, 2.51);
+        p.notes.iter_mut().find(|n| n.id == b).unwrap().end = TimePos::at(1, 2.6);
         assert!(p.tie_links(&[b]).is_empty());
         assert_eq!(p.outgoing(b), None, "c would be left under a lattice unit");
     }
@@ -919,16 +930,22 @@ mod tests {
     }
 
     #[test]
-    fn invalid_pairs_are_skipped_with_a_reason_and_valid_ones_still_link() {
+    fn same_pitch_neighbours_are_tied_and_a_slide_can_follow() {
         let mut p = project();
-        let ids = [
-            add(&mut p, 60, 0.0, 1.0),
-            add(&mut p, 60, 1.0, 2.0),
-            add(&mut p, 64, 2.0, 3.0),
-        ];
+        let ids = [add(&mut p, 60, 0.0, 1.0), add(&mut p, 60, 1.0, 2.0), add(&mut p, 64, 2.0, 3.0)];
         let report = p.link_selection(&ids);
-        assert_eq!(report.linked, 1);
-        assert_eq!(report.skipped, [(ids[0], ids[1], LinkError::SamePitch)]);
+        assert_eq!((report.linked, report.skipped.len()), (2, 0));
+        assert_eq!(p.outgoing(ids[0]), Some((ids[1], LinkType::Tied)));
+        assert_eq!(p.note(ids[0]).unwrap().technique, Some(Technique::Tie));
+        assert!(matches!(p.outgoing(ids[1]), Some((_, LinkType::Legato | LinkType::Slide))));
+        assert_eq!(p.chain_of(ids[0]), ids);
+        assert_eq!(p.can_link(ids[0], ids[2], LinkType::Tied), Err(LinkError::HasOutgoing(ids[0])));
+        let mut q = project();
+        let (a, b) = (add(&mut q, 60, 0.0, 1.0), add(&mut q, 62, 1.0, 2.0));
+        assert_eq!(q.can_link(a, b, LinkType::Tied), Err(LinkError::TiedNeedsSamePitch));
+        let c = add(&mut q, 62, 5.0, 6.0);
+        assert_eq!(q.can_link(b, c, LinkType::Tied), Err(LinkError::NotAdjacent));
+        assert!(p.unlink(ids[0]) && p.note(ids[0]).unwrap().technique.is_none());
     }
 
     #[test]

@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::links::{legato_kind, strings_differ, LinkError, LinkType, MAX_FRET};
-use crate::model::{GraceKind, GraceNote, Legato, Note, Project};
+use crate::model::{GraceKind, GraceNote, Legato, Note, Project, TICKS_PER_BEAT};
 use crate::tempo::{NoteTimes, TempoMap};
 use crate::tracks::next_note_id;
 
@@ -150,12 +150,11 @@ impl Project {
         let (anchor, room) = self
             .grace_room(&times, main, Some(id), kind, after)
             .ok_or(GraceError::UnknownNote(main))?;
-        let len = len_sec.min(if kind == GraceKind::Acciaccatura {
-            room - MIN_GRACE_SEC
-        } else {
-            room
-        });
-        if len < MIN_GRACE_SEC {
+        // Shortest length: one tick (positions are whole ticks), but never below MIN_GRACE_SEC.
+        let tick_sec = tempo.sec_per_beat[tempo.sec_to_beat_position(anchor).0] / TICKS_PER_BEAT as f64;
+        let min = tick_sec.max(MIN_GRACE_SEC);
+        let len = len_sec.min(if kind == GraceKind::Acciaccatura { room - min } else { room });
+        if len < min - 1e-9 {
             return Err(GraceError::NoRoom);
         }
         let (start, end) = if kind == GraceKind::Acciaccatura {

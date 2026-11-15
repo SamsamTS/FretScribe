@@ -57,7 +57,7 @@ impl Clipboard {
                 n.start = tempo.beats_to_pos(base + c.start_off);
                 n.end = tempo.beats_to_pos(base + c.end_off);
                 n.link_to = n.link_to.and_then(|to| fresh.get(&to).copied());
-                if n.link_to.is_none() && matches!(n.technique, Some(Technique::Slide | Technique::Bend)) {
+                if n.link_to.is_none() && n.technique.is_some_and(Technique::is_link) {
                     n.technique = None;
                 }
                 n.legato = n.legato.and_then(|l| fresh.get(&l.from).map(|&from| LegatoLink { from, ..l }));

@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use crate::model::{Measure, Note, TimePos, MIN_BPM};
+use crate::model::{Measure, Note, TimePos, MIN_BPM, TICKS_PER_BEAT};
 
 pub(crate) const BEAT_EPS: f64 = 1e-10;
 
@@ -30,6 +30,8 @@ pub struct BeatLine {
 pub struct TempoMap {
     pub(crate) measures: Vec<Measure>,
     pub(crate) beats: Vec<f64>,
+    /// Length of each measure in ticks.
+    pub(crate) ticks: Vec<i64>,
     pub(crate) sec_per_beat: Vec<f64>,
     ids: HashMap<u64, usize>,
 }
@@ -37,6 +39,7 @@ pub struct TempoMap {
 impl TempoMap {
     pub fn new(measures: &[Measure]) -> Self {
         let beats: Vec<f64> = measures.iter().map(|m| m.time_sig.beats()).collect();
+        let ticks = beats.iter().map(|b| (b * TICKS_PER_BEAT as f64).round() as i64).collect();
         let sec_per_beat = measures
             .iter()
             .enumerate()
@@ -58,6 +61,7 @@ impl TempoMap {
         Self {
             measures: measures.to_vec(),
             beats,
+            ticks,
             sec_per_beat,
             ids,
         }
@@ -94,6 +98,11 @@ impl TempoMap {
             .map_or(audio_len_sec, |next| next.start_sec)
     }
 
+    /// Length of measure `i` in ticks.
+    pub fn measure_ticks(&self, i: usize) -> i64 {
+        self.ticks[i]
+    }
+
     /// Quarter-note beats.
     pub fn beats_in_measure(&self, i: usize) -> f64 {
         self.beats[i]
@@ -117,8 +126,8 @@ impl TempoMap {
     pub fn sec_to_pos(&self, sec: f64) -> TimePos {
         let (i, beat) = self.sec_to_beat_position(sec);
         match self.measures.get(i) {
-            Some(m) => self.normalise(TimePos::new(m.id, beat)),
-            None => TimePos::new(0, 0.0),
+            Some(m) => self.normalise(TimePos::at(m.id, beat)),
+            None => TimePos::new(0, 0),
         }
     }
 
@@ -126,7 +135,7 @@ impl TempoMap {
     pub fn try_pos_to_sec(&self, pos: TimePos) -> Option<f64> {
         let normal = self.normalise(pos);
         let i = self.index_of(normal.measure)?;
-        Some(self.measures[i].start_sec + normal.beat * self.sec_per_beat[i])
+        Some(self.measures[i].start_sec + normal.beat() * self.sec_per_beat[i])
     }
 
     pub fn pos_to_sec(&self, pos: TimePos) -> f64 {
@@ -137,50 +146,45 @@ impl TempoMap {
     pub fn pos_to_beats(&self, pos: TimePos) -> Option<f64> {
         let normal = self.normalise(pos);
         let i = self.index_of(normal.measure)?;
-        Some(self.beats[..i].iter().sum::<f64>() + normal.beat)
+        Some(self.beats[..i].iter().sum::<f64>() + normal.beat())
     }
 
-    /// Inverse of `pos_to_beats`; positions before the first measure stay negative on it and
+    /// Ticks since the start of the first measure; `None` when the measure is not in the grid.
+    pub fn pos_to_ticks(&self, pos: TimePos) -> Option<i64> {
+        let normal = self.normalise(pos);
+        let i = self.index_of(normal.measure)?;
+        Some(self.ticks[..i].iter().sum::<i64>() + normal.tick)
+    }
+
+    /// Inverse of `pos_to_ticks`; positions before the first measure stay negative on it and
     /// positions after the last stay anchored to it.
-    pub fn beats_to_pos(&self, beats: f64) -> TimePos {
-        let Some(first) = self.measures.first() else {
-            return TimePos::new(0, beats);
-        };
-        let (mut i, mut beat) = (0, beats);
-        while beat >= 0.0 && i + 1 < self.measures.len() && beat >= self.beats[i] - BEAT_EPS {
-            beat = (beat - self.beats[i]).max(0.0);
-            i += 1;
+    pub fn ticks_to_pos(&self, ticks: i64) -> TimePos {
+        match self.measures.first() {
+            Some(first) => self.normalise(TimePos::new(first.id, ticks)),
+            None => TimePos::new(0, ticks),
         }
-        let id = if beat < 0.0 {
-            first.id
-        } else {
-            self.measures[i].id
-        };
-        TimePos::new(id, crate::snap_note::on_lattice(beat))
     }
 
-    /// Moves a beat that overflows its measure into the containing one. Positions after the last
+    pub fn beats_to_pos(&self, beats: f64) -> TimePos {
+        self.ticks_to_pos((beats * TICKS_PER_BEAT as f64).round() as i64)
+    }
+
+    /// Moves a tick count that overflows its measure into the containing one. Positions after the last
     /// measure stay anchored to it, positions before the first stay negative on it.
     pub fn normalise(&self, pos: TimePos) -> TimePos {
         let Some(mut i) = self.index_of(pos.measure) else {
             return pos;
         };
-        let mut beat = pos.beat;
-        if beat < 0.0 {
-            if beat > -BEAT_EPS {
-                beat = 0.0;
-            } else {
-                while beat < 0.0 && i > 0 {
-                    i -= 1;
-                    beat += self.beats[i];
-                }
-            }
+        let mut tick = pos.tick;
+        while tick < 0 && i > 0 {
+            i -= 1;
+            tick += self.ticks[i];
         }
-        while i + 1 < self.measures.len() && beat >= self.beats[i] - BEAT_EPS {
-            beat = (beat - self.beats[i]).max(0.0);
+        while i + 1 < self.measures.len() && tick >= self.ticks[i] {
+            tick -= self.ticks[i];
             i += 1;
         }
-        TimePos::new(self.measures[i].id, beat)
+        TimePos::new(self.measures[i].id, tick)
     }
 
     /// Main beats follow the time signature: the written beat, or a group of three for compound
@@ -258,7 +262,7 @@ impl NoteTimes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measures::tests::{close, grid};
+    use crate::measures::tests::{close, grid, near};
     use crate::model::TimeSignature;
 
     fn map(tempos: &[f64]) -> TempoMap {
@@ -267,7 +271,7 @@ mod tests {
 
     fn pos_close(a: TimePos, measure: u64, beat: f64) {
         assert_eq!(a.measure, measure, "{a:?}");
-        close(a.beat, beat);
+        assert_eq!(a.tick, (beat * TICKS_PER_BEAT as f64).round() as i64, "{a:?}");
     }
 
     #[test]
@@ -318,8 +322,8 @@ mod tests {
         close(b, 6.0);
         pos_close(m.sec_to_pos(-1.0), 1, -2.0);
         pos_close(m.sec_to_pos(5.0), 2, 6.0);
-        close(m.pos_to_sec(TimePos::new(2, 6.0)), 5.0);
-        close(m.pos_to_sec(TimePos::new(1, -2.0)), -1.0);
+        close(m.pos_to_sec(TimePos::at(2, 6.0)), 5.0);
+        close(m.pos_to_sec(TimePos::at(1, -2.0)), -1.0);
     }
 
     #[test]
@@ -330,12 +334,12 @@ mod tests {
         let m = TempoMap::new(&ms);
         let mut t = -1.3;
         while t < 20.0 {
-            close(m.pos_to_sec(m.sec_to_pos(t)), t);
+            near(m.pos_to_sec(m.sec_to_pos(t)), t);
             t += 0.0137;
         }
         for (i, measure) in ms.iter().enumerate() {
             let start = m.measure_start_sec(i);
-            close(m.pos_to_sec(m.sec_to_pos(start)), start);
+            near(m.pos_to_sec(m.sec_to_pos(start)), start);
             assert_eq!(m.sec_to_pos(start).measure, measure.id);
         }
     }
@@ -344,7 +348,7 @@ mod tests {
     fn pos_round_trip_for_canonical_positions() {
         let m = map(&[120.0, 90.0, 150.0]);
         for (measure, beat) in [(1, 0.0), (1, 3.5), (2, 1.0 / 3.0), (3, 2.75)] {
-            let pos = TimePos::new(measure, beat);
+            let pos = TimePos::at(measure, beat);
             let back = m.sec_to_pos(m.pos_to_sec(pos));
             pos_close(back, measure, beat);
         }
@@ -353,36 +357,36 @@ mod tests {
     #[test]
     fn overflowing_beat_is_normalised_into_following_measure() {
         let m = map(&[120.0, 60.0, 120.0]);
-        pos_close(m.normalise(TimePos::new(1, 5.0)), 2, 1.0);
-        close(m.pos_to_sec(TimePos::new(1, 5.0)), 2.0 + 1.0);
-        pos_close(m.normalise(TimePos::new(1, 4.0)), 2, 0.0);
-        pos_close(m.normalise(TimePos::new(1, 9.5)), 3, 1.5);
-        pos_close(m.normalise(TimePos::new(1, 3.99)), 1, 3.99);
-        pos_close(m.normalise(TimePos::new(3, 4.0)), 3, 4.0);
-        pos_close(m.normalise(TimePos::new(3, 7.0)), 3, 7.0);
+        pos_close(m.normalise(TimePos::at(1, 5.0)), 2, 1.0);
+        close(m.pos_to_sec(TimePos::at(1, 5.0)), 2.0 + 1.0);
+        pos_close(m.normalise(TimePos::at(1, 4.0)), 2, 0.0);
+        pos_close(m.normalise(TimePos::at(1, 9.5)), 3, 1.5);
+        pos_close(m.normalise(TimePos::at(1, 3.97)), 1, 3.97);
+        pos_close(m.normalise(TimePos::at(3, 4.0)), 3, 4.0);
+        pos_close(m.normalise(TimePos::at(3, 7.0)), 3, 7.0);
     }
 
     #[test]
     fn negative_beat_is_normalised_into_previous_measure() {
         let m = map(&[120.0, 120.0]);
-        pos_close(m.normalise(TimePos::new(2, -1.0)), 1, 3.0);
-        pos_close(m.normalise(TimePos::new(2, -1e-12)), 2, 0.0);
-        pos_close(m.normalise(TimePos::new(1, -1.0)), 1, -1.0);
+        pos_close(m.normalise(TimePos::at(2, -1.0)), 1, 3.0);
+        pos_close(m.normalise(TimePos::at(2, -1e-12)), 2, 0.0);
+        pos_close(m.normalise(TimePos::at(1, -1.0)), 1, -1.0);
     }
 
     #[test]
     fn unknown_measure_id() {
         let m = map(&[120.0]);
-        assert_eq!(m.try_pos_to_sec(TimePos::new(42, 1.0)), None);
-        assert_eq!(m.normalise(TimePos::new(42, 9.0)), TimePos::new(42, 9.0));
+        assert_eq!(m.try_pos_to_sec(TimePos::at(42, 1.0)), None);
+        assert_eq!(m.normalise(TimePos::at(42, 9.0)), TimePos::at(42, 9.0));
     }
 
     #[test]
     fn empty_map_is_inert() {
         let m = TempoMap::new(&[]);
         assert!(m.is_empty());
-        assert_eq!(m.sec_to_pos(3.0), TimePos::new(0, 0.0));
-        assert_eq!(m.pos_to_sec(TimePos::new(1, 1.0)), 0.0);
+        assert_eq!(m.sec_to_pos(3.0), TimePos::at(0, 0.0));
+        assert_eq!(m.pos_to_sec(TimePos::at(1, 1.0)), 0.0);
     }
 
     #[test]
@@ -391,8 +395,8 @@ mod tests {
         ms[1].start_sec = 2.5;
         ms[1].anchored = true;
         let m = TempoMap::new(&ms);
-        close(m.effective_bpm(0), 4.0 * 60.0 / 2.5);
-        close(m.pos_to_sec(TimePos::new(1, 2.0)), 1.25);
+        near(m.effective_bpm(0), 4.0 * 60.0 / 2.5);
+        near(m.pos_to_sec(TimePos::at(1, 2.0)), 1.25);
         pos_close(m.sec_to_pos(2.49), 1, 2.49 / 2.5 * 4.0);
     }
 
@@ -483,8 +487,8 @@ mod tests {
     fn note_times_resolve_with_the_map() {
         let m = map(&[120.0, 60.0]);
         let notes = [
-            Note::new(7, 60, TimePos::new(1, 1.0), TimePos::new(1, 2.0)),
-            Note::new(8, 62, TimePos::new(1, 3.0), TimePos::new(2, 1.0)),
+            Note::new(7, 60, TimePos::at(1, 1.0), TimePos::at(1, 2.0)),
+            Note::new(8, 62, TimePos::at(1, 3.0), TimePos::at(2, 1.0)),
         ];
         let times = NoteTimes::build(&notes, &m);
         close(times.start_sec(7).unwrap(), 0.5);
@@ -497,12 +501,12 @@ mod tests {
     #[test]
     fn absolute_beats_round_trip_across_measures() {
         let m = TempoMap::new(&grid(&[120.0, 60.0, 120.0]));
-        let pos = TimePos::new(2, 1.0 / 3.0);
+        let pos = TimePos::at(2, 1.0 / 3.0);
         assert_eq!(m.pos_to_beats(pos), Some(4.0 + 1.0 / 3.0));
         assert_eq!(m.beats_to_pos(4.0 + 1.0 / 3.0), pos);
-        assert_eq!(m.beats_to_pos(8.0), TimePos::new(3, 0.0));
-        assert_eq!(m.beats_to_pos(-0.5), TimePos::new(1, -0.5));
-        assert_eq!(m.beats_to_pos(13.0), TimePos::new(3, 5.0));
-        assert_eq!(m.pos_to_beats(TimePos::new(99, 0.0)), None);
+        assert_eq!(m.beats_to_pos(8.0), TimePos::at(3, 0.0));
+        assert_eq!(m.beats_to_pos(-0.5), TimePos::at(1, -0.5));
+        assert_eq!(m.beats_to_pos(13.0), TimePos::at(3, 5.0));
+        assert_eq!(m.pos_to_beats(TimePos::at(99, 0.0)), None);
     }
 }

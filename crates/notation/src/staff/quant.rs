@@ -1,14 +1,17 @@
-//! Snaps note edges to ticks. Every quarter-note window of a measure picks, among the divisions of
-//! the grid, the one that fits its edges best (straight wins ties), so three evenly spaced notes
-//! become a triplet and four become sixteenths.
+//! Turns notes into ticks. Positions are whole ticks already, so a note keeps its exact start and
+//! end; only the splitter decides how a span is written (as tied values when no single value fits).
+//! Edges closer than the shortest value (a 64th triplet) are merged, a quarter-note window becomes a
+//! triplet when more of its edges sit on the triplet lattice only than on the straight one only,
+//! and notes joined by a tie are one note.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use fretscribe_core::{Note, SnapGrid, TempoMap};
+use fretscribe_core::{Note, Technique, TempoMap};
 
 use super::value::TICKS_PER_BEAT;
 
-const EPS: f64 = 1e-9;
+/// Shortest value: a 64th triplet. Edges closer than this are one edge.
+const MIN_TICKS: i64 = 2;
 
 pub struct QNote {
     pub id: u64,
@@ -24,88 +27,90 @@ pub struct Quantised {
     /// Per measure and quarter-note window: divided in triplets.
     pub triplet: Vec<Vec<bool>>,
     pub notes: Vec<QNote>,
+    /// `(tied follower, first note of its tie chain)`: the follower is engraved as part of the first.
+    pub aliases: Vec<(u64, u64)>,
 }
 
 struct Raw<'a> {
     note: &'a Note,
-    s: f64,
-    e: f64,
+    s: i64,
+    e: i64,
 }
 
-fn divisions(grid: &SnapGrid) -> Vec<u8> {
-    let mut d: Vec<u8> = grid.divisions.iter().copied().filter(|&d| d > 0 && TICKS_PER_BEAT % i64::from(d) == 0).collect();
-    d.sort_by_key(|&d| (!d.is_power_of_two(), d));
-    d.dedup();
-    if d.is_empty() {
-        d.push(4);
-    }
-    d
-}
-
-/// Silences shorter than half the finest grid step are absorbed into the previous note.
-fn absorb_gaps(raws: &mut [Raw], unit: f64) {
-    let spans: Vec<(f64, f64)> = raws.iter().map(|r| (r.s, r.e)).collect();
-    for r in raws.iter_mut() {
-        let sounding = spans.iter().any(|&(s, e)| s <= r.e + EPS && e > r.e + EPS);
-        let next = spans.iter().map(|&(s, _)| s).filter(|&s| s > r.e + EPS).fold(f64::INFINITY, f64::min);
-        if !sounding && next - r.e < unit / 2.0 {
-            r.e = next;
+/// Merges tie chains: the first note carries the whole length, followers are returned as aliases.
+fn merge_ties<'a>(notes: &'a [Note], tempo: &TempoMap) -> (Vec<Raw<'a>>, Vec<(u64, u64)>) {
+    let by_id: HashMap<u64, &Note> = notes.iter().map(|n| (n.id, n)).collect();
+    let next_of = |n: &Note| n.link_to.filter(|_| n.technique == Some(Technique::Tie)).and_then(|to| by_id.get(&to).copied()).filter(|t| t.grace_of.is_none());
+    let followers: HashSet<u64> = notes.iter().filter_map(|n| next_of(n).map(|t| t.id)).collect();
+    let (mut raws, mut aliases) = (Vec::new(), Vec::new());
+    for n in notes.iter().filter(|n| n.grace_of.is_none() && !followers.contains(&n.id)) {
+        let mut last = n;
+        for _ in 0..notes.len() {
+            let Some(next) = next_of(last) else { break };
+            aliases.push((next.id, n.id));
+            last = next;
+        }
+        if let (Some(s), Some(e)) = (tempo.pos_to_ticks(n.start), tempo.pos_to_ticks(last.end)) {
+            if s >= 0 {
+                raws.push(Raw { note: n, s, e: e.max(s) });
+            }
         }
     }
+    (raws, aliases)
 }
 
-pub fn quantise(notes: &[Note], tempo: &TempoMap, grid: &SnapGrid) -> Quantised {
-    let divs = divisions(grid);
+/// Maps every edge to the edge it is merged into: an edge within `MIN_TICKS` of the previous kept one joins it,
+/// except that a measure bound always stays.
+fn merged_edges(edges: &BTreeSet<i64>, bounds: &[i64]) -> HashMap<i64, i64> {
+    let is_bound = |x: i64| bounds.binary_search(&x).is_ok();
+    let (mut map, mut last): (HashMap<i64, i64>, Option<i64>) = (HashMap::new(), None);
+    for &x in edges {
+        match last {
+            Some(l) if x - l < MIN_TICKS && !is_bound(l) => {
+                let keep = if is_bound(x) { x } else { l };
+                map.values_mut().filter(|v| **v == l).for_each(|v| *v = keep);
+                map.insert(l, keep);
+                map.insert(x, keep);
+                last = Some(keep);
+            }
+            Some(l) if x - l < MIN_TICKS => {
+                map.insert(x, l);
+            }
+            _ => {
+                map.insert(x, x);
+                last = Some(x);
+            }
+        }
+    }
+    map
+}
+
+pub fn quantise(notes: &[Note], tempo: &TempoMap) -> Quantised {
     let mut bounds = vec![0];
     for i in 0..tempo.len() {
-        bounds.push(bounds[i] + (tempo.beats_in_measure(i) * TICKS_PER_BEAT as f64).round() as i64);
+        bounds.push(bounds[i] + tempo.measure_ticks(i));
     }
     let total = *bounds.last().unwrap_or(&0);
 
-    let mut raws: Vec<Raw> = notes
-        .iter()
-        .filter(|n| n.grace_of.is_none())
-        .filter_map(|n| {
-            let (s, e) = (tempo.pos_to_beats(n.start)?, tempo.pos_to_beats(n.end)?);
-            (s > -EPS).then_some(Raw { note: n, s, e: e.max(s) })
-        })
-        .collect();
-    let finest = f64::from(divs.iter().copied().max().unwrap_or(4));
-    absorb_gaps(&mut raws, 1.0 / finest);
+    let (raws, aliases) = merge_ties(notes, tempo);
+    let edges: BTreeSet<i64> = raws.iter().flat_map(|r| [r.s, r.e]).chain(bounds.iter().copied()).collect();
+    let merged = merged_edges(&edges, &bounds);
 
-    let at = |abs: f64| {
-        let pos = tempo.beats_to_pos(abs);
-        (tempo.index_of(pos.measure).unwrap_or(0), pos.beat)
-    };
-    let mut edges: HashMap<(usize, usize), Vec<f64>> = HashMap::new();
-    for r in &raws {
-        for abs in [r.s, r.e] {
-            let (i, beat) = at(abs);
-            edges.entry((i, beat.max(0.0).floor() as usize)).or_default().push(beat);
+    // A window is a triplet when more edges inside it sit on the triplet lattice only (2 ticks, not 3) than on the straight one only.
+    let measure_of = |tick: i64| bounds[..tempo.len()].partition_point(|&b| b <= tick).saturating_sub(1);
+    let mut votes: HashMap<(usize, usize), (u32, u32)> = HashMap::new();
+    for &x in merged.values().collect::<BTreeSet<_>>() {
+        let (m, within) = (measure_of(x), (x - bounds[measure_of(x)]) % TICKS_PER_BEAT);
+        let (straight, triplet) = (within % 3 == 0 && within % 2 != 0, within % 2 == 0 && within % 3 != 0);
+        if x < total && (straight || triplet) {
+            let v = votes.entry((m, ((x - bounds[m]) / TICKS_PER_BEAT) as usize)).or_default();
+            if triplet { v.1 += 1 } else { v.0 += 1 }
         }
     }
-    let error = |beats: &[f64], d: u8| beats.iter().map(|b| (b - (b * f64::from(d)).round() / f64::from(d)).abs()).sum::<f64>();
-    let chosen: HashMap<(usize, usize), u8> = edges
-        .iter()
-        .map(|(&key, beats)| {
-            let best = divs.iter().fold((f64::INFINITY, divs[0]), |acc, &d| {
-                let err = error(beats, d);
-                if err < acc.0 - EPS { (err, d) } else { acc }
-            });
-            (key, best.1)
-        })
-        .collect();
-
-    let division = |i: usize, beat: f64| chosen.get(&(i, beat.max(0.0).floor() as usize)).copied().unwrap_or(divs[0]);
-    let tick = |i: usize, beat: f64| {
-        let d = division(i, beat);
-        (bounds[i] + (beat * f64::from(d)).round() as i64 * (TICKS_PER_BEAT / i64::from(d))).min(total)
-    };
-
     let mut triplet: Vec<Vec<bool>> = (0..tempo.len()).map(|i| vec![false; tempo.beats_in_measure(i).ceil() as usize]).collect();
-    for (&(i, k), &d) in &chosen {
+    for (&(i, k), &(straight, trip)) in &votes {
         if let Some(w) = triplet[i].get_mut(k) {
-            *w = d % 3 == 0;
+            *w = trip > straight;
         }
     }
 
@@ -113,14 +118,10 @@ pub fn quantise(notes: &[Note], tempo: &TempoMap, grid: &SnapGrid) -> Quantised 
     let mut out: Vec<QNote> = raws
         .iter()
         .filter_map(|r| {
-            let (si, sb) = at(r.s);
-            let (ei, eb) = at(r.e);
-            let s = tick(si, sb);
-            let e = tick(ei, eb);
-            let e = if e <= s { s + TICKS_PER_BEAT / i64::from(division(si, sb)) } else { e };
-            (s < total).then(|| QNote { id: r.note.id, midi: r.note.midi, s, e: e.min(total), actual_sec: times.start_sec(r.note.id).unwrap_or(0.0) })
+            let (s, e) = (merged[&r.s], merged[&r.e]);
+            (s < total).then(|| QNote { id: r.note.id, midi: r.note.midi, s, e: e.max(s + MIN_TICKS).min(total), actual_sec: times.start_sec(r.note.id).unwrap_or(0.0) })
         })
         .collect();
     out.sort_by_key(|n| (n.s, n.midi, n.id));
-    Quantised { bounds, triplet, notes: out }
+    Quantised { bounds, triplet, notes: out, aliases }
 }

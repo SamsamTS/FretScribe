@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(changes.len(), 2);
         let by = |id| changes.iter().find(|c| c.id == id).unwrap();
         assert_eq!((by(a).start, by(a).end, by(a).midi), (at(2.5), at(3.5), 62));
-        assert_eq!((by(b).start, by(b).end, by(b).midi), (at(3.5), TimePos::new(2, 1.0), 66));
+        assert_eq!((by(b).start, by(b).end, by(b).midi), (at(3.5), TimePos::at(2, 1.0), 66));
         assert!(changes.iter().all(|c| c.id != outsider));
         let edit = apply_changes(&mut p, &changes, "Move").unwrap();
         assert_eq!(p.outgoing(a), Some((b, LinkType::Slide)));
@@ -249,11 +249,11 @@ mod tests {
     fn alt_moves_freely_and_the_start_snaps_to_a_neighbour_end() {
         let mut p = project();
         let a = add(&mut p, 60, 1.0, 2.0);
-        let _ = add(&mut p, 50, 0.0, 0.62);
+        let _ = add(&mut p, 50, 0.0, 0.6);
         let free = &mv(&p, a, &[], pt(0.7, 60.0), 0.0, false, true)[0];
-        assert!((free.start.beat - 0.7).abs() < 1e-9);
-        let snapped = &mv(&p, a, &[], pt(0.64, 60.0), 0.0, false, false)[0];
-        near(snapped.start, 0.62);
+        assert!((free.start.beat() - 0.7).abs() < 0.02);
+        let snapped = &mv(&p, a, &[], pt(0.62, 60.0), 0.0, false, false)[0];
+        near(snapped.start, 0.6);
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(preview_changes(&p, &moved).len(), 3, "the moved note, the cut head and the new tail");
         apply_changes(&mut p, &moved, "Move").unwrap();
         let mut spans: Vec<_> = p.notes.iter().map(|n| (n.start, n.end)).collect();
-        spans.sort_by(|a, b| a.0.beat.total_cmp(&b.0.beat));
+        spans.sort_by(|a, b| a.0.beat().total_cmp(&b.0.beat()));
         assert_eq!(spans, [(at(0.0), at(1.0)), (at(1.0), at(2.0)), (at(2.0), at(4.0))]);
         assert!(p.note(long).is_some());
     }

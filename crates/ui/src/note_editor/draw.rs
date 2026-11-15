@@ -60,6 +60,12 @@ fn step_beats(ctx: &EditCtx) -> f64 {
     (1.0 / f64::from(finest)).max(min_subdivision_beats(ctx.grid))
 }
 
+/// Length of the finest grid division that has a line at `pos`: the shortest note started there.
+fn min_len_at(ctx: &EditCtx, pos: TimePos) -> f64 {
+    let on = |d: u8| (pos.beat() * f64::from(d) - (pos.beat() * f64::from(d)).round()).abs() < 1e-6;
+    ctx.grid.divisions.iter().copied().filter(|&d| d > 0 && on(d)).max().map_or_else(|| min_subdivision_beats(ctx.grid), |d| 1.0 / f64::from(d))
+}
+
 /// The press is one end and the pointer the other; the earlier in time is the start. A pitch more
 /// than 0.75 semitone from the press row (0.5 once away) makes it a slide of two linked notes.
 pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &EditCtx) -> Option<DrawPlan> {
@@ -73,17 +79,37 @@ pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &Edit
 
     let (raw_start, raw_end) = (ctx.tempo.sec_to_pos(first.sec), ctx.tempo.sec_to_pos(second.sec));
     let opts = ctx.opts(sticky);
-    let (s, e) = snap_note(raw_start, raw_end, ctx.tempo, &ctx.project.notes, &opts);
-    let free_end = snap_edge(raw_end, Edge::End, ctx.tempo, &ctx.project.notes, &opts);
-    let min = min_subdivision_beats(ctx.grid);
-    if beats(ctx, free_end) - beats(ctx, s) < min - EPS {
-        return None;
-    }
+    let (s, e, min) = if ctx.grid.divisions.is_empty() || ctx.alt {
+        let (s, e) = snap_note(raw_start, raw_end, ctx.tempo, &ctx.project.notes, &opts);
+        let free_end = snap_edge(raw_end, Edge::End, ctx.tempo, &ctx.project.notes, &opts);
+        let min = min_subdivision_beats(ctx.grid);
+        if beats(ctx, free_end) - beats(ctx, s) < min - EPS {
+            return None;
+        }
+        (s, e, min)
+    } else {
+        // The press always lands on the closest grid line, whatever the zoom; the other end
+        // follows the usual snapping but the note is never shorter than that line's division.
+        let anchor = ctx.tempo.snap_to_pos(press.sec, ctx.grid);
+        let min = min_len_at(ctx, anchor);
+        if beats(ctx, raw_end) - beats(ctx, raw_start) < min / 2.0 {
+            return None;
+        }
+        if forward {
+            let end = snap_edge(raw_end, Edge::End, ctx.tempo, &ctx.project.notes, &opts);
+            let floor = add_beats(ctx.tempo, anchor, min);
+            (anchor, if beats(ctx, end) < beats(ctx, floor) - EPS { floor } else { end }, min)
+        } else {
+            let start = snap_edge(raw_start, Edge::Start, ctx.tempo, &ctx.project.notes, &opts);
+            let floor = add_beats(ctx.tempo, anchor, -min);
+            (if beats(ctx, start) > beats(ctx, floor) + EPS { floor } else { start }, anchor, min)
+        }
+    };
     let creation = if slide {
         Creation {
             notes: vec![
                 NewNote { midi: p_first, start: s, end: e },
-                NewNote { midi: p_second, start: e, end: add_beats(ctx.tempo, e, step_beats(ctx)) },
+                NewNote { midi: p_second, start: e, end: add_beats(ctx.tempo, e, min) },
             ],
             links: vec![(Ref::New(0), Ref::New(1), LinkType::Slide)],
         }
@@ -286,7 +312,7 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
     for &(a, b, kind) in &creation.links {
         let (ia, ib) = (index_of(a, &mut glyphs), index_of(b, &mut glyphs));
         match kind {
-            LinkType::Legato => glyphs[ib].legato_from = Some(ia),
+            LinkType::Legato | LinkType::Tied => glyphs[ib].legato_from = Some(ia),
             LinkType::Bend => glyphs[ia].link_to = Some((ib, LinkKind::Bend)),
             LinkType::Slide => glyphs[ia].link_to = Some((ib, LinkKind::Slide)),
             LinkType::Dashed => glyphs[ia].link_to = Some((ib, LinkKind::Dashed)),
@@ -415,14 +441,27 @@ mod tests {
     }
 
     #[test]
+    fn the_press_snaps_to_the_closest_line_and_the_note_is_at_least_one_division_long() {
+        let p = project();
+        let plan = draw(&p, pt(1.03, 60.0), pt(1.09, 60.0), false, false);
+        assert!(plan.is_none(), "less than half a division is still a click");
+        let plan = draw(&p, pt(1.03, 60.0), pt(1.2, 60.0), false, false).unwrap();
+        let n = &plan.creation.notes[0];
+        assert_eq!(n.start, at(1.0));
+        assert!((n.end.beat() - n.start.beat() - 0.25).abs() < 1e-9, "one 1/16 long: {n:?}");
+        let back = draw(&p, pt(1.03, 60.0), pt(0.85, 60.0), false, false).unwrap();
+        assert_eq!(back.creation.notes[0].end, at(1.0));
+    }
+
+    #[test]
     fn both_ends_snap_and_alt_disables_it() {
         let p = project();
         let plan = draw(&p, pt(1.03, 60.0), pt(2.27, 60.0), false, false).unwrap();
         assert_eq!(plan.creation.notes[0].start, at(1.0));
         assert_eq!(plan.creation.notes[0].end, at(2.25));
         let free = draw(&p, pt(1.03, 60.0), pt(2.27, 60.0), false, true).unwrap();
-        assert!((free.creation.notes[0].start.beat - 1.03).abs() < 1e-9);
-        assert!((free.creation.notes[0].end.beat - 2.27).abs() < 1e-9);
+        assert!((free.creation.notes[0].start.beat() - 1.03).abs() < 0.011);
+        assert!((free.creation.notes[0].end.beat() - 2.27).abs() < 0.011);
     }
 
     #[test]
@@ -433,10 +472,10 @@ mod tests {
         let tempo = TempoMap::new(&p.measures);
         let grid = fretscribe_core::SnapGrid::default();
         let ctx = EditCtx { project: &p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, alt: false };
-        let start = Pt { sec: tempo.pos_to_sec(TimePos::new(m1, 3.0)), midi: 60.0 };
-        let end = Pt { sec: tempo.pos_to_sec(TimePos::new(m2, 1.02)), midi: 60.0 };
+        let start = Pt { sec: tempo.pos_to_sec(TimePos::at(m1, 3.0)), midi: 60.0 };
+        let end = Pt { sec: tempo.pos_to_sec(TimePos::at(m2, 1.02)), midi: 60.0 };
         let c = plan_draw(start, end, false, (None, None), &ctx).unwrap().creation;
-        assert_eq!((c.notes[0].start, c.notes[0].end), (TimePos::new(m1, 3.0), TimePos::new(m2, 1.0)));
+        assert_eq!((c.notes[0].start, c.notes[0].end), (TimePos::at(m1, 3.0), TimePos::at(m2, 1.0)));
     }
 
     #[test]
@@ -494,11 +533,11 @@ mod tests {
         let mut p = project();
         let s = add(&mut p, 60, 2.0, 3.0);
         let fwd = start(&p, s, pt(4.02, 62.0));
-        assert_eq!((fwd.forward, fwd.kind, fwd.near), (true, LinkType::Slide, TimePos::new(2, 0.0)));
+        assert_eq!((fwd.forward, fwd.kind, fwd.near), (true, LinkType::Slide, TimePos::at(2, 0.0)));
         let rev = start(&p, s, pt(1.0, 58.0));
         assert_eq!((rev.forward, rev.kind, rev.near), (false, LinkType::Slide, at(1.0)));
         let LinkAim::Start { snapped, .. } = aim(&p, s, pt(4.02, 62.0), None) else { panic!() };
-        assert_eq!(snapped, (Some(TimePos::new(2, 0.0)), None));
+        assert_eq!(snapped, (Some(TimePos::at(2, 0.0)), None));
     }
 
     #[test]
@@ -518,9 +557,9 @@ mod tests {
         let fwd = start(&p, s, pt(2.8, 62.0));
         let run = |st: &LinkStart, sec: Option<f64>| with_ctx(&p, &[4, 3], false, |ctx| plan_extend(st, sec, (None, None), ctx));
         let plan = run(&fwd, Some(sec(5.0)));
-        assert_eq!(plan.creation.notes, [NewNote { midi: 62, start: at(3.0), end: TimePos::new(2, 1.0) }]);
+        assert_eq!(plan.creation.notes, [NewNote { midi: 62, start: at(3.0), end: TimePos::at(2, 1.0) }]);
         assert_eq!(plan.creation.links, [(Ref::Existing(s), Ref::New(0), LinkType::Legato)]);
-        assert_eq!(plan.snapped, (None, Some(TimePos::new(2, 1.0))));
+        assert_eq!(plan.snapped, (None, Some(TimePos::at(2, 1.0))));
         assert_eq!(run(&fwd, None).creation.notes[0].end, at(3.25));
         assert_eq!(run(&fwd, Some(sec(2.0))).creation.notes[0].end, at(3.25));
         let rev = start(&p, s, pt(2.2, 58.0));
@@ -551,7 +590,7 @@ mod tests {
         let plan = draw(&p, pt(0.0, 60.0), pt(2.0, 62.0), false, false).unwrap();
         let run = |sec| with_ctx(&p, &[4, 3], false, |ctx| plan_slide_end(&plan.creation, sec, (None, None), ctx));
         let (c, snapped) = run(sec(4.0));
-        let end = TimePos::new(2, 0.0);
+        let end = TimePos::at(2, 0.0);
         assert_eq!((c.notes[1].start, c.notes[1].end, snapped.1), (at(2.0), end, Some(end)));
         assert_eq!(c.notes[0], plan.creation.notes[0]);
         assert_eq!(run(sec(1.0)).0, plan.creation);

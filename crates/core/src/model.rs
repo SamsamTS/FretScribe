@@ -89,15 +89,28 @@ impl Default for Tuning {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// Ticks per quarter-note beat: every straight division up to 1/64 and every triplet up to 1/64T is a whole number of ticks.
+pub const TICKS_PER_BEAT: i64 = 48;
+
+/// A position as a measure and a whole number of ticks into it; it may lie outside the measure (negative before the first, past the end after the last).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TimePos {
     pub measure: u64,
-    pub beat: f64,
+    pub tick: i64,
 }
 
 impl TimePos {
-    pub const fn new(measure: u64, beat: f64) -> Self {
-        Self { measure, beat }
+    pub const fn new(measure: u64, tick: i64) -> Self {
+        Self { measure, tick }
+    }
+
+    /// The nearest tick to `beat`.
+    pub fn at(measure: u64, beat: f64) -> Self {
+        Self::new(measure, (beat * TICKS_PER_BEAT as f64).round() as i64)
+    }
+
+    pub fn beat(self) -> f64 {
+        self.tick as f64 / TICKS_PER_BEAT as f64
     }
 }
 
@@ -107,7 +120,15 @@ pub enum Technique {
     Bend,
     Harmonic,
     PalmMute,
+    /// With `link_to`: this note is tied to the next one (same pitch, no interruption).
     Tie,
+}
+
+impl Technique {
+    /// Whether the technique only makes sense together with `Note::link_to`.
+    pub fn is_link(self) -> bool {
+        matches!(self, Self::Slide | Self::Bend | Self::Tie)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

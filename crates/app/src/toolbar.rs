@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, Context, Ui};
 use fretscribe_analysis::{clamp_gamma, Levels, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
-use fretscribe_core::{NotePolicy, SnapGrid};
+use fretscribe_core::{division_name, NotePolicy, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
 use fretscribe_notation::tab::presets;
 use fretscribe_ui::theme;
 
@@ -92,15 +92,20 @@ fn grid_and_zoom(ui: &mut Ui, s: &mut Session) {
         s.policy = if follow { NotePolicy::FollowGrid } else { NotePolicy::KeepAudioPosition };
     }
     ui.checkbox(&mut s.snap_on, "Snap");
-    let presets = SnapGrid::presets();
-    let current = presets.iter().find(|p| p.grid == s.ui.snap_grid).map_or_else(|| s.ui.snap_grid.label(), |p| p.name.to_owned());
-    egui::ComboBox::from_id_salt("snap_grid").selected_text(current).show_ui(ui, |ui| {
-        for p in &presets {
-            if ui.selectable_label(p.grid == s.ui.snap_grid, p.name).clicked() {
-                s.ui.snap_grid = p.grid.clone();
+    for (triplet, options, salt) in [(false, STRAIGHT_DIVISIONS.as_slice(), "snap_straight"), (true, TRIPLET_DIVISIONS.as_slice(), "snap_triplet")] {
+        let current = if triplet { s.ui.snap_grid.triplet() } else { s.ui.snap_grid.straight() };
+        let name = |d: Option<u8>| d.map_or("None", division_name);
+        egui::ComboBox::from_id_salt(salt).selected_text(name(current)).show_ui(ui, |ui| {
+            for d in std::iter::once(None).chain(options.iter().copied().map(Some)) {
+                if ui.selectable_label(current == d, name(d)).clicked() {
+                    s.ui.snap_grid = s.ui.snap_grid.with(triplet, d);
+                }
             }
-        }
-    });
+        });
+    }
+    if ui.checkbox(&mut s.ui.strict_beats, "Strict beats").on_hover_text("Sheet: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits").changed() {
+        s.staff_dirty = true;
+    }
     ui.checkbox(&mut s.snap_to_onsets, "Snap to onsets").on_hover_text("Adds the detected onsets of the beat-analysis tracks as snap targets");
     for (label, factor) in [("-", 1.0 / 1.25), ("+", 1.25)] {
         if ui.small_button(label).on_hover_text("Zoom").clicked() {
@@ -186,7 +191,7 @@ fn transcription(ui: &mut Ui, s: &mut Session) {
     }
     reference_control(ui, s);
     if ui.button("Auto-fit grid").on_hover_text("Fits the measures to the onsets of the beat-analysis tracks").clicked() {
-        s.start_auto_fit();
+        s.start_auto_fit(0);
     }
     if ui.button("Auto tempo").clicked() {
         s.start_auto_tempo();

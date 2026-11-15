@@ -342,6 +342,19 @@ impl Project {
         })
     }
 
+    /// Adds or removes measures at the end so the grid covers the audio; `None` when it already does.
+    pub fn cover_audio(&mut self, audio_len_sec: f64) -> Option<ProjectEdit> {
+        let used: HashSet<u64> = self.notes.iter().flat_map(|n| [n.start.measure, n.end.measure]).collect();
+        let (mut measures, mut next) = (self.measures.clone(), self.next_measure_id);
+        if !measures::cover_audio(&mut measures, audio_len_sec, &mut next, |m| used.contains(&m.id)) {
+            return None;
+        }
+        Some(self.transact_infallible("Cover audio with measures", |p| {
+            p.measures = measures;
+            p.next_measure_id = next;
+        }))
+    }
+
     /// Inserts a measure (tempo and signature of the previous one) at `index`; every later measure,
     /// anchored or not, moves later by its duration.
     pub fn insert_measure(
@@ -403,8 +416,8 @@ impl Project {
             }
 
             let cut = match p.measures.get(index + 1) {
-                Some(next) => TimePos::new(next.id, 0.0),
-                None => TimePos::new(p.measures[index - 1].id, map.beats_in_measure(index - 1)),
+                Some(next) => TimePos::at(next.id, 0.0),
+                None => TimePos::at(p.measures[index - 1].id, map.beats_in_measure(index - 1)),
             };
             for n in p.notes.iter_mut().filter(|n| !doomed.contains(&n.id)) {
                 if map.normalise(n.end).measure == id {
@@ -533,7 +546,7 @@ impl Project {
         for n in &mut self.notes {
             if n.link_to.is_some_and(|id| doomed.contains(&id)) {
                 n.link_to = None;
-                if matches!(n.technique, Some(Technique::Slide | Technique::Bend)) {
+                if n.technique.is_some_and(Technique::is_link) {
                     n.technique = None;
                 }
             }
@@ -547,7 +560,7 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measures::tests::close;
+    use crate::measures::tests::{close, near};
     use crate::model::{GraceKind, GraceNote, Legato, LegatoLink, Note, Track, TrackRole};
     use crate::tempo::NoteTimes;
     use NotePolicy::{FollowGrid as Follow, KeepAudioPosition as Keep};
@@ -566,8 +579,8 @@ mod tests {
         p.notes.push(Note::new(
             id,
             midi,
-            TimePos::new(start.0, start.1),
-            TimePos::new(end.0, end.1),
+            TimePos::at(start.0, start.1),
+            TimePos::at(end.0, end.1),
         ));
         id
     }
@@ -592,7 +605,7 @@ mod tests {
         let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
         assert_eq!(secs(&p, n), (2.5, 3.0));
         p.set_tempo(0, 60.0, Follow).unwrap();
-        assert_eq!(pos(&p, n), (TimePos::new(2, 1.0), TimePos::new(2, 2.0)));
+        assert_eq!(pos(&p, n), (TimePos::at(2, 1.0), TimePos::at(2, 2.0)));
         assert_eq!(secs(&p, n), (5.0, 6.0));
     }
 
@@ -606,8 +619,8 @@ mod tests {
         close(e, 3.0);
         let (start, end) = pos(&p, n);
         assert_eq!(start.measure, 1);
-        close(start.beat, 2.5);
-        close(end.beat, 3.0);
+        close(start.beat(), 2.5);
+        close(end.beat(), 3.0);
     }
 
     #[test]
@@ -618,7 +631,7 @@ mod tests {
         p.set_tempo(3, 90.0, Keep).unwrap();
         assert_eq!(
             pos(&p, n),
-            (TimePos::new(1, third), TimePos::new(1, 2.0 * third))
+            (TimePos::at(1, third), TimePos::at(1, 2.0 * third))
         );
     }
 
@@ -628,7 +641,7 @@ mod tests {
         let n = note(&mut p, 60, (5, 1.0), (5, 2.0));
         p.set_tempo(2, 90.0, Follow).unwrap();
         p.set_time_sig(0, TimeSignature::new(4, 4), Follow).unwrap();
-        assert_eq!(p.note(n).unwrap().start, TimePos::new(5, 1.0));
+        assert_eq!(p.note(n).unwrap().start, TimePos::at(5, 1.0));
     }
 
     #[test]
@@ -643,7 +656,7 @@ mod tests {
         let (s, e) = secs(&p, n);
         close(s, 6.0);
         close(e, 10.0);
-        assert_eq!(pos(&p, n).1, TimePos::new(4, 0.0));
+        assert_eq!(pos(&p, n).1, TimePos::at(4, 0.0));
     }
 
     #[test]
@@ -653,7 +666,7 @@ mod tests {
         assert_eq!(secs(&p, n), (1.5, 2.5));
         p.set_tempo(0, 60.0, Follow).unwrap();
         assert_eq!(secs(&p, n), (3.0, 5.0));
-        assert_eq!(pos(&p, n), (TimePos::new(1, 3.0), TimePos::new(2, 1.0)));
+        assert_eq!(pos(&p, n), (TimePos::at(1, 3.0), TimePos::at(2, 1.0)));
     }
 
     #[test]
@@ -671,10 +684,10 @@ mod tests {
         let mut p = project(3);
         let n = note(&mut p, 60, (1, 1.0), (1, 3.5));
         p.set_time_sig(0, TimeSignature::new(3, 4), Follow).unwrap();
-        assert_eq!(p.note(n).unwrap().start, TimePos::new(1, 1.0));
+        assert_eq!(p.note(n).unwrap().start, TimePos::at(1, 1.0));
         let end = p.note(n).unwrap().end;
         assert_eq!(end.measure, 2);
-        close(end.beat, 0.5);
+        close(end.beat(), 0.5);
     }
 
     #[test]
@@ -763,8 +776,8 @@ mod tests {
         let mut p = project(4);
         let n = note(&mut p, 60, (3, 0.0), (3, 1.0));
         p.move_measure_start(2, 4.5, Keep).unwrap();
-        close(secs(&p, n).0, 4.0);
-        close(secs(&p, n).1, 4.5);
+        near(secs(&p, n).0, 4.0);
+        near(secs(&p, n).1, 4.5);
     }
 
     #[test]
@@ -806,8 +819,8 @@ mod tests {
         assert_eq!(p.measures[2].id, 3);
         assert!(p.measures.iter().all(|m| m.anchored));
         let (s1, e1) = secs(&p, n);
-        close(s0, s1);
-        close(e0, e1);
+        near(s0, s1);
+        near(e0, e1);
         assert_eq!(p.next_measure_id, 4);
     }
 
@@ -865,7 +878,7 @@ mod tests {
         let edit = p.insert_measure(1, Follow).unwrap();
         assert_eq!(ids(&p), [1, 4, 2, 3]);
         assert_eq!(p.next_measure_id, 5);
-        assert_eq!(pos(&p, n), (TimePos::new(2, 1.0), TimePos::new(2, 2.0)));
+        assert_eq!(pos(&p, n), (TimePos::at(2, 1.0), TimePos::at(2, 2.0)));
         close(secs(&p, n).0, 4.5);
         close(p.measures[1].start_sec, 2.0);
         close(p.measures[2].start_sec, 4.0);
@@ -978,7 +991,7 @@ mod tests {
         let mut p = project(3);
         let n = note(&mut p, 60, (1, 3.0), (2, 2.0));
         p.delete_measure(1, Follow, false).unwrap();
-        assert_eq!(pos(&p, n).1, TimePos::new(3, 0.0));
+        assert_eq!(pos(&p, n).1, TimePos::at(3, 0.0));
         close(secs(&p, n).1, 2.0);
         p.validate().unwrap();
     }
@@ -1034,9 +1047,9 @@ mod tests {
             close(s, s2);
             close(e, e2);
         }
-        assert_eq!(p.note(a).unwrap().start, TimePos::new(1, 1.0));
+        assert_eq!(p.note(a).unwrap().start, TimePos::at(1, 1.0));
         assert_eq!(p.note(b).unwrap().start.measure, 3);
-        close(p.note(b).unwrap().start.beat, 0.5);
+        close(p.note(b).unwrap().start.beat(), 0.5);
         p.validate().unwrap();
     }
 
@@ -1088,7 +1101,7 @@ mod tests {
             close(s, s2);
             close(e, e2);
         }
-        assert_eq!(p.note(b).unwrap().start, TimePos::new(1, 4.0));
+        assert_eq!(p.note(b).unwrap().start, TimePos::at(1, 4.0));
         p.validate().unwrap();
     }
 
@@ -1141,7 +1154,7 @@ mod tests {
             assert_eq!(a.time_sig, b.time_sig);
         }
         assert_eq!(p.note(n).unwrap().start.measure, 2);
-        close(p.note(n).unwrap().start.beat, 2.5);
+        close(p.note(n).unwrap().start.beat(), 2.5);
     }
 
     #[test]

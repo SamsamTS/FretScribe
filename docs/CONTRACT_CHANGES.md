@@ -117,3 +117,8 @@ Modules are not re-exported at the crate root.
 ## 2026-11-14 - app crate (Prompt 11)
 
 No contract change in other crates beyond the 2026-11-12 entry and `audio::read_tags` (Prompt 11/11a). The app adds `fretscribe_app` (lib: settings, autosave, luts, paths, player_sync, form, form_ui, home, store, loader, jobs, session, editor, toolbar, app) and the `fretscribe` binary. Project files use the `.fretscribe` extension.
+
+## 2026-11-15 - core: TimePos in whole ticks (breaking)
+
+- `TimePos { measure, tick: i64 }` replaces `{ measure, beat: f64 }`; `TICKS_PER_BEAT = 48` (every straight division to 1/64 and triplet to 1/64T is whole). `TimePos::new(measure, tick)`, `TimePos::at(measure, beat)` (rounds), `.beat()`. `TempoMap::{pos_to_ticks, ticks_to_pos, measure_ticks}`; `normalise` is integer. Positions from seconds round to the nearest tick (about 10 ms at 120 bpm). Project files written before this do not load.
+- notation: the quantiser reads exact ticks (no tolerances); edges closer than 2 ticks merge; `quantise` no longer absorbs short silences. The lattice stress test in `staff/tests.rs` covers it.

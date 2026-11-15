@@ -1,13 +1,16 @@
-//! Note values in ticks (24 per quarter note, so every `SnapGrid` division is an integer) and the
+//! Note values in ticks (48 per quarter note, so every straight value down to the 64th and every
+//! triplet down to the 64th triplet is an integer) and the
 //! split of a time span into the fewest engraved values.
 //!
 //! A value may cross a main-beat boundary only when it starts on a beat, is aligned to its own
 //! undotted length and lands on a half beat (half note on beat 1 of 4/4, dotted quarter...). Rests
 //! never cross a beat. Straight values avoid triplet beats, triplet values stay inside one.
+//! With `beat_rule` off, a note is only split when no single value (dotted or double-dotted
+//! included) has its length; rests keep the rule.
 
 use std::sync::LazyLock;
 
-pub const TICKS_PER_BEAT: i64 = 24;
+pub use fretscribe_core::TICKS_PER_BEAT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Base {
@@ -17,13 +20,14 @@ pub enum Base {
     Eighth,
     Sixteenth,
     ThirtySecond,
+    SixtyFourth,
 }
 
 impl Base {
-    const ALL: [Self; 6] = [Self::Whole, Self::Half, Self::Quarter, Self::Eighth, Self::Sixteenth, Self::ThirtySecond];
+    const ALL: [Self; 7] = [Self::Whole, Self::Half, Self::Quarter, Self::Eighth, Self::Sixteenth, Self::ThirtySecond, Self::SixtyFourth];
 
     pub fn ticks(self) -> i64 {
-        96 >> self as u32
+        192 >> self as u32
     }
 
     /// Flags (or beams) a note of this value carries.
@@ -84,6 +88,8 @@ pub fn main_beat_ticks(numerator: u8, denominator: u8) -> i64 {
 }
 
 pub struct Context<'a> {
+    /// Notes obey the beat-crossing rule (rests always do).
+    pub beat_rule: bool,
     pub beat: i64,
     /// Middle of the measure in ticks; a long value that does not start the measure stays on one side.
     pub half: i64,
@@ -117,19 +123,20 @@ impl Context<'_> {
 /// Falls back to ignoring the beat rules, and drops what no value can express.
 pub fn split(ctx: &Context, from: i64, to: i64, rest: bool) -> Vec<(i64, Duration)> {
     let n = (to - from).max(0) as usize;
-    for strict in [true, false] {
+    for pass in 0..3 {
+        let strict = pass == 0 && (rest || ctx.beat_rule);
         let mut best: Vec<Option<(u32, Duration)>> = vec![None; n + 1];
         best[n] = Some((0, Duration::WHOLE));
         for i in (0..n).rev() {
             for &v in VALUES.iter() {
                 let next = i + v.ticks() as usize;
                 let Some((count, _)) = best.get(next).copied().flatten() else { continue };
-                if ctx.allowed(from + i as i64, v, rest, strict) && best[i].is_none_or(|(c, _)| count + 1 < c) {
+                if (pass == 2 || ctx.allowed(from + i as i64, v, rest, strict)) && best[i].is_none_or(|(c, _)| count + 1 < c) {
                     best[i] = Some((count + 1, v));
                 }
             }
         }
-        if best[0].is_some() || !strict {
+        if best[0].is_some() || pass == 2 {
             let (mut out, mut i) = (Vec::new(), 0);
             while let Some((_, v)) = best[i].filter(|_| i < n) {
                 out.push((from + i as i64, v));

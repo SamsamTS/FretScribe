@@ -27,7 +27,7 @@ pub use measures::{
     generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped, valid_tempo,
     Propagation,
 };
-pub use model::{
+pub use model::{TICKS_PER_BEAT, 
     GraceKind, GraceNote, Legato, LegatoLink, Measure, Note, Project, Technique, TimePos,
     TimeSignature, Track, TrackRole, Tuning, MAX_BPM, MIN_BPM,
 };
@@ -40,7 +40,7 @@ pub use persist::{
 pub use pitch::{
     cents_of, cents_off, freq_to_midi_float, midi_to_freq, midi_to_name, ref_from_cents, PitchRef,
 };
-pub use snap::{SnapGrid, SnapPreset, SNAP_DIVISIONS};
+pub use snap::{division_name, SnapGrid, SnapPreset, SNAP_DIVISIONS, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
 pub use snap_note::{
     add_beats, effective_divisions, min_subdivision_beats, snap_edge, snap_note, snap_resized,
     step_on_grid, Edge, SnapOpts,

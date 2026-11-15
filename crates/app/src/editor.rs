@@ -5,7 +5,7 @@ use eframe::egui::{self, pos2, vec2, Context, Rect, UiBuilder};
 use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{BeatKind, EditError, NoteTimes, Project, TempoMap, Track};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env};
-use fretscribe_ui::spectro::show_time_ruler;
+use fretscribe_ui::spectro::{paint_seek_line, show_time_ruler};
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
@@ -53,7 +53,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let view = s.ctl.current.timeline();
     let panel = egui::TopBottomPanel::bottom("notation").resizable(true).min_height(160.0).default_height(300.0).show(ctx, |ui| {
         let selected = s.editor.selection.ids.clone();
-        let playhead = Some(s.ui.playhead_sec);
+        let playhead = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &StaffStyle::default(), timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
@@ -72,19 +72,24 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         });
     });
     let notation_rect = panel.response.rect;
+    let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
+    GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);
 
     // Lanes: time ruler then one lane per track.
     let mut grid_events = Vec::new();
     let mut lane_events = Vec::new();
     let mut spectro_events: Vec<SpectroEvent> = Vec::new();
     let mut source_pointer = None;
+    let mut seek_origin = pos2(0.0, 0.0);
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
         let area = ui.available_rect_before_wrap();
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
         let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
+        seek_origin = ruler.left_top();
         let (_, content_px) = s.lanes.strips(ctx, &s.project);
         let nav = NavContext {
-            regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max), lanes },
+            // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
+            regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes },
             map: &tempo,
             audio_len_sec: audio_len,
             content_px,
@@ -93,7 +98,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.ctl.run(ctx, &nav);
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
-        let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H, s.ui.playhead_sec)).inner;
+        let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
         spectro_events.extend(seek);
         let out = TrackLanes {
             project: &s.project,
@@ -102,8 +107,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             times: &s.times,
             selected: &s.editor.selection.ids,
             ghost: s.editor.ghost.as_ref(),
-            playhead_sec: s.ui.playhead_sec,
             reference_track: s.reference_track,
+            focus: s.ui.focus_enabled.then(|| {
+                let open = &s.project.tuning.open_strings;
+                let (lo, hi) = (open.iter().min().copied().unwrap_or(40), open.iter().max().copied().unwrap_or(64));
+                (f32::from(lo) + f32::from(s.project.capo), f32::from(hi) + f32::from(s.project.capo) + 24.0, s.ui.focus_strength)
+            }),
         }
         .show(ui, lanes, &view, &pitch, s.ctl.offset_y(ctx.pixels_per_point()), &mut s.lanes);
         lane_events = out.events;
@@ -115,7 +124,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             }
         }
         let timeline = Rect::from_min_max(pos2(lanes.left() + LANE_HEADER_WIDTH, ruler.top()), area.max);
-        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).show(ui, timeline));
+        let note_drawing = source_pointer.as_ref().map(|p| p.geometry.rect);
+        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).show(ui, timeline));
     });
     // The grid continues through the notation panel with the same time axis.
     let notation_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
@@ -125,6 +135,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let view = s.ctl.current.timeline();
         paint_grid_lines(ui, &tempo, &view, notation_timeline);
     });
+
+    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y);
 
     // ---- events -------------------------------------------------------------------------
     for e in overview_events {
@@ -286,7 +298,7 @@ fn handle_grid(s: &mut Session, e: GridEvent) {
             s.policy = p;
             return;
         }
-        GridEvent::AutoFitRequested { .. } => return s.start_auto_fit(),
+        GridEvent::AutoFitRequested { index } => return s.start_auto_fit(index),
         _ => {}
     }
     match e.apply(&mut s.project, false) {

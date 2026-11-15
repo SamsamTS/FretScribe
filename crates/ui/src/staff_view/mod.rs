@@ -178,7 +178,7 @@ fn head_char(b: Base) -> &'static str {
 }
 
 fn rest_char(b: Base) -> char {
-    ['\u{E4E3}', '\u{E4E4}', '\u{E4E5}', '\u{E4E6}', '\u{E4E7}', '\u{E4E8}'][b as usize]
+    ['\u{E4E3}', '\u{E4E4}', '\u{E4E5}', '\u{E4E6}', '\u{E4E7}', '\u{E4E8}', '\u{E4E9}'][b as usize]
 }
 
 fn flag_char(flags: u8, up: bool) -> char {
@@ -434,16 +434,6 @@ impl Paint<'_> {
         }
     }
 
-    fn measures(&self, layout: &StaffLayout, rect: Rect) {
-        for m in &layout.measures {
-            let x = self.px(m.start_sec);
-            if x < rect.left() - 80.0 || x > rect.right() {
-                continue;
-            }
-            self.p.vline(self.snap(x), self.snap(self.py(8))..=self.snap(self.py(0)), Stroke::new(self.thickness(0.12), self.style.ink));
-        }
-    }
-
     /// Width taken by the clef and the key signature.
     fn key_end(&self, layout: &StaffLayout) -> f32 {
         (4.4 + f32::from(layout.key.0.unsigned_abs()) + 0.6) * self.s
@@ -472,7 +462,6 @@ impl StaffView<'_> {
         let paint = mk(&painter);
         let layout = self.layout;
         paint.staff(rect);
-        paint.measures(layout, body);
 
         let (t0, t1) = (view.x_to_sec(-6.0 * s), view.x_to_sec(body.width() + 6.0 * s));
         let first = layout.events.partition_point(|e| e.x_end_sec < t0);

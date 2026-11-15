@@ -4,13 +4,16 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::TimePos;
+use crate::model::{TimePos, TICKS_PER_BEAT};
 use crate::tempo::{TempoMap, BEAT_EPS};
 
-pub const SNAP_DIVISIONS: [u8; 7] = [1, 2, 3, 4, 6, 8, 12];
+pub const SNAP_DIVISIONS: [u8; 9] = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+/// Selectable per kind (straight 1/4..1/64, triplet 1/8T..1/64T); a grid holds at most one of each.
+pub const STRAIGHT_DIVISIONS: [u8; 5] = [1, 2, 4, 8, 16];
+pub const TRIPLET_DIVISIONS: [u8; 4] = [3, 6, 12, 24];
 
-/// Every allowed division divides 24, so all grid positions are integers in 1/24-beat units.
-pub(crate) const UNITS_PER_BEAT: u32 = 24;
+/// Every allowed division divides 48, so all grid positions are integers in 1/48-beat units.
+pub(crate) const UNITS_PER_BEAT: u32 = crate::model::TICKS_PER_BEAT as u32;
 const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +25,11 @@ pub struct SnapGrid {
 pub struct SnapPreset {
     pub name: &'static str,
     pub grid: SnapGrid,
+}
+
+/// Label of one division, as shown in the grid dropdowns.
+pub fn division_name(division: u8) -> &'static str {
+    division_label(division)
 }
 
 const PRESETS: [(&str, &[u8]); 10] = [
@@ -46,6 +54,8 @@ fn division_label(division: u8) -> &'static str {
         6 => "1/16T",
         8 => "1/32",
         12 => "1/32T",
+        16 => "1/64",
+        24 => "1/64T",
         _ => "?",
     }
 }
@@ -72,6 +82,21 @@ impl SnapGrid {
             .map(|&d| division_label(d))
             .collect::<Vec<_>>()
             .join(" + ")
+    }
+
+    pub fn straight(&self) -> Option<u8> {
+        self.divisions.iter().copied().find(|d| STRAIGHT_DIVISIONS.contains(d))
+    }
+
+    pub fn triplet(&self) -> Option<u8> {
+        self.divisions.iter().copied().find(|d| TRIPLET_DIVISIONS.contains(d))
+    }
+
+    /// Replaces the straight (`triplet` false) or triplet division; `None` clears it. The grid may end up empty.
+    pub fn with(&self, triplet: bool, division: Option<u8>) -> Self {
+        let other = if triplet { self.straight() } else { self.triplet() };
+        let (straight, trip) = if triplet { (other, division) } else { (division, other) };
+        Self { divisions: straight.into_iter().chain(trip).collect() }
     }
 
     pub fn presets() -> Vec<SnapPreset> {
@@ -119,28 +144,22 @@ impl TempoMap {
             return self.sec_to_pos(sec);
         }
         let (i, beat) = self.sec_to_beat_position(sec);
-        let len = self.beats[i];
-        let limit = if i + 1 == self.len() {
-            len.max(beat.ceil())
-        } else {
-            len
-        };
+        let at = beat * TICKS_PER_BEAT as f64;
+        let len = self.ticks[i];
+        let limit = if i + 1 == self.len() { len.max((beat.ceil() as i64) * TICKS_PER_BEAT) } else { len };
 
-        let mut best = (f64::INFINITY, 0.0);
-        let mut consider = |candidate: f64| {
-            let distance = (candidate - beat).abs();
+        let mut best = (f64::INFINITY, 0);
+        let mut consider = |candidate: i64| {
+            let distance = (candidate as f64 - at).abs();
             if distance < best.0 - TIE_EPS {
                 best = (distance, candidate);
             }
         };
-        consider(0.0);
+        consider(0);
         consider(len);
         for division in grid.sorted_divisions() {
-            let d = f64::from(division);
-            let steps = (limit * d + BEAT_EPS).floor() as u32;
-            for k in 0..=steps {
-                consider(f64::from(k) / d);
-            }
+            let step = TICKS_PER_BEAT / i64::from(division);
+            (0..=limit / step).for_each(|k| consider(k * step));
         }
         self.normalise(TimePos::new(self.measures[i].id, best.1))
     }
@@ -153,11 +172,14 @@ impl TempoMap {
     }
 
     /// Lines of measure `i`, excluding the closing barline. A position shared by several divisions
-    /// appears once, labelled with the coarsest of them.
+    /// appears once, labelled with the coarsest straight one, else the coarsest triplet.
     pub fn grid_lines(&self, i: usize, grid: &SnapGrid) -> Vec<(f64, u8)> {
         let end_units = self.beats[i] * f64::from(UNITS_PER_BEAT) - BEAT_EPS;
         let mut by_position: BTreeMap<u32, u8> = BTreeMap::new();
-        for division in grid.sorted_divisions() {
+        // Straight before triplet: a position shared by both is labelled (and drawn) as straight.
+        let mut divisions = grid.sorted_divisions();
+        divisions.sort_by_key(|d| TRIPLET_DIVISIONS.contains(d));
+        for division in divisions {
             let step = UNITS_PER_BEAT / u32::from(division);
             let mut units = 0;
             while f64::from(units) < end_units {
@@ -197,6 +219,20 @@ mod tests {
     fn default_is_sixteenth_plus_eighth_triplet() {
         assert_eq!(SnapGrid::default().divisions, [4, 3]);
         assert_eq!(SnapGrid::default().label(), "1/16 + 1/8T");
+    }
+
+    #[test]
+    fn straight_and_triplet_are_independent_and_may_be_none() {
+        let grid = SnapGrid::default();
+        assert_eq!((grid.straight(), grid.triplet()), (Some(4), Some(3)));
+        let both = grid.with(true, Some(24)).with(false, Some(16));
+        assert_eq!(both.divisions, [16, 24]);
+        assert_eq!(both.label(), "1/64 + 1/64T");
+        assert!(both.with(false, None).with(true, None).divisions.is_empty());
+        let m = map();
+        // 1/64 and 1/64T coincide 8 times per beat (every 1/8): 16 + 24 - 8 lines per beat.
+        assert_eq!(m.grid_lines(0, &both).len(), 4 * (16 + 24 - 8));
+        close(m.snap_to_grid(0.0301, &g(&[16])), 0.03125);
     }
 
     #[test]
@@ -289,7 +325,7 @@ mod tests {
         close(m.snap_to_grid(1.99, &g(&[2])), 2.0);
         let pos = m.snap_to_pos(1.99, &g(&[2]));
         assert_eq!(pos.measure, 2);
-        close(pos.beat, 0.0);
+        close(pos.beat(), 0.0);
     }
 
     #[test]
@@ -299,7 +335,7 @@ mod tests {
         close(m.snap_to_grid(4.31, &g(&[4])), 4.25);
         let pos = m.snap_to_pos(4.37, &g(&[4]));
         assert_eq!(pos.measure, 2);
-        close(pos.beat, 4.75);
+        close(pos.beat(), 4.75);
     }
 
     #[test]
@@ -329,12 +365,12 @@ mod tests {
         let m = map();
         let lines = m.grid_lines(0, &g(&[4, 3]));
         assert_eq!(lines.len(), 4 * 4 + 4 * 3 - 4);
-        assert_eq!(lines[0], (0.0, 3));
+        assert_eq!(lines[0], (0.0, 4));
         let at = |sec: f64| lines.iter().find(|l| (l.0 - sec).abs() < 1e-9).copied();
         assert_eq!(at(0.125).map(|l| l.1), Some(4));
         assert_eq!(at(0.5 / 3.0).map(|l| l.1), Some(3));
         assert_eq!(at(0.25).map(|l| l.1), Some(4));
-        assert_eq!(at(0.5).map(|l| l.1), Some(3));
+        assert_eq!(at(0.5).map(|l| l.1), Some(4));
         assert!(lines.windows(2).all(|w| w[0].0 < w[1].0));
     }
 

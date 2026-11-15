@@ -96,8 +96,9 @@ pub struct TrackLanes<'a> {
     pub times: &'a NoteTimes,
     pub selected: &'a [u64],
     pub ghost: Option<&'a GhostShape>,
-    pub playhead_sec: f64,
     pub reference_track: u64,
+    /// Guitar focus range and strength, see `SpectrogramView::focus`.
+    pub focus: Option<(f32, f32, f32)>,
 }
 
 pub struct TrackLanesOutput {
@@ -124,10 +125,10 @@ impl TrackLanes<'_> {
             times: self.times,
             selected: self.selected,
             ghost: self.ghost,
-            playhead_sec: self.playhead_sec,
             view: *view,
             pitch: *pitch,
             reference_track: self.reference_track,
+            focus: self.focus,
             audible: &audible,
         };
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));
