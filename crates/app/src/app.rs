@@ -19,7 +19,7 @@ use crate::loader::{LoadEvent, LoadJob};
 use crate::luts::{lut_dir, LutSet};
 use crate::paths;
 use crate::session::{Session, Toast};
-use crate::settings::{settings_dir, RecentProject, Settings};
+use crate::settings::{settings_dir, RecentProject, Settings, WindowMode};
 use crate::store::AudioStore;
 use crate::Request;
 
@@ -79,6 +79,7 @@ pub struct App {
     title: String,
     allow_close: bool,
     last_size: Option<(f32, f32)>,
+    window_mode: WindowMode,
 }
 
 impl App {
@@ -110,6 +111,7 @@ impl App {
             title: String::new(),
             allow_close: false,
             last_size: None,
+            window_mode: WindowMode::default(),
         };
         if app.luts.builtin_fallback {
             app.toast("LUT folder not found: using the built-in palette (copy LUT/ next to the executable)", false);
@@ -319,13 +321,29 @@ impl App {
         match r {
             Request::Home => self.go(Next::Home),
             Request::AddTrack => self.add_track(None),
-            Request::Open => {
-                if let Some(p) = rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT]).pick_file() {
-                    self.go(Next::Open(p));
-                }
-            }
+            Request::Open => self.pick_project(),
             Request::Save => self.save(false),
             Request::SaveAs => self.save(true),
+        }
+    }
+
+    /// Remembers the windowed size only while the window is normal, so a maximised size never becomes the restore size.
+    fn track_window(&mut self, ctx: &Context) {
+        let (maximized, fullscreen) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false)));
+        self.window_mode = match (fullscreen, maximized) {
+            (true, _) => WindowMode::Fullscreen,
+            (_, true) => WindowMode::Maximized,
+            _ => WindowMode::Normal,
+        };
+        if self.window_mode == WindowMode::Normal {
+            let r = ctx.screen_rect();
+            self.last_size = Some((r.width(), r.height()));
+        }
+    }
+
+    fn pick_project(&mut self) {
+        if let Some(p) = rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT]).pick_file() {
+            self.go(Next::Open(p));
         }
     }
 
@@ -424,12 +442,13 @@ impl App {
     fn home_frame(&mut self, ctx: &Context) {
         let mut action = None;
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::WINDOW_BG)).show(ctx, |ui| {
             let status = |p: &Path| tile_status(p);
             action = show_home(ui, &self.settings, &status, now);
         });
         match action {
             Some(HomeAction::NewProject) => self.start_form(None),
+            Some(HomeAction::OpenDialog) => self.pick_project(),
             Some(HomeAction::Open(p)) => self.open_project(&p),
             Some(HomeAction::RemoveRecent(p)) => {
                 self.settings.remove_recent(&p);
@@ -610,8 +629,7 @@ fn missing_audio_dialog(ctx: &Context, s: &mut Session) {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        let r = ctx.screen_rect();
-        self.last_size = Some((r.width(), r.height()));
+        self.track_window(ctx);
         self.dropped(ctx);
         self.poll_creating(ctx);
         if matches!(self.screen, Screen::Creating(_)) {
@@ -650,6 +668,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.finish_session();
         self.settings.window_size = self.last_size.or(self.settings.window_size);
+        self.settings.window_mode = self.window_mode;
         self.save_settings();
         let _ = autosave::mark_clean_exit(&self.settings_dir);
     }

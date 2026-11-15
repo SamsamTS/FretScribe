@@ -18,11 +18,21 @@ pub struct RecentProject {
     pub thumbnail: Option<Vec<u8>>,
 }
 
+/// How the window was when the app last closed; restored on the next start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WindowMode {
+    #[default]
+    Normal,
+    Maximized,
+    Fullscreen,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub recent: Vec<RecentProject>,
     pub window_size: Option<(f32, f32)>,
+    pub window_mode: WindowMode,
     pub default_tuning: String,
     pub snap_grid: SnapGrid,
     pub open_last_project_on_start: bool,
@@ -46,6 +56,7 @@ impl Default for Settings {
         Self {
             recent: Vec::new(),
             window_size: None,
+            window_mode: WindowMode::default(),
             default_tuning: "Standard".to_owned(),
             snap_grid: SnapGrid::default(),
             open_last_project_on_start: false,
