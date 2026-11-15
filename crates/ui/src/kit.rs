@@ -30,6 +30,10 @@ pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
 }
 
+fn text_width(ui: &Ui, text: &str) -> f32 {
+    ui.painter().layout_no_wrap(text.to_owned(), FontId::new(13.0, theme::medium()), theme::TEXT).size().x
+}
+
 fn paint_icon(ui: &Ui, name: &str, rect: Rect, size: f32, tint: Color32) {
     let tint = if ui.is_enabled() { tint } else { tint.gamma_multiply(0.4) };
     Image::new(icon(name)).tint(tint).paint_at(ui, Rect::from_center_size(rect.center(), vec2(size, size)));
@@ -147,11 +151,12 @@ pub struct Field<'a> {
     tip: &'a str,
     icon: Option<&'a str>,
     width: Option<f32>,
+    sample: Option<f32>,
 }
 
 impl<'a> Field<'a> {
     pub fn new(text: &'a str, tip: &'a str) -> Self {
-        Self { text, tip, icon: None, width: None }
+        Self { text, tip, icon: None, width: None, sample: None }
     }
 
     pub fn icon(mut self, name: &'a str) -> Self {
@@ -165,10 +170,17 @@ impl<'a> Field<'a> {
         self
     }
 
+    /// Sizes the field for the widest of `samples` (and its own text) so it never changes width.
+    pub fn fit(mut self, ui: &Ui, samples: &[impl AsRef<str>]) -> Self {
+        self.sample = Some(samples.iter().map(|s| text_width(ui, s.as_ref())).fold(0.0, f32::max));
+        self
+    }
+
     fn paint(&self, ui: &mut Ui) -> Response {
         let font = FontId::new(13.0, theme::medium());
         let galley = ui.painter().layout_no_wrap(self.text.to_owned(), font, theme::TEXT);
-        let width = self.width.unwrap_or_else(|| 10.0 + self.icon.map_or(0.0, |_| 22.0) + galley.size().x + 6.0 + 16.0 + 8.0);
+        let text_w = galley.size().x.max(self.sample.unwrap_or(0.0));
+        let width = self.width.unwrap_or_else(|| 14.0 + self.icon.map_or(0.0, |_| 22.0) + text_w + 10.0 + 16.0 + 10.0);
         let (rect, r) = ui.allocate_exact_size(vec2(width, BUTTON), Sense::click());
         let edge = if r.hovered() { theme::BORDER_STRONG } else { theme::BORDER };
         let radius = CornerRadius::same(theme::CONTROL_RADIUS);
@@ -176,7 +188,7 @@ impl<'a> Field<'a> {
         if r.has_focus() {
             ui.painter().rect_stroke(rect.expand(1.0), radius, theme::focus_ring(), StrokeKind::Outside);
         }
-        let mut x = rect.left() + 10.0;
+        let mut x = rect.left() + 14.0;
         if let Some(name) = self.icon {
             paint_icon(ui, name, Rect::from_center_size(pos2(x + 8.0, rect.center().y), vec2(16.0, 16.0)), 16.0, Color32::WHITE);
             x += 22.0;
@@ -200,7 +212,8 @@ impl<'a> Field<'a> {
     /// A field that opens a list of `items` and returns the index picked, by click or by the wheel over
     /// the field. Right-clicks are left to the caller (see the returned response).
     pub fn dropdown(self, ui: &mut Ui, id: &str, items: &[String], selected: Option<usize>) -> (Response, Option<usize>) {
-        let (r, picked) = self.popup(ui, id, |ui| menu_rows(ui, items, selected, 0.0));
+        let this = self.fit(ui, items);
+        let (r, picked) = this.popup(ui, id, |ui| menu_rows(ui, items, selected, 0.0));
         let mut picked = picked.flatten();
         if picked.is_some() {
             ui.memory_mut(|m| m.close_popup());
@@ -277,4 +290,18 @@ pub fn slider_popup(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusiv
         changed
     })
     .inner
+}
+
+/// Lays `add` out flush with the right edge of the available space. The width is measured on the
+/// previous frame (a group's width is only known once it is drawn), so the first frame repaints.
+pub fn right_aligned(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
+    let key = ui.id().with(("right_aligned", id));
+    let width = ui.data(|d| d.get_temp::<f32>(key)).unwrap_or(0.0);
+    let avail = ui.available_rect_before_wrap();
+    let rect = Rect::from_min_max(pos2((avail.right() - width).max(avail.left()), avail.top()), avail.max);
+    let used = ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Min)), add).response.rect.width();
+    if (used - width).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(key, used));
+        ui.ctx().request_repaint();
+    }
 }

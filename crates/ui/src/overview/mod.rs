@@ -205,7 +205,10 @@ where
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let size = vec2(self.gutter, RULER_HEIGHT + self.waveform_height);
-            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| self.buttons(ui, &mut events));
+            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                ui.set_min_size(size); // a child only keeps its content's size otherwise
+                self.buttons(ui, &mut events);
+            });
             let size = vec2(ui.available_width().max(1.0), RULER_HEIGHT + self.waveform_height);
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             strip = rect;

@@ -24,13 +24,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let frame = egui::Frame::new().fill(theme::WINDOW_BG).inner_margin(margin);
     egui::TopBottomPanel::top("toolbar").frame(frame).show(ctx, |ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 0.0);
-        let right = egui::Layout::right_to_left(egui::Align::TOP);
         ui.horizontal_top(|ui| {
             ui.set_width(ui.available_width());
             project(ui, s, &mut requests);
             history(ui, s);
             transcription(ui, s);
-            ui.with_layout(right, |ui| display(ui, s));
+            kit::right_aligned(ui, "display", |ui| display(ui, s));
         });
         ui.add_space(ROW_GAP);
         ui.horizontal_top(|ui| {
@@ -38,7 +37,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             transport(ui, s);
             speed(ui, s);
             listening(ui, s);
-            ui.with_layout(right, |ui| grid(ui, s));
+            kit::right_aligned(ui, "grid", |ui| grid(ui, s));
         });
     });
     requests
@@ -166,12 +165,19 @@ fn grid(ui: &mut Ui, s: &mut Session) {
     });
 }
 
+/// A hint label with some air on both sides.
+fn padded_hint(ui: &mut Ui, text: &str) {
+    ui.add_space(6.0);
+    hint(ui, text);
+    ui.add_space(6.0);
+}
+
 fn display(ui: &mut Ui, s: &mut Session) {
     group(ui, "Spectrogram", |ui| {
         let mut changed = false;
-        hint(ui, "Levels");
+        padded_hint(ui, "Levels");
         changed |= levels_slider(ui, &mut s.ui.spectro_black, &mut s.ui.spectro_white).on_hover_text(LEVELS_TIP).changed();
-        hint(ui, "Gamma");
+        padded_hint(ui, "Gamma");
         let mut gamma = s.ui.spectro_gamma;
         let range = GAMMA_MIN..=GAMMA_MAX;
         let (r, _) = Field::new(&format!("{gamma:.2}"), GAMMA_TIP).width(80.0).popup(ui, "gamma", |ui| slider_popup(ui, &mut gamma, range.clone(), "", "", 0.05, true));
@@ -259,18 +265,21 @@ fn transcription(ui: &mut Ui, s: &mut Session) {
     });
 }
 
-/// "[capo icon] Capo 0 [-] [+]" in a field-styled frame.
+/// "[capo icon] 0 [-] [+]" in a field-styled frame; the buttons grey out when they would do nothing.
 fn capo_stepper(ui: &mut Ui, capo: &mut u8) {
-    egui::Frame::new().fill(theme::INPUT_BG).stroke(egui::Stroke::new(1.0_f32, theme::BORDER)).corner_radius(theme::CONTROL_RADIUS).inner_margin(egui::Margin { left: 10, right: 4, top: 4, bottom: 4 }).show(ui, |ui| {
+    const MAX: u8 = 12;
+    egui::Frame::new().fill(theme::INPUT_BG).stroke(egui::Stroke::new(1.0_f32, theme::BORDER)).corner_radius(theme::CONTROL_RADIUS).inner_margin(egui::Margin { left: 12, right: 4, top: 4, bottom: 4 }).show(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(egui::Image::new(kit::icon("capo")).fit_to_exact_size(egui::vec2(16.0, 16.0)));
-        hint(ui, "Capo");
-        ui.label(egui::RichText::new(capo.to_string()).font(egui::FontId::new(13.0, theme::medium())));
-        if kit::ibtn_sized(ui, "minus", "Capo down", false, 26.0, 14.0).clicked() {
-            *capo = capo.saturating_sub(1);
+        // Fixed width (room for "12" plus padding) so the field never resizes.
+        let text = egui::RichText::new(capo.to_string()).font(egui::FontId::new(13.0, theme::medium()));
+        ui.add_sized([30.0, 26.0], egui::Label::new(text));
+        let (can_down, can_up) = (*capo > 0, *capo < MAX);
+        if ui.add_enabled_ui(can_down, |ui| kit::ibtn_sized(ui, "minus", "Capo down", false, 26.0, 18.0)).inner.clicked() {
+            *capo -= 1;
         }
-        if kit::ibtn_sized(ui, "plus", "Capo up", false, 26.0, 14.0).clicked() {
-            *capo = (*capo + 1).min(12);
+        if ui.add_enabled_ui(can_up, |ui| kit::ibtn_sized(ui, "plus", "Capo up", false, 26.0, 18.0)).inner.clicked() {
+            *capo += 1;
         }
     });
 }
@@ -280,7 +289,7 @@ fn reference_control(ui: &mut Ui, s: &mut Session) {
     const PRESETS: [f32; 4] = [440.0, 442.0, 432.0, 435.0];
     let items: Vec<String> = PRESETS.iter().map(|p| format!("{p:.1} Hz")).collect();
     let selected = PRESETS.iter().position(|p| (hz - p).abs() < 0.05);
-    let (r, inner) = Field::new(&format!("A = {hz:.1} Hz"), "Reference pitch (scroll to change by 0.5 Hz)").icon("tuning-fork").popup(ui, "reference", |ui| {
+    let (r, inner) = Field::new(&format!("A = {hz:.1} Hz"), "Reference pitch (scroll to change by 0.5 Hz)").icon("tuning-fork").fit(ui, &["A = 480.0 Hz"]).popup(ui, "reference", |ui| {
         let picked = kit::menu_rows(ui, &items, selected, 0.0);
         ui.separator();
         let edit = ui.add(egui::TextEdit::singleline(&mut s.ref_text).desired_width(70.0).hint_text("437.5 or -14c"));
