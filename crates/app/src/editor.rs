@@ -324,6 +324,7 @@ fn handle_tab(s: &mut Session, e: TabViewEvent) {
             Err(err) => s.toast(err.to_string(), true),
         },
         TabViewEvent::TuningChanged { tuning, capo } => s.set_tuning_capo(tuning, capo),
+        TabViewEvent::ReinferRequested => s.reinfer_tab(),
         TabViewEvent::Marquee { ids, add } => {
             let mut all = if add { s.editor.selection.ids.clone() } else { Vec::new() };
             for id in ids {

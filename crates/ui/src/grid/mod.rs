@@ -411,7 +411,15 @@ pub fn effective_suffix(measure: &Measure, effective_bpm: f64) -> Option<String>
 
 fn label_job(measure: &Measure, effective_bpm: f64, font: egui::FontId, color: egui::Color32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
-    job.append(&measure_label(measure), 0.0, egui::TextFormat::simple(font.clone(), color));
+    // Neither Inter nor JetBrains Mono has the quarter-note sign: it comes from the notation font.
+    let label = measure_label(measure);
+    let (before, after) = label.split_once('\u{2669}').unwrap_or((&label, ""));
+    job.append(before, 0.0, egui::TextFormat::simple(font.clone(), color));
+    if label.contains('\u{2669}') {
+        let notation = egui::FontId::new(font.size * 1.3, egui::FontFamily::Name(crate::staff_view::FONT_NAME.into()));
+        job.append("\u{E1D5}", 0.0, egui::TextFormat::simple(notation, color));
+        job.append(after, 0.0, egui::TextFormat::simple(font.clone(), color));
+    }
     if let Some(suffix) = effective_suffix(measure, effective_bpm) {
         job.append(&suffix, 0.0, egui::TextFormat::simple(font, color.gamma_multiply(0.55)));
     }

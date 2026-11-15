@@ -67,6 +67,11 @@ pub fn mono() -> FontFamily {
     FontFamily::Name(MONO.into())
 }
 
+/// egui's bundled fonts, which the application does not use.
+fn fonts_default_names() -> [&'static str; 3] {
+    ["Hack", "Ubuntu-Light", "NotoEmoji-Regular"]
+}
+
 /// Adds Inter, Inter Medium and JetBrains Mono (and leaves egui's defaults as fallbacks).
 pub fn add_fonts(fonts: &mut FontDefinitions) {
     let faces: [(&str, &'static [u8]); 3] = [
@@ -77,10 +82,16 @@ pub fn add_fonts(fonts: &mut FontDefinitions) {
     for (name, bytes) in faces {
         fonts.font_data.insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
     }
-    let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
-    proportional.insert(0, INTER.to_owned());
-    fonts.families.insert(medium(), vec![INTER_MEDIUM.to_owned(), INTER.to_owned()]);
-    fonts.families.insert(mono(), vec![MONO.to_owned()]);
+    // Only Inter and JetBrains Mono: egui's Hack, Ubuntu and Noto fonts are dropped, `FontFamily::Monospace`
+    // is JetBrains Mono too. Only egui's small symbol font stays as a fallback for the arrows of its own menus.
+    const SYMBOLS: &str = "emoji-icon-font";
+    let fallback = fonts.font_data.contains_key(SYMBOLS).then(|| SYMBOLS.to_owned());
+    let family = |first: &[&str]| first.iter().map(|f| (*f).to_owned()).chain(fallback.clone()).collect::<Vec<_>>();
+    fonts.families.insert(FontFamily::Proportional, family(&[INTER]));
+    fonts.families.insert(FontFamily::Monospace, family(&[MONO]));
+    fonts.families.insert(medium(), family(&[INTER_MEDIUM, INTER]));
+    fonts.families.insert(mono(), family(&[MONO]));
+    fonts.font_data.retain(|name, _| !fonts_default_names().contains(&name.as_str()));
 }
 
 /// Installs the theme fonts and the notation font together (one `set_fonts` call).
@@ -157,5 +168,24 @@ mod tests {
             assert!(fonts.families.contains_key(&f));
         }
         assert_eq!(fonts.families[&FontFamily::Proportional][0], INTER);
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    #[test]
+    fn only_inter_and_jetbrains_mono_back_the_text_families() {
+        let mut fonts = FontDefinitions::default();
+        add_fonts(&mut fonts);
+        for family in [FontFamily::Proportional, FontFamily::Monospace, medium(), mono()] {
+            let names = &fonts.families[&family];
+            assert!(names.iter().all(|n| fonts.font_data.contains_key(n)), "{family:?} names a missing font");
+            let first = &names[0];
+            assert!([INTER, INTER_MEDIUM, MONO].contains(&first.as_str()), "{family:?} starts with {first}");
+            assert!(names.iter().all(|n| [INTER, INTER_MEDIUM, MONO, "emoji-icon-font"].contains(&n.as_str())), "{names:?}");
+        }
+        assert!(!fonts.font_data.contains_key("Hack") && !fonts.font_data.contains_key("Ubuntu-Light"));
     }
 }

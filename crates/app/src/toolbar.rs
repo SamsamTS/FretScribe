@@ -169,9 +169,6 @@ fn grid(ui: &mut Ui, s: &mut Session) {
         if ibtn(ui, "auto-tempo", "Auto tempo", false).clicked() {
             s.start_auto_tempo();
         }
-        if ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
-            s.reinfer_tab();
-        }
         if s.jobs_running() {
             ui.spinner();
         }

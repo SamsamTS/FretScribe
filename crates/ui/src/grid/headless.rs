@@ -34,6 +34,7 @@ impl Harness {
             rect: Rect::NOTHING,
             grid_id: Id::NULL,
         };
+        crate::theme::install_fonts(&h.ctx); // the tempo label uses the notation font
         h.frame(Vec::new(), Modifiers::NONE);
         h.frame(Vec::new(), Modifiers::NONE);
         h

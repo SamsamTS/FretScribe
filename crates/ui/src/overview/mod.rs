@@ -89,7 +89,7 @@ impl Default for OverviewStyle {
     fn default() -> Self {
         Self {
             palette: WaveformPalette::default(),
-            ruler_background: Color32::from_rgb(26, 31, 42),
+            ruler_background: crate::theme::WINDOW_BG,
             ruler_text: Color32::from_rgb(170, 178, 196),
             tick: Color32::from_rgb(120, 130, 152),
             tick_minor: Color32::from_rgb(64, 72, 90),

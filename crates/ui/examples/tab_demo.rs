@@ -71,7 +71,7 @@ impl eframe::App for Demo {
                         self.selected.marquee(&ids, add);
                     }
                     TabViewEvent::ClearSelection => self.selected.clear(),
-                    TabViewEvent::SeekRequested(_) => {}
+                    TabViewEvent::SeekRequested(_) | TabViewEvent::ReinferRequested => {}
                 }
             }
         });

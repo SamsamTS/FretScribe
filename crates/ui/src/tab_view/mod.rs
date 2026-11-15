@@ -52,7 +52,7 @@ impl Default for TabStyle {
             ink: Color32::from_rgb(235, 235, 235),
             selected: Color32::from_rgb(110, 180, 255),
             error: Color32::from_rgb(235, 80, 80),
-            background: Color32::from_rgb(22, 22, 26),
+            background: crate::theme::WINDOW_BG,
             playhead: Color32::from_rgb(255, 90, 80),
             flash: Color32::from_rgb(255, 200, 70),
             stem_height: 36.0,
@@ -107,6 +107,8 @@ pub enum TabViewEvent {
     Edit(TabEdit),
     /// The tuning popup was applied: `apply_tuning`.
     TuningChanged { tuning: Tuning, capo: u8 },
+    /// Recompute the string and fret of every unlocked note.
+    ReinferRequested,
     /// Right drag: the numbers inside the rectangle (Ctrl adds to the selection). Same scheme as the note editor.
     Marquee { ids: Vec<u64>, add: bool },
     /// Right click on empty space.
@@ -189,30 +191,22 @@ pub struct TabView<'a> {
 }
 
 impl TabView<'_> {
-    fn header(&self, ui: &mut Ui, state: &mut TabViewState) {
-        ui.horizontal(|ui| {
-            let p = self.project;
-            ui.spacing_mut().item_spacing.x = 10.0;
-            let (label, _) = ui.allocate_exact_size(egui::vec2(self.timeline_offset - 10.0, 28.0), egui::Sense::hover());
-            crate::kit::caption_at(ui, label.center(), "Tab");
-            let hint = if p.capo > 0 { format!("{}, capo {} (fret numbers count from the nut)", p.tuning.name, p.capo) } else { p.tuning.name.clone() };
-            crate::kit::group_frame(ui, |ui| {
-                ui.spacing_mut().interact_size.y = 28.0;
-                let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
-                    if crate::kit::ibtn_sized(ui, icon, tip, *value, 28.0, 18.0).clicked() {
-                        *value = !*value;
-                    }
-                };
-                if crate::kit::ibtn_sized(ui, "tuning", &format!("Tuning: {hint}. Click to edit the strings"), false, 28.0, 18.0).clicked() {
-                    state.open_tuning(p);
+    fn header(&self, ui: &mut Ui, state: &mut TabViewState, events: &mut Vec<TabViewEvent>) {
+        crate::kit::group_frame(ui, |ui| {
+            ui.spacing_mut().interact_size.y = 28.0;
+            let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
+                if crate::kit::ibtn_sized(ui, icon, tip, *value, 28.0, 18.0).clicked() {
+                    *value = !*value;
                 }
-                crate::kit::sep(ui);
-                toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
-                toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
-                toggle(ui, "string-colors", "String colors", &mut state.string_colors);
-                toggle(ui, "high-contrast", "High contrast", &mut state.high_contrast);
-            });
-            crate::kit::hint(ui, &p.tuning.name);
+            };
+            toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
+            toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
+            toggle(ui, "string-colors", "String colors", &mut state.string_colors);
+            toggle(ui, "high-contrast", "High contrast", &mut state.high_contrast);
+            crate::kit::sep(ui);
+            if crate::kit::ibtn_sized(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false, 28.0, 18.0).clicked() {
+                events.push(TabViewEvent::ReinferRequested);
+            }
         });
     }
 
@@ -237,7 +231,7 @@ impl TabView<'_> {
 
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
         let mut events = Vec::new();
-        self.header(ui, state);
+        self.header(ui, state, &mut events);
         let st = self.style;
         let project = self.project;
         let n = project.tuning.open_strings.len().max(1);

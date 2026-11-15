@@ -37,7 +37,7 @@ pub(super) fn show(ctx: &egui::Context, draft: &mut Option<TuningDraft>, events:
                     d.tuning.open_strings[i] = midi;
                     edited = true;
                 }
-                if d.tuning.open_strings.len() > 1 && ui.small_button("✕").on_hover_text("Remove this string").clicked() {
+                if d.tuning.open_strings.len() > 1 && ui.small_button("×").on_hover_text("Remove this string").clicked() {
                     remove = Some(i);
                 }
             });
