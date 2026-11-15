@@ -122,3 +122,8 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 
 - `TimePos { measure, tick: i64 }` replaces `{ measure, beat: f64 }`; `TICKS_PER_BEAT = 48` (every straight division to 1/64 and triplet to 1/64T is whole). `TimePos::new(measure, tick)`, `TimePos::at(measure, beat)` (rounds), `.beat()`. `TempoMap::{pos_to_ticks, ticks_to_pos, measure_ticks}`; `normalise` is integer. Positions from seconds round to the nearest tick (about 10 ms at 120 bpm). Project files written before this do not load.
 - notation: the quantiser reads exact ticks (no tolerances); edges closer than 2 ticks merge; `quantise` no longer absorbs short silences. The lattice stress test in `staff/tests.rs` covers it.
+
+## 2026-11-15 - ui/app: logo, theme palette, home, window
+
+- `ui::theme`: surfaces retuned around the logo background (`WINDOW_BG` = #1C2024); new `LOGO_GLOW`, `LOGO_PNG`, `ICON_PNG` (assets in `crates/ui/assets/logo/`, source `Logo.svg`; PNGs rendered with `rsvg-convert`, Montserrat Bold installed).
+- app: home screen has a pinned logo banner above the grid; tiles are New Project, Open (`HomeAction::OpenDialog`), then the recents. `Settings::window_mode` (`WindowMode::{Normal, Maximized, Fullscreen}`, serde default Normal) is restored on start; a normal window opens centred; the window icon is the logo icon.
