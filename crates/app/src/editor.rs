@@ -89,6 +89,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
         let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
         seek_origin = ruler.left_top();
+        // The corner above the track headers shares the toolbar's background and captions like its groups.
+        let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
+        ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
+        fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         let (_, content_px) = s.lanes.strips(ctx, &s.project);
         let nav = NavContext {
             // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.

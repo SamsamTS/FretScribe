@@ -129,6 +129,7 @@ pub fn apply(ctx: &egui::Context) {
             (TextStyle::Small, 12.0, FontFamily::Proportional),
             (TextStyle::Monospace, 12.5, mono()),
         ];
+        style.interaction.selectable_labels = false;
         for (ts, size, family) in sizes {
             style.text_styles.insert(ts, FontId::new(size, family));
         }

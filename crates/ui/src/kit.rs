@@ -1,6 +1,6 @@
 //! Toolbar widgets: icon buttons, captioned groups, dropdown selectors.
 
-use egui::{pos2, vec2, Align2, Area, Color32, CornerRadius, FontId, Frame, Id, Image, ImageSource, Margin, Order, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType};
+use egui::{pos2, vec2, Align, Align2, Area, Color32, CornerRadius, FontFamily, FontId, Frame, Id, Image, ImageSource, Key, Layout, Margin, Order, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, TextEdit, Ui, Vec2, WidgetInfo, WidgetType};
 
 use crate::theme;
 
@@ -19,7 +19,8 @@ macro_rules! icons {
 icons!(
     "home", "add-track", "open", "save", "save-as", "export", "undo", "redo", "skip-start", "play", "pause", "stop", "play-selection", "loop",
     "follow-playhead", "keep-pitch", "synth", "guitar-focus", "snap", "snap-onsets", "follow-grid", "stay-with-audio", "rhythm", "tuning", "capo",
-    "tuning-fork", "detect", "auto-fit-grid", "auto-tempo", "re-infer-tab", "zoom-in", "zoom-out", "zoom-fit", "chevron-down", "minus", "plus",
+    "tuning-fork", "detect", "auto-fit-grid", "auto-tempo", "re-infer-tab", "zoom-in", "zoom-out", "zoom-fit", "chevron-down", "minus", "plus", "mute", "solo", "star", "star-filled", "offset-arrows", "auto-sync", "reset-offset",
+    "chevron-right", "string-colors", "high-contrast", "apply-following",
 );
 
 pub const BUTTON: f32 = 36.0;
@@ -44,20 +45,42 @@ fn labelled(r: Response, tip: &str) -> Response {
     r.on_hover_text(tip)
 }
 
-/// Draws the frame of a button and returns its response; `on` shows the pressed (toggled) look.
-fn frame(ui: &mut Ui, size: egui::Vec2, on: bool, fill: Option<Color32>, radius: u8) -> (Response, Rect) {
-    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
-    let hovered = r.hovered() && ui.is_enabled();
+/// Paints a button's background in the toolbar style: `on` is the toggled look, `fill` a solid colour.
+pub fn button_bg(ui: &Ui, rect: Rect, hovered: bool, focused: bool, on: bool, fill: Option<Color32>, radius: u8) {
+    let hovered = hovered && ui.is_enabled();
     let (bg, edge) = match (on, fill) {
         (true, _) => (theme::accent().gamma_multiply(0.16), theme::accent()),
         (_, Some(f)) => (if hovered { theme::accent_hover() } else { f }, Color32::TRANSPARENT),
         _ => (if hovered { theme::BORDER } else { Color32::TRANSPARENT }, Color32::TRANSPARENT),
     };
     ui.painter().rect(rect, CornerRadius::same(radius), bg, Stroke::new(1.0_f32, edge), StrokeKind::Inside);
-    if r.has_focus() {
+    if focused {
         ui.painter().rect_stroke(rect.expand(1.0), CornerRadius::same(radius), theme::focus_ring(), StrokeKind::Outside);
     }
+}
+
+fn frame(ui: &mut Ui, size: egui::Vec2, on: bool, fill: Option<Color32>, radius: u8) -> (Response, Rect) {
+    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+    button_bg(ui, rect, r.hovered(), r.has_focus(), on, fill, radius);
     (r, rect)
+}
+
+/// Paints the icon `name` centred in `rect` at `size` px, white (the icons carry their own shades).
+pub fn icon_at(ui: &Ui, name: &str, rect: Rect, size: f32) {
+    paint_icon(ui, name, rect, size, Color32::WHITE);
+}
+
+/// Colours a slider like the toolbar's: grey rail, accent fill, white-ringed handle.
+pub fn style_slider(ui: &mut Ui) {
+    let v = ui.visuals_mut();
+    v.selection.bg_fill = theme::accent();
+    v.widgets.inactive.bg_fill = theme::BORDER_STRONG;
+    v.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, theme::TEXT);
+}
+
+/// A small uppercase caption (the style of group captions) at `pos`, centred on it.
+pub fn caption_at(ui: &Ui, pos: Pos2, text: &str) {
+    ui.painter().text(pos, Align2::CENTER_CENTER, text.to_uppercase(), FontId::proportional(10.0), theme::HINT);
 }
 
 /// A 36 px icon button; `on` marks a toggled state. Disabled when the `Ui` is.
@@ -91,16 +114,26 @@ pub fn group_at(ui: &mut Ui, caption: &str, above: bool, add: impl FnOnce(&mut U
         if above {
             ui.add_space(12.0);
         }
-        let frame = Frame::new().fill(theme::PANEL_BG).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(GROUP_RADIUS)).inner_margin(4.0).show(ui, |ui| {
+        let rect = group_frame(ui, add).rect;
+        let centre_y = if above { caption_y } else { ui.allocate_exact_size(vec2(rect.width(), 12.0), Sense::hover()).0.center().y };
+        caption_at(ui, pos2(rect.center().x, centre_y), caption);
+    });
+}
+
+/// The rounded panel of a group, without caption.
+pub fn group_frame(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Response {
+    Frame::new()
+        .fill(theme::PANEL_BG)
+        .stroke(Stroke::new(1.0_f32, theme::BORDER))
+        .corner_radius(CornerRadius::same(GROUP_RADIUS))
+        .inner_margin(4.0)
+        .show(ui, |ui| {
             ui.set_min_height(BUTTON);
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.spacing_mut().interact_size.y = BUTTON; // rows start tall, so earlier labels are centred too
             ui.horizontal(add);
-        });
-        let rect = frame.response.rect;
-        let centre_y = if above { caption_y } else { ui.allocate_exact_size(vec2(rect.width(), 12.0), Sense::hover()).0.center().y };
-        ui.painter().text(pos2(rect.center().x, centre_y), Align2::CENTER_CENTER, caption.to_uppercase(), FontId::proportional(10.0), theme::HINT);
-    });
+        })
+        .response
 }
 
 pub fn sep(ui: &mut Ui) {
@@ -279,10 +312,7 @@ pub fn menu_rows(ui: &mut Ui, items: &[String], selected: Option<usize>, min_wid
 pub fn slider_popup(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, lo: &str, hi: &str, step: f32, log: bool) -> bool {
     ui.horizontal(|ui| {
         hint(ui, lo);
-        let v = ui.visuals_mut();
-        v.selection.bg_fill = theme::accent();
-        v.widgets.inactive.bg_fill = theme::BORDER_STRONG;
-        v.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, theme::TEXT);
+        style_slider(ui);
         ui.spacing_mut().slider_width = 150.0;
         let r = ui.add(egui::Slider::new(value, range.clone()).show_value(false).logarithmic(log).trailing_fill(true));
         let changed = r.changed() | wheel_value(ui, &r, value, &range, step, log);
@@ -305,3 +335,133 @@ pub fn right_aligned(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
         ui.ctx().request_repaint();
     }
 }
+
+/// Key set when a [`text_field`] consumed Enter or Escape, so the host screen does not treat it as its own.
+pub const KEY_USED: &str = "form_key_used";
+pub const SMALL_R: u8 = 6;
+pub const ROUND: CornerRadius = CornerRadius::same(SMALL_R);
+
+fn text_w13(ui: &Ui, text: &str) -> f32 {
+    ui.fonts(|f| f.layout_no_wrap(text.to_owned(), font13(), Color32::WHITE).size().x)
+}
+
+pub fn fix_size(ui: &mut Ui, size: Vec2) {
+    ui.set_min_size(size);
+    ui.set_max_size(size);
+}
+
+/// Allocates a clickable rounded box and lets `content` paint into it.
+pub fn pill(ui: &mut Ui, size: Vec2, radius: CornerRadius, fill: Color32, edge: Color32, enabled: bool, content: impl FnOnce(&Painter, Rect)) -> egui::Response {
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (rect, resp) = ui.allocate_exact_size(size, sense);
+    let fill = if enabled && resp.hovered() { theme::BORDER } else { fill };
+    ui.painter().rect(rect, radius, fill, Stroke::new(1.0_f32, edge), StrokeKind::Inside);
+    content(ui.painter(), rect);
+    if enabled {
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        resp
+    }
+}
+
+pub fn chevron(p: &Painter, c: Pos2) {
+    p.add(Shape::line(vec![c + Vec2::new(-4.0, -2.0), c + Vec2::new(0.0, 2.0), c + Vec2::new(4.0, -2.0)], Stroke::new(1.6_f32, theme::HINT)));
+}
+
+pub fn font13() -> FontId {
+    FontId::new(13.0, FontFamily::Proportional)
+}
+
+#[derive(Clone, Copy)]
+pub struct Dd {
+    pub height: f32,
+    pub radius: CornerRadius,
+    pub right: bool,
+}
+
+impl Dd {
+    pub const LEFT: Self = Self { height: 28.0, radius: ROUND, right: false };
+    pub const RIGHT: Self = Self { height: 28.0, radius: ROUND, right: true };
+}
+
+/// Button with a label and chevron that opens a list (selected item dotted and bold, menu as wide
+/// as its widest item, right-aligned under the button when `d.right`); `width` None fits the label.
+pub fn dropdown(ui: &mut Ui, salt: &str, label: &str, width: Option<f32>, items: &[String], selected: Option<usize>, d: Dd) -> Option<usize> {
+    let w = width.unwrap_or_else(|| text_w13(ui, label) + 8.0 + 6.0 + 12.0 + 8.0);
+    let resp = pill(ui, Vec2::new(w, d.height), d.radius, theme::PANEL_BG, theme::BORDER, true, |p, r| {
+        if label.is_empty() {
+            chevron(p, r.center());
+        } else {
+            p.text(Pos2::new(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, font13(), theme::TEXT);
+            chevron(p, Pos2::new(r.right() - 12.0, r.center().y));
+        }
+    });
+    let id = ui.make_persistent_id((salt, "dropdown"));
+    if resp.clicked() {
+        ui.memory_mut(|m| m.toggle_popup(id));
+    }
+    let picked = popup(ui, id, &resp, d.right, |ui| menu_rows(ui, items, selected, w - 8.0)).flatten();
+    if picked.is_some() {
+        ui.memory_mut(|m| m.close_popup());
+    }
+    picked
+}
+
+/// Size and behaviour of a [`text_field`]; `left`/`right` are the inner paddings around its contents.
+pub struct FieldOpts<'a> {
+    pub width: f32,
+    pub height: f32,
+    pub invalid: bool,
+    pub left: i8,
+    pub right: i8,
+    pub commit: &'a dyn Fn(&str) -> Option<String>,
+}
+
+
+/// Text box in a rounded frame with a leading widget and trailing widgets (added right to left).
+/// Enter commits (and normalises through `commit`), Escape restores the text from when the field
+/// got the caret; both release the caret and tell the form not to treat the key as its own.
+pub fn text_field(ui: &mut Ui, o: FieldOpts, leading: impl FnOnce(&mut Ui), text: &mut String, trailing: impl FnOnce(&mut Ui)) -> egui::Response {
+    let mut frame = Frame::new().fill(theme::INPUT_BG).corner_radius(CornerRadius::same(theme::CONTROL_RADIUS)).inner_margin(Margin { left: o.left, right: o.right, top: 0, bottom: 0 }).begin(ui);
+    let inner = &mut frame.content_ui;
+    fix_size(inner, Vec2::new(o.width - f32::from(o.left) - f32::from(o.right) - 2.0, o.height - 2.0));
+    let edit = inner
+        .with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            leading(ui);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                trailing(ui);
+                let w = ui.available_width();
+                ui.add(TextEdit::singleline(text).frame(false).margin(Margin::ZERO).desired_width(w).vertical_align(Align::Center))
+            })
+            .inner
+        })
+        .inner;
+    finish_edit(ui, &edit, text, o.commit);
+    let edge = if o.invalid { theme::ERROR } else if edit.has_focus() { theme::accent() } else { theme::BORDER };
+    frame.frame.stroke = Stroke::new(1.0_f32, edge);
+    frame.end(ui);
+    edit
+}
+
+fn finish_edit(ui: &Ui, edit: &egui::Response, text: &mut String, commit: &dyn Fn(&str) -> Option<String>) {
+    let key = Id::new("field_original").with(edit.id);
+    if edit.gained_focus() {
+        ui.data_mut(|d| d.insert_temp(key, text.clone()));
+    }
+    if !edit.lost_focus() {
+        return;
+    }
+    let (esc, enter) = ui.input(|i| (i.key_pressed(Key::Escape), i.key_pressed(Key::Enter)));
+    if esc {
+        if let Some(original) = ui.data(|d| d.get_temp::<String>(key)) {
+            *text = original;
+        }
+    } else if let Some(normal) = commit(text) {
+        *text = normal;
+    }
+    if esc || enter {
+        ui.data_mut(|d| d.insert_temp(Id::new(KEY_USED), true));
+    }
+}
+

@@ -3,10 +3,10 @@
 use eframe::egui::{self, Context, Ui};
 use fretscribe_analysis::{clamp_gamma, Levels, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
 use fretscribe_core::{division_name, NotePolicy, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
-use fretscribe_notation::tab::presets;
-use fretscribe_ui::kit::{self, group, hint, ibtn, sep, slider_popup, Field};
+use fretscribe_ui::kit::{self, dropdown, group, hint, ibtn, sep, slider_popup, text_field, Dd, Field, FieldOpts};
 use fretscribe_ui::theme;
 
+use crate::form::{normalise_tuning, parse_tuning, preset_texts, tuning_text, Instrument, MAX_CAPO};
 use crate::session::Session;
 use crate::Request;
 
@@ -28,7 +28,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             ui.set_width(ui.available_width());
             project(ui, s, &mut requests);
             history(ui, s);
-            transcription(ui, s);
+            tuning(ui, s);
             kit::right_aligned(ui, "display", |ui| display(ui, s));
         });
         ui.add_space(ROW_GAP);
@@ -162,6 +162,19 @@ fn grid(ui: &mut Ui, s: &mut Session) {
         if toggle(ui, "rhythm", "Strict beats. Sheet: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut s.ui.strict_beats) {
             s.staff_dirty = true;
         }
+        sep(ui);
+        if ibtn(ui, "auto-fit-grid", "Fits the measures to the onsets of the beat-analysis tracks", false).clicked() {
+            s.start_auto_fit(0);
+        }
+        if ibtn(ui, "auto-tempo", "Auto tempo", false).clicked() {
+            s.start_auto_tempo();
+        }
+        if ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
+            s.reinfer_tab();
+        }
+        if s.jobs_running() {
+            ui.spinner();
+        }
     });
 }
 
@@ -236,38 +249,65 @@ fn levels_slider(ui: &mut Ui, black: &mut f32, white: &mut f32) -> egui::Respons
     response.on_hover_text(format!("{b:.0} dB to {w:.0} dB"))
 }
 
-fn transcription(ui: &mut Ui, s: &mut Session) {
-    group(ui, "Transcription", |ui| {
-        let current = s.project.tuning.clone();
-        let list = presets();
-        let names: Vec<String> = list.iter().map(|t| t.name.clone()).collect();
-        let (_, picked) = Field::new(&current.name, "Tuning").icon("tuning").dropdown(ui, "tuning", &names, list.iter().position(|t| *t == current));
-        let chosen = picked.map(|i| list[i].clone());
+fn tuning(ui: &mut Ui, s: &mut Session) {
+    group(ui, "Tuning", |ui| {
+        tuning_field(ui, s);
         let mut capo = s.project.capo;
         capo_stepper(ui, &mut capo);
-        if chosen.is_some() || capo != s.project.capo {
-            s.set_tuning_capo(chosen.unwrap_or(current), capo);
+        if capo != s.project.capo {
+            s.set_tuning_capo(s.project.tuning.clone(), capo);
         }
         reference_control(ui, s);
-        sep(ui);
-        if ibtn(ui, "auto-fit-grid", "Fits the measures to the onsets of the beat-analysis tracks", false).clicked() {
-            s.start_auto_fit(0);
-        }
-        if ibtn(ui, "auto-tempo", "Auto tempo", false).clicked() {
-            s.start_auto_tempo();
-        }
-        if ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
-            s.reinfer_tab();
-        }
-        if s.jobs_running() {
-            ui.spinner();
-        }
     });
+}
+
+/// The text being edited in a toolbar field while it has the caret (it shows the project's value otherwise).
+fn edit_buffer(ui: &Ui, id: &str, current: impl FnOnce() -> String) -> (egui::Id, String) {
+    let key = egui::Id::new(("toolbar_edit", id));
+    (key, ui.data(|d| d.get_temp::<String>(key)).unwrap_or_else(current))
+}
+
+fn keep_buffer(ui: &Ui, key: egui::Id, edit: &egui::Response, text: String) {
+    ui.data_mut(|d| if edit.has_focus() { d.insert_temp(key, text) } else { d.remove::<String>(key) });
+}
+
+fn field_icon(ui: &mut Ui, name: &str) {
+    ui.add(egui::Image::new(kit::icon(name)).fit_to_exact_size(egui::vec2(16.0, 16.0)));
+}
+
+/// Typed tuning ("E A D G B e") with a preset list, like the new-project form.
+fn tuning_field(ui: &mut Ui, s: &mut Session) {
+    let current = s.project.tuning.clone();
+    let instrument = if current.open_strings.first().is_some_and(|m| *m < 34) { Instrument::Bass } else { Instrument::Guitar };
+    let (key, mut text) = edit_buffer(ui, "tuning", || tuning_text(&current));
+    let presets = preset_texts(instrument);
+    let items: Vec<String> = presets.iter().map(|p| p.0.to_owned()).collect();
+    let selected = presets.iter().position(|p| p.1 == text);
+    let parsed = parse_tuning(&text, instrument);
+    let name = parsed.as_ref().map(|t| t.name.clone()).unwrap_or_default();
+    let normalise = |t: &str| normalise_tuning(t, instrument);
+    let opts = FieldOpts { width: 260.0, height: kit::BUTTON, invalid: parsed.is_err(), left: 10, right: 4, commit: &normalise };
+    let mut preset_pick = None;
+    let edit = text_field(ui, opts, |ui| field_icon(ui, "tuning"), &mut text, |ui| {
+        preset_pick = dropdown(ui, "tuning_preset", "", Some(28.0), &items, selected, Dd::RIGHT);
+        ui.label(egui::RichText::new(&name).small().color(theme::HINT));
+    });
+    if let Some(i) = preset_pick {
+        text.clone_from(&presets[i].1);
+    }
+    keep_buffer(ui, key, &edit, text.clone());
+    if edit.lost_focus() || preset_pick.is_some() {
+        match parse_tuning(&text, instrument) {
+            Ok(t) if t.open_strings != current.open_strings => s.set_tuning_capo(t, s.project.capo),
+            Ok(_) => {}
+            Err(e) => s.toast(e, true),
+        }
+    }
 }
 
 /// "[capo icon] 0 [-] [+]" in a field-styled frame; the buttons grey out when they would do nothing.
 fn capo_stepper(ui: &mut Ui, capo: &mut u8) {
-    const MAX: u8 = 12;
+    const MAX: u8 = MAX_CAPO;
     egui::Frame::new().fill(theme::INPUT_BG).stroke(egui::Stroke::new(1.0_f32, theme::BORDER)).corner_radius(theme::CONTROL_RADIUS).inner_margin(egui::Margin { left: 12, right: 4, top: 4, bottom: 4 }).show(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(egui::Image::new(kit::icon("capo")).fit_to_exact_size(egui::vec2(16.0, 16.0)));
@@ -284,30 +324,27 @@ fn capo_stepper(ui: &mut Ui, capo: &mut u8) {
     });
 }
 
+/// "A = 440.0 Hz" typed (Hz, or cents from 440 like "-14c"), plus the detect button.
 fn reference_control(ui: &mut Ui, s: &mut Session) {
     let hz = s.project.reference_hz;
-    const PRESETS: [f32; 4] = [440.0, 442.0, 432.0, 435.0];
-    let items: Vec<String> = PRESETS.iter().map(|p| format!("{p:.1} Hz")).collect();
-    let selected = PRESETS.iter().position(|p| (hz - p).abs() < 0.05);
-    let (r, inner) = Field::new(&format!("A = {hz:.1} Hz"), "Reference pitch (scroll to change by 0.5 Hz)").icon("tuning-fork").fit(ui, &["A = 480.0 Hz"]).popup(ui, "reference", |ui| {
-        let picked = kit::menu_rows(ui, &items, selected, 0.0);
-        ui.separator();
-        let edit = ui.add(egui::TextEdit::singleline(&mut s.ref_text).desired_width(70.0).hint_text("437.5 or -14c"));
-        if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            match parse_reference(&s.ref_text) {
-                Some(v) => s.set_reference_hz(v),
-                None => s.toast("Reference must be 400-480 Hz (or cents like -14c)", true),
-            }
+    let (key, mut text) = edit_buffer(ui, "reference", || format!("{hz:.1}"));
+    let normalise = |t: &str| parse_reference(t).map(|v| format!("{v:.1}"));
+    let opts = FieldOpts { width: 130.0, height: kit::BUTTON, invalid: parse_reference(&text).is_none(), left: 10, right: 10, commit: &normalise };
+    let edit = text_field(ui, opts, |ui| {
+        field_icon(ui, "tuning-fork");
+        hint(ui, "A =");
+    }, &mut text, |ui| hint(ui, "Hz"));
+    keep_buffer(ui, key, &edit, text.clone());
+    let edit = edit.on_hover_text("Reference pitch: Hz, or cents from 440 (e.g. -14c). Scroll to change by 0.5 Hz");
+    let mut scrolled = hz;
+    if kit::wheel_value(ui, &edit, &mut scrolled, &(400.0..=480.0), 0.5, false) {
+        s.set_reference_hz(scrolled);
+    } else if edit.lost_focus() {
+        match parse_reference(&text) {
+            Some(v) if (v - hz).abs() >= 0.05 => s.set_reference_hz(v),
+            Some(_) => {}
+            None => s.toast("Reference must be 400-480 Hz (or cents like -14c)", true),
         }
-        picked
-    });
-    if let Some(i) = inner.flatten() {
-        s.set_reference_hz(PRESETS[i]);
-        ui.memory_mut(|m| m.close_popup());
-    }
-    let mut wheel_hz = hz;
-    if kit::wheel_value(ui, &r, &mut wheel_hz, &(400.0..=480.0), 0.5, false) {
-        s.set_reference_hz(wheel_hz);
     }
     if ibtn(ui, "detect", "Estimates the reference pitch over the selected region (or the whole source track)", false).clicked() {
         s.start_pitch_detect();

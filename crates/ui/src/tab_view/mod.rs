@@ -192,15 +192,27 @@ impl TabView<'_> {
     fn header(&self, ui: &mut Ui, state: &mut TabViewState) {
         ui.horizontal(|ui| {
             let p = self.project;
-            ui.strong("TAB");
-            ui.label(if p.capo > 0 { format!("{}, capo {} (fret numbers count from the nut)", p.tuning.name, p.capo) } else { p.tuning.name.clone() });
-            if ui.small_button("Tuning…").clicked() {
-                state.open_tuning(p);
-            }
-            ui.checkbox(&mut state.propagate_backwards, "Update previous notes too").on_hover_text("Also re-solve the automatic notes before an edited note");
-            ui.checkbox(&mut state.show_stems, "Rhythm");
-            ui.checkbox(&mut state.string_colors, "String colors");
-            ui.checkbox(&mut state.high_contrast, "High contrast");
+            ui.spacing_mut().item_spacing.x = 10.0;
+            let (label, _) = ui.allocate_exact_size(egui::vec2(self.timeline_offset - 10.0, 28.0), egui::Sense::hover());
+            crate::kit::caption_at(ui, label.center(), "Tab");
+            let hint = if p.capo > 0 { format!("{}, capo {} (fret numbers count from the nut)", p.tuning.name, p.capo) } else { p.tuning.name.clone() };
+            crate::kit::group_frame(ui, |ui| {
+                ui.spacing_mut().interact_size.y = 28.0;
+                let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
+                    if crate::kit::ibtn_sized(ui, icon, tip, *value, 28.0, 18.0).clicked() {
+                        *value = !*value;
+                    }
+                };
+                if crate::kit::ibtn_sized(ui, "tuning", &format!("Tuning: {hint}. Click to edit the strings"), false, 28.0, 18.0).clicked() {
+                    state.open_tuning(p);
+                }
+                crate::kit::sep(ui);
+                toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
+                toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
+                toggle(ui, "string-colors", "String colors", &mut state.string_colors);
+                toggle(ui, "high-contrast", "High contrast", &mut state.high_contrast);
+            });
+            crate::kit::hint(ui, &p.tuning.name);
         });
     }
 
