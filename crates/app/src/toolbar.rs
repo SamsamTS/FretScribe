@@ -4,7 +4,7 @@ use eframe::egui::{self, Context, Ui};
 use fretscribe_analysis::{clamp_gamma, Levels, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
 use fretscribe_core::{division_name, NotePolicy, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
 use fretscribe_notation::tab::presets;
-use fretscribe_ui::kit::{self, group, hint, ibtn, sep, selector, slider_popup};
+use fretscribe_ui::kit::{self, group, hint, ibtn, sep, slider_popup, Field};
 use fretscribe_ui::theme;
 
 use crate::session::Session;
@@ -14,25 +14,32 @@ const FOCUS_TIP: &str = "Emphasises the guitar's frequency range in the mix, bas
 const LEVELS_TIP: &str = "Levels: everything below the left handle is black, everything above the right handle is the brightest colour";
 const GAMMA_TIP: &str = "Gamma: lower it to make only the strongest values stand out, raise it to bring out the weakest ones";
 
+/// Gap between the two rows, and between the second row and the panel's bottom line.
+const ROW_GAP: f32 = 8.0;
+
 pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let mut requests = Vec::new();
-    let margin = egui::Margin { left: 16, right: 16, top: 12, bottom: 0 };
-    let frame = egui::Frame::new().fill(theme::WINDOW_BG).inner_margin(margin).stroke(egui::Stroke::new(1.0_f32, theme::BORDER));
+    let margin = egui::Margin { left: 16, right: 16, top: 12, bottom: ROW_GAP as i8 };
+    // No border: the panel's own separator line is the only edge, at the bottom.
+    let frame = egui::Frame::new().fill(theme::WINDOW_BG).inner_margin(margin);
     egui::TopBottomPanel::top("toolbar").frame(frame).show(ctx, |ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
+        ui.spacing_mut().item_spacing = egui::vec2(10.0, 0.0);
+        let right = egui::Layout::right_to_left(egui::Align::TOP);
         ui.horizontal_top(|ui| {
+            ui.set_width(ui.available_width());
             project(ui, s, &mut requests);
             history(ui, s);
             transcription(ui, s);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| display(ui, s));
+            ui.with_layout(right, |ui| display(ui, s));
         });
+        ui.add_space(ROW_GAP);
         ui.horizontal_top(|ui| {
+            ui.set_width(ui.available_width());
             transport(ui, s);
             speed(ui, s);
             listening(ui, s);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| grid(ui, s));
+            ui.with_layout(right, |ui| grid(ui, s));
         });
-        ui.add_space(6.0);
     });
     requests
 }
@@ -106,9 +113,9 @@ fn transport(ui: &mut Ui, s: &mut Session) {
 fn speed(ui: &mut Ui, s: &mut Session) {
     group(ui, "Speed", |ui| {
         let mut speed = s.speed;
-        let r = selector(ui, "speed", None, &format!("{speed:.2}×"), "Playback speed (double-click to reset)", Some(80.0), false, |ui| {
-            slider_popup(ui, &mut speed, 0.25..=1.5, "0.25×", "1.5×", false);
-        });
+        let range = 0.25..=1.5;
+        let (r, _) = Field::new(&format!("{speed:.2}×"), "Playback speed (double-click to reset, scroll to change)").width(80.0).popup(ui, "speed", |ui| slider_popup(ui, &mut speed, range.clone(), "0.25×", "1.5×", 0.05, false));
+        kit::wheel_value(ui, &r, &mut speed, &range, 0.05, false);
         if r.double_clicked() {
             speed = 1.0;
         }
@@ -131,16 +138,26 @@ fn grid(ui: &mut Ui, s: &mut Session) {
         s.policy = if follow { NotePolicy::FollowGrid } else { NotePolicy::KeepAudioPosition };
         sep(ui);
         toggle(ui, "snap", "Snap to the grid", &mut s.snap_on);
-        for (triplet, options, id, tip) in [(false, STRAIGHT_DIVISIONS.as_slice(), "snap_straight", "Straight division"), (true, TRIPLET_DIVISIONS.as_slice(), "snap_triplet", "Triplet division")] {
+        for (triplet, options, id, tip) in [(false, STRAIGHT_DIVISIONS.as_slice(), "snap_straight", "Straight division (right-click: none / back)"), (true, TRIPLET_DIVISIONS.as_slice(), "snap_triplet", "Triplet division (right-click: none / back)")] {
             let current = if triplet { s.ui.snap_grid.triplet() } else { s.ui.snap_grid.straight() };
-            let name = |d: Option<u8>| d.map_or("None", division_name);
-            selector(ui, id, None, name(current), tip, None, true, |ui| {
-                for d in std::iter::once(None).chain(options.iter().copied().map(Some)) {
-                    if ui.selectable_label(current == d, name(d)).clicked() {
-                        s.ui.snap_grid = s.ui.snap_grid.with(triplet, d);
-                    }
-                }
-            });
+            let name = |d: Option<u8>| d.map_or("None", division_name).to_owned();
+            let items: Vec<String> = std::iter::once(None).chain(options.iter().copied().map(Some)).map(name).collect();
+            let selected = current.map_or(Some(0), |c| options.iter().position(|o| *o == c).map(|i| i + 1));
+            let (r, picked) = Field::new(&name(current), tip).dropdown(ui, id, &items, selected);
+            let memory = egui::Id::new(("previous_division", triplet));
+            let next = if let Some(i) = picked {
+                Some(i.checked_sub(1).map(|k| options[k]))
+            } else if r.secondary_clicked() && current.is_some() {
+                ui.data_mut(|d| d.insert_temp(memory, current));
+                Some(None)
+            } else if r.secondary_clicked() {
+                Some(ui.data(|d| d.get_temp::<Option<u8>>(memory)).flatten().or(options.first().copied()))
+            } else {
+                None
+            };
+            if let Some(division) = next {
+                s.ui.snap_grid = s.ui.snap_grid.with(triplet, division);
+            }
         }
         toggle(ui, "snap-onsets", "Adds the detected onsets of the beat-analysis tracks as snap targets", &mut s.snap_to_onsets);
         if toggle(ui, "rhythm", "Strict beats. Sheet: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut s.ui.strict_beats) {
@@ -156,9 +173,9 @@ fn display(ui: &mut Ui, s: &mut Session) {
         changed |= levels_slider(ui, &mut s.ui.spectro_black, &mut s.ui.spectro_white).on_hover_text(LEVELS_TIP).changed();
         hint(ui, "Gamma");
         let mut gamma = s.ui.spectro_gamma;
-        let r = selector(ui, "gamma", None, &format!("{gamma:.2}"), GAMMA_TIP, Some(80.0), false, |ui| {
-            slider_popup(ui, &mut gamma, GAMMA_MIN..=GAMMA_MAX, "", "", true);
-        });
+        let range = GAMMA_MIN..=GAMMA_MAX;
+        let (r, _) = Field::new(&format!("{gamma:.2}"), GAMMA_TIP).width(80.0).popup(ui, "gamma", |ui| slider_popup(ui, &mut gamma, range.clone(), "", "", 0.05, true));
+        kit::wheel_value(ui, &r, &mut gamma, &range, 0.05, true);
         if r.double_clicked() {
             gamma = GAMMA_DEFAULT;
         }
@@ -167,17 +184,17 @@ fn display(ui: &mut Ui, s: &mut Session) {
             s.ui.spectro_gamma = gamma;
             changed = true;
         }
-        let shown = s.luts.luts[s.luts.index_of(&s.ui.lut_name)].name.clone();
-        selector(ui, "lut", None, &shown, "Spectrogram colour map", None, true, |ui| {
-            let before = s.luts.dir.clone();
-            s.luts = crate::luts::LutSet::scan(before.as_deref());
-            for lut in s.luts.luts.clone() {
-                if ui.selectable_label(lut.name == s.ui.lut_name, &lut.name).clicked() {
-                    s.ui.lut_name = lut.name.clone();
-                    changed = true;
-                }
-            }
-        });
+        if kit::is_open(ui, "lut") {
+            let dir = s.luts.dir.clone();
+            s.luts = crate::luts::LutSet::scan(dir.as_deref());
+        }
+        let names: Vec<String> = s.luts.luts.iter().map(|l| l.name.clone()).collect();
+        let current = s.luts.index_of(&s.ui.lut_name);
+        let (_, picked) = Field::new(&names[current], "Spectrogram colour map").dropdown(ui, "lut", &names, Some(current));
+        if let Some(i) = picked {
+            s.ui.lut_name = names[i].clone();
+            changed = true;
+        }
         if changed {
             s.display_changed();
         }
@@ -216,14 +233,10 @@ fn levels_slider(ui: &mut Ui, black: &mut f32, white: &mut f32) -> egui::Respons
 fn transcription(ui: &mut Ui, s: &mut Session) {
     group(ui, "Transcription", |ui| {
         let current = s.project.tuning.clone();
-        let mut chosen = None;
-        selector(ui, "tuning", Some("tuning"), &current.name, "Tuning", None, true, |ui| {
-            for t in presets() {
-                if ui.selectable_label(t == current, &t.name).clicked() {
-                    chosen = Some(t);
-                }
-            }
-        });
+        let list = presets();
+        let names: Vec<String> = list.iter().map(|t| t.name.clone()).collect();
+        let (_, picked) = Field::new(&current.name, "Tuning").icon("tuning").dropdown(ui, "tuning", &names, list.iter().position(|t| *t == current));
+        let chosen = picked.map(|i| list[i].clone());
         let mut capo = s.project.capo;
         capo_stepper(ui, &mut capo);
         if chosen.is_some() || capo != s.project.capo {
@@ -264,22 +277,29 @@ fn capo_stepper(ui: &mut Ui, capo: &mut u8) {
 
 fn reference_control(ui: &mut Ui, s: &mut Session) {
     let hz = s.project.reference_hz;
-    selector(ui, "reference", Some("tuning-fork"), &format!("A = {hz:.1} Hz"), "Reference pitch", None, false, |ui| {
-        for preset in [440.0_f32, 442.0, 432.0, 435.0] {
-            if ui.selectable_label((hz - preset).abs() < 0.05, format!("{preset:.1} Hz")).clicked() {
-                s.set_reference_hz(preset);
-                ui.memory_mut(|m| m.close_popup());
-            }
-        }
+    const PRESETS: [f32; 4] = [440.0, 442.0, 432.0, 435.0];
+    let items: Vec<String> = PRESETS.iter().map(|p| format!("{p:.1} Hz")).collect();
+    let selected = PRESETS.iter().position(|p| (hz - p).abs() < 0.05);
+    let (r, inner) = Field::new(&format!("A = {hz:.1} Hz"), "Reference pitch (scroll to change by 0.5 Hz)").icon("tuning-fork").popup(ui, "reference", |ui| {
+        let picked = kit::menu_rows(ui, &items, selected, 0.0);
         ui.separator();
-        let r = ui.add(egui::TextEdit::singleline(&mut s.ref_text).desired_width(70.0).hint_text("437.5 or -14c"));
-        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        let edit = ui.add(egui::TextEdit::singleline(&mut s.ref_text).desired_width(70.0).hint_text("437.5 or -14c"));
+        if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             match parse_reference(&s.ref_text) {
                 Some(v) => s.set_reference_hz(v),
                 None => s.toast("Reference must be 400-480 Hz (or cents like -14c)", true),
             }
         }
+        picked
     });
+    if let Some(i) = inner.flatten() {
+        s.set_reference_hz(PRESETS[i]);
+        ui.memory_mut(|m| m.close_popup());
+    }
+    let mut wheel_hz = hz;
+    if kit::wheel_value(ui, &r, &mut wheel_hz, &(400.0..=480.0), 0.5, false) {
+        s.set_reference_hz(wheel_hz);
+    }
     if ibtn(ui, "detect", "Estimates the reference pitch over the selected region (or the whole source track)", false).clicked() {
         s.start_pitch_detect();
     }
@@ -300,23 +320,20 @@ fn listening(ui: &mut Ui, s: &mut Session) {
     group(ui, "Listening", |ui| {
         let mut changed = toggle(ui, "synth", "Plays the transcribed notes over the audio", &mut s.synth_on);
         ui.add_enabled_ui(s.synth_on, |ui| {
-            selector(ui, "synth_mix", None, &format!("{:.0}%", s.overlay_mix * 100.0), "Synth volume over the audio", Some(80.0), false, |ui| {
-                slider_popup(ui, &mut s.overlay_mix, 0.0..=1.0, "0%", "100%", false);
-            });
+            let (r, _) = Field::new(&format!("{:.0}%", s.overlay_mix * 100.0), "Synth volume over the audio").width(80.0).popup(ui, "synth_mix", |ui| slider_popup(ui, &mut s.overlay_mix, 0.0..=1.0, "0%", "100%", 0.05, false));
+            kit::wheel_value(ui, &r, &mut s.overlay_mix, &(0.0..=1.0), 0.05, false);
         });
         sep(ui);
         let tip = if single && !s.ui.focus_enabled { format!("{FOCUS_TIP} Most useful on a full mix.") } else { FOCUS_TIP.to_owned() };
         changed |= toggle(ui, "guitar-focus", &tip, &mut s.ui.focus_enabled);
         ui.add_enabled_ui(s.ui.focus_enabled, |ui| {
             let mut strength = s.ui.focus_strength;
-            let r = selector(ui, "focus_strength", None, &format!("{:.0}%", strength * 100.0), "Guitar focus strength", Some(80.0), false, |ui| {
-                slider_popup(ui, &mut strength, 0.0..=1.0, "0%", "100%", false);
-            });
+            let (r, _) = Field::new(&format!("{:.0}%", strength * 100.0), "Guitar focus strength").width(80.0).popup(ui, "focus_strength", |ui| slider_popup(ui, &mut strength, 0.0..=1.0, "0%", "100%", 0.05, false));
+            kit::wheel_value(ui, &r, &mut strength, &(0.0..=1.0), 0.05, false);
             if strength != s.ui.focus_strength {
                 s.ui.focus_strength = strength;
                 changed = true;
             }
-            let _ = r;
         });
         if changed || s.synth_on != s.synth_synced {
             s.synth_synced = s.synth_on;

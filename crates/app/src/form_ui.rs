@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use egui::epaint::{Shadow, StrokeKind};
-use egui::{Align, Align2, Area, Id, Order, Color32, CornerRadius, FontFamily, FontId, Frame, Key, Layout, Margin, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Shape, Stroke, TextEdit, Ui, Vec2};
+use egui::{Align, Align2, Id, Color32, CornerRadius, FontFamily, FontId, Frame, Key, Layout, Margin, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Shape, Stroke, TextEdit, Ui, Vec2};
 use fretscribe_core::TrackRole;
-use fretscribe_ui::theme;
+use fretscribe_ui::{kit, theme};
 
 use crate::form::{guess_role, normalise_number, normalise_time_sig, normalise_tuning, parse_tuning, preset_texts, FormErrors, FormValues, Instrument, Validated, MAX_CAPO};
 
@@ -414,39 +414,8 @@ fn dropdown(ui: &mut Ui, salt: &str, label: &str, width: Option<f32>, items: &[S
     if resp.clicked() {
         ui.memory_mut(|m| m.toggle_popup(id));
     }
-    if !ui.memory(|m| m.is_popup_open(id)) {
-        return None;
-    }
-    const ROW_H: f32 = 28.0;
-    const TEXT_X: f32 = 26.0;
-    let bold = FontId::new(13.0, theme::medium());
-    let menu_w = items.iter().map(|t| text_wf(ui, t, bold.clone())).fold(0.0, f32::max) + TEXT_X + 12.0;
-    let (pos, pivot) = if d.right { (resp.rect.right_bottom(), Align2::RIGHT_TOP) } else { (resp.rect.left_bottom(), Align2::LEFT_TOP) };
-    let mut picked = None;
-    let area = Area::new(id).order(Order::Foreground).fixed_pos(pos + Vec2::new(0.0, 4.0)).pivot(pivot).show(ui.ctx(), |ui| {
-        Frame::popup(ui.style()).inner_margin(Margin::same(4)).show(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::ZERO;
-            ui.set_width(menu_w.max(w - 8.0));
-            for (i, text) in items.iter().enumerate() {
-                let (rect, row) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
-                let on = selected == Some(i);
-                if row.hovered() {
-                    ui.painter().rect_filled(rect, CornerRadius::same(4), theme::BORDER);
-                }
-                let y = rect.center().y;
-                if on {
-                    ui.painter().circle_filled(Pos2::new(rect.left() + 12.0, y), 2.5, theme::accent());
-                }
-                let font = if on { bold.clone() } else { font13() };
-                ui.painter().text(Pos2::new(rect.left() + TEXT_X, y), Align2::LEFT_CENTER, text, font, theme::TEXT);
-                if row.clicked() {
-                    picked = Some(i);
-                }
-            }
-        });
-    });
-    let outside = ui.input(|i| i.pointer.any_click()) && !area.response.contains_pointer() && !resp.contains_pointer();
-    if picked.is_some() || outside || ui.input(|i| i.key_pressed(Key::Escape)) {
+    let picked = kit::popup(ui, id, &resp, d.right, |ui| kit::menu_rows(ui, items, selected, w - 8.0)).flatten();
+    if picked.is_some() {
         ui.memory_mut(|m| m.close_popup());
     }
     picked

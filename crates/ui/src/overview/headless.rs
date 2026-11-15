@@ -47,7 +47,7 @@ impl Harness {
     fn frame_shapes(&mut self, events: Vec<Event>, modifiers: Modifiers) -> (Vec<OverviewEvent>, Vec<ClippedShape>) {
         self.time += 0.05;
         let raw = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 200.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1065.0, 200.0))),
             time: Some(self.time),
             events,
             modifiers,

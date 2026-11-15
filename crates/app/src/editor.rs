@@ -28,13 +28,16 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
 
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
-    egui::TopBottomPanel::top("overview").show(ctx, |ui| {
+    // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
+    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: 4, bottom: 4 });
+    egui::TopBottomPanel::top("overview").frame(overview_frame).show(ctx, |ui| {
         let view = s.ctl.current.timeline();
-        let width = ctx.screen_rect().width();
+        let width = ctx.screen_rect().width() - LANE_HEADER_WIDTH;
         let starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
         let source = s.project.source_track;
         let store = &s.store;
         let out = OverviewTimeline::new(audio_len, &view, width, |range, columns| store.peaks(source, (range.start, range.end), columns))
+            .gutter(LANE_HEADER_WIDTH - 16.0)
             .measure_starts(&starts)
             .palette(fretscribe_ui::overview::WaveformPalette::from_rgba(&s.style.lut.colors))
             .playhead(s.ui.playhead_sec)

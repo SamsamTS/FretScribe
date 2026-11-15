@@ -118,6 +118,7 @@ where
     snap_points: Option<&'a [f64]>,
     snapping: bool,
     looping: bool,
+    gutter: f32,
     waveform_height: f32,
     style: OverviewStyle,
 }
@@ -139,6 +140,7 @@ where
             snap_points: None,
             snapping: true,
             looping: false,
+            gutter: 0.0,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             style: OverviewStyle::default(),
         }
@@ -174,6 +176,13 @@ where
         self
     }
 
+    /// Width of the column left of the strip (holding the zoom buttons); the strip starts right after it,
+    /// so it can line up with the main view's timeline.
+    pub fn gutter(mut self, width: f32) -> Self {
+        self.gutter = width;
+        self
+    }
+
     pub fn waveform_height(mut self, height: f32) -> Self {
         self.waveform_height = height.max(8.0);
         self
@@ -194,11 +203,9 @@ where
         let mut events = Vec::new();
         let mut strip = Rect::NOTHING;
         ui.horizontal(|ui| {
-            let height = RULER_HEIGHT + self.waveform_height;
-            ui.vertical(|ui| {
-                ui.set_height(height);
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| self.buttons(ui, &mut events));
-            });
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let size = vec2(self.gutter, RULER_HEIGHT + self.waveform_height);
+            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| self.buttons(ui, &mut events));
             let size = vec2(ui.available_width().max(1.0), RULER_HEIGHT + self.waveform_height);
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             strip = rect;
@@ -212,14 +219,14 @@ where
 
     /// The zoom group (with the snap magnet) left of the strip, bottom-aligned with it.
     fn buttons(&self, ui: &mut Ui, events: &mut Vec<OverviewEvent>) {
-        crate::kit::group(ui, "Zoom", |ui| {
+        crate::kit::group_at(ui, "Zoom", true, |ui| {
             for (icon, tip, step) in [("zoom-in", "Zoom in", ZoomStep::In), ("zoom-out", "Zoom out", ZoomStep::Out), ("zoom-fit", "Zoom to fit", ZoomStep::Fit)] {
                 if crate::kit::ibtn(ui, icon, tip, false).clicked() {
                     events.push(OverviewEvent::Zoom(step));
                 }
             }
             crate::kit::sep(ui);
-            if magnet_button(ui, self.snapping).on_hover_text("Snap the seek point and the selection (hold Alt to invert)").clicked() {
+            if crate::kit::ibtn(ui, "snap", "Snap the seek point and the selection (hold Alt to invert)", self.snapping).clicked() {
                 events.push(OverviewEvent::SnapToggled(!self.snapping));
             }
         });
@@ -402,25 +409,4 @@ where
         painter.add(minor_ticks.into_shape());
         painter.add(major_ticks.into_shape());
     }
-}
-
-fn magnet_button(ui: &mut Ui, on: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(crate::kit::BUTTON, crate::kit::BUTTON), Sense::click());
-    let visuals = ui.style().interact_selectable(&response, on);
-    let painter = ui.painter();
-    painter.rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
-    let (c, r) = (rect.center() + vec2(0.0, -1.0), 5.0_f32);
-    let arc = (0..=12).map(|i| {
-        let a = std::f32::consts::PI * i as f32 / 12.0;
-        pos2(c.x - r * a.cos(), c.y - r * a.sin())
-    });
-    let points: Vec<_> = std::iter::once(pos2(c.x - r, c.y + 5.0))
-        .chain(arc)
-        .chain(std::iter::once(pos2(c.x + r, c.y + 5.0)))
-        .collect();
-    painter.add(egui::Shape::line(points, Stroke::new(3.0_f32, visuals.fg_stroke.color)));
-    for x in [c.x - r, c.x + r] {
-        painter.line_segment([pos2(x, c.y + 3.0), pos2(x, c.y + 5.0)], Stroke::new(3.0_f32, Color32::from_rgb(230, 80, 80)));
-    }
-    response
 }
