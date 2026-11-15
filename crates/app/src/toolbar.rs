@@ -268,7 +268,9 @@ fn edit_buffer(ui: &Ui, id: &str, current: impl FnOnce() -> String) -> (egui::Id
 }
 
 fn keep_buffer(ui: &Ui, key: egui::Id, edit: &egui::Response, text: String) {
-    ui.data_mut(|d| if edit.has_focus() { d.insert_temp(key, text) } else { d.remove::<String>(key) });
+    // `has_focus` locks the context, so it must be read before `data_mut` takes the same lock (else: deadlock).
+    let focused = edit.has_focus();
+    ui.data_mut(|d| if focused { d.insert_temp(key, text) } else { d.remove::<String>(key) });
 }
 
 fn field_icon(ui: &mut Ui, name: &str) {
