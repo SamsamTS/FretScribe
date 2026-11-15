@@ -181,7 +181,7 @@ fn banner(ui: &mut Ui) {
     let aspect = tex.as_ref().map_or(0.28, |t| t.size()[1] as f32 / t.size()[0] as f32);
     let logo = logo_size(ui.available_width(), aspect);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), logo.y + 2.0 * BANNER_PAD), Sense::hover());
-    let (top, bottom) = (theme::WINDOW_BG.lerp_to_gamma(theme::LOGO_GLOW, 0.7), theme::WINDOW_BG);
+    let (top, bottom) = (theme::WINDOW_BG.lerp_to_gamma(theme::LOGO_GLOW, 0.3), theme::WINDOW_BG);
     let mut mesh = Mesh::default();
     for (pos, color) in [(rect.left_top(), top), (rect.right_top(), top), (rect.right_bottom(), bottom), (rect.left_bottom(), bottom)] {
         mesh.colored_vertex(pos, color);
