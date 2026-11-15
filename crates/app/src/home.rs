@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use egui::epaint::StrokeKind;
 use egui::text::LayoutJob;
-use egui::{Align2, Color32, CornerRadius, CursorIcon, FontId, Galley, Pos2, Rect, ScrollArea, Sense, Stroke, TextFormat, Ui, Vec2};
+use egui::{Align2, Color32, ColorImage, Context, CornerRadius, CursorIcon, FontId, Galley, Mesh, Painter, Pos2, Rect, ScrollArea, Sense, Shape, Stroke, TextFormat, TextureHandle, TextureOptions, Ui, Vec2};
 use fretscribe_ui::theme;
 
 use crate::settings::{RecentProject, Settings};
@@ -14,12 +14,17 @@ const TILE: f32 = 176.0;
 const GAP: f32 = 16.0;
 const PAD: f32 = 12.0;
 const THUMB_H: f32 = 84.0;
+/// Tiles before the recents: New Project, Open.
+const FIXED_TILES: usize = 2;
+const LOGO_MAX_W: f32 = 420.0;
+const BANNER_PAD: f32 = 32.0;
 const SECS_PER_DAY: u64 = 86_400;
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HomeAction {
     NewProject,
+    OpenDialog,
     Open(PathBuf),
     RemoveRecent(PathBuf),
     RevealInFolder(PathBuf),
@@ -94,16 +99,26 @@ fn draw_tile(ui: &mut Ui, resp: &egui::Response) -> Rect {
     rect
 }
 
-fn new_tile(ui: &mut Ui) -> egui::Response {
+/// A tile with a drawn icon above its label; the icon closure gets the painter and the icon centre.
+fn action_tile(ui: &mut Ui, label: &str, icon: impl FnOnce(&Painter, Pos2, Stroke)) -> egui::Response {
     let resp = ui.allocate_exact_size(Vec2::splat(TILE), Sense::click()).1.on_hover_cursor(CursorIcon::PointingHand);
     let rect = draw_tile(ui, &resp);
-    let centre = rect.center() - Vec2::new(0.0, 10.0);
-    let stroke = Stroke::new(3.0_f32, theme::accent());
-    ui.painter().hline(centre.x - 18.0..=centre.x + 18.0, centre.y, stroke);
-    ui.painter().vline(centre.x, centre.y - 18.0..=centre.y + 18.0, stroke);
+    icon(ui.painter(), rect.center() - Vec2::new(0.0, 10.0), Stroke::new(3.0_f32, theme::accent()));
     let font = FontId::new(14.0, theme::medium());
-    ui.painter().text(Pos2::new(rect.center().x, rect.bottom() - 36.0), Align2::CENTER_CENTER, "New Project", font, theme::TEXT);
+    ui.painter().text(Pos2::new(rect.center().x, rect.bottom() - 36.0), Align2::CENTER_CENTER, label, font, theme::TEXT);
     resp
+}
+
+fn plus_icon(p: &Painter, c: Pos2, stroke: Stroke) {
+    p.hline(c.x - 18.0..=c.x + 18.0, c.y, stroke);
+    p.vline(c.x, c.y - 18.0..=c.y + 18.0, stroke);
+}
+
+fn folder_icon(p: &Painter, c: Pos2, stroke: Stroke) {
+    let body = Rect::from_center_size(c + Vec2::new(0.0, 4.0), Vec2::new(44.0, 30.0));
+    let r = CornerRadius::same(4);
+    p.rect_stroke(body, r, stroke, egui::epaint::StrokeKind::Middle);
+    p.add(Shape::line(vec![body.left_top() + Vec2::new(0.0, 6.0), body.left_top() + Vec2::new(0.0, -6.0), body.left_top() + Vec2::new(14.0, -6.0), body.left_top() + Vec2::new(19.0, 0.0)], stroke));
 }
 
 fn recent_tile(ui: &mut Ui, recent: &RecentProject, status: TileStatus, now: u64) -> egui::Response {
@@ -142,39 +157,81 @@ fn recent_tile(ui: &mut Ui, recent: &RecentProject, status: TileStatus, now: u64
     resp
 }
 
+fn logo_texture(ctx: &Context) -> Option<TextureHandle> {
+    let id = egui::Id::new("fretscribe_logo");
+    if let Some(t) = ctx.data(|d| d.get_temp::<TextureHandle>(id)) {
+        return Some(t);
+    }
+    let img = image::load_from_memory_with_format(theme::LOGO_PNG, image::ImageFormat::Png).ok()?.into_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    let tex = ctx.load_texture("logo", ColorImage::from_rgba_unmultiplied(size, img.as_raw()), TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
+    Some(tex)
+}
+
+/// Logo size for the available width, keeping the texture's aspect ratio.
+fn logo_size(available: f32, aspect: f32) -> Vec2 {
+    let w = (available * 0.7).clamp(1.0, LOGO_MAX_W);
+    Vec2::new(w, w * aspect)
+}
+
+/// Full-width band fading from a faint logo-blue glow into the window colour, with the logo centred.
+fn banner(ui: &mut Ui) {
+    let tex = logo_texture(ui.ctx());
+    let aspect = tex.as_ref().map_or(0.28, |t| t.size()[1] as f32 / t.size()[0] as f32);
+    let logo = logo_size(ui.available_width(), aspect);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), logo.y + 2.0 * BANNER_PAD), Sense::hover());
+    let (top, bottom) = (theme::WINDOW_BG.lerp_to_gamma(theme::LOGO_GLOW, 0.7), theme::WINDOW_BG);
+    let mut mesh = Mesh::default();
+    for (pos, color) in [(rect.left_top(), top), (rect.right_top(), top), (rect.right_bottom(), bottom), (rect.left_bottom(), bottom)] {
+        mesh.colored_vertex(pos, color);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(mesh);
+    if let Some(tex) = tex {
+        let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        ui.painter().image(tex.id(), Rect::from_center_size(rect.center(), logo), uv, Color32::WHITE);
+    }
+}
+
 pub fn show_home(ui: &mut Ui, settings: &Settings, status: &dyn Fn(&Path) -> TileStatus, now_unix: u64) -> Option<HomeAction> {
     let mut action = None;
     let mut recents: Vec<&RecentProject> = settings.recent.iter().collect();
     recents.sort_by_key(|r| std::cmp::Reverse(r.last_opened_unix));
+    ui.spacing_mut().item_spacing.y = 0.0;
+    banner(ui);
     ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
         let cols = columns(ui.available_width());
         let left = ((ui.available_width() - (cols as f32 * (TILE + GAP) - GAP)) / 2.0).max(0.0);
         ui.spacing_mut().item_spacing = Vec2::splat(GAP);
         ui.add_space(GAP);
-        let total = recents.len() + 1;
+        let total = recents.len() + FIXED_TILES;
         for row in (0..total).step_by(cols) {
             ui.horizontal(|ui| {
                 ui.add_space(left);
                 for i in row..(row + cols).min(total) {
-                    let Some(recent) = i.checked_sub(1).map(|r| recents[r]) else {
-                        if new_tile(ui).clicked() {
-                            action = Some(HomeAction::NewProject);
-                        }
-                        continue;
-                    };
-                    let resp = recent_tile(ui, recent, status(&recent.path), now_unix);
-                    if resp.clicked() {
-                        action = Some(HomeAction::Open(recent.path.clone()));
-                    }
-                    resp.context_menu(|ui| {
-                        let items = [("Remove from list", HomeAction::RemoveRecent(recent.path.clone())), ("Reveal in folder", HomeAction::RevealInFolder(recent.path.clone()))];
-                        for (label, act) in items {
-                            if ui.button(label).clicked() {
-                                action = Some(act);
-                                ui.close_menu();
+                    match i {
+                        0 if action_tile(ui, "New Project", plus_icon).clicked() => action = Some(HomeAction::NewProject),
+                        1 if action_tile(ui, "Open", folder_icon).clicked() => action = Some(HomeAction::OpenDialog),
+                        0 | 1 => {}
+                        _ => {
+                            let recent = recents[i - FIXED_TILES];
+                            let resp = recent_tile(ui, recent, status(&recent.path), now_unix);
+                            if resp.clicked() {
+                                action = Some(HomeAction::Open(recent.path.clone()));
                             }
+                            resp.context_menu(|ui| {
+                                let items = [("Remove from list", HomeAction::RemoveRecent(recent.path.clone())), ("Reveal in folder", HomeAction::RevealInFolder(recent.path.clone()))];
+                                for (label, act) in items {
+                                    if ui.button(label).clicked() {
+                                        action = Some(act);
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
                         }
-                    });
+                    }
                 }
             });
         }
@@ -214,6 +271,12 @@ mod tests {
         assert_eq!(columns(2.0 * TILE + GAP), 2);
         assert_eq!(columns(2.0 * TILE + GAP - 1.0), 1);
         assert_eq!(columns(900.0), 4);
+    }
+
+    #[test]
+    fn logo_scales_down_but_keeps_aspect() {
+        assert_eq!(logo_size(2000.0, 0.5), Vec2::new(LOGO_MAX_W, LOGO_MAX_W * 0.5));
+        assert_eq!(logo_size(100.0, 0.5), Vec2::new(70.0, 35.0));
     }
 
     #[test]

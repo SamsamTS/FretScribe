@@ -6,18 +6,24 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
 
 pub const DEFAULT_ACCENT: Color32 = Color32::from_rgb(0xF0, 0xAA, 0x3C);
-pub const WINDOW_BG: Color32 = Color32::from_rgb(0x0E, 0x10, 0x13);
-pub const TITLE_BG: Color32 = Color32::from_rgb(0x14, 0x16, 0x1B);
-pub const PANEL_BG: Color32 = Color32::from_rgb(0x1B, 0x1E, 0x24);
-pub const INPUT_BG: Color32 = Color32::from_rgb(0x12, 0x14, 0x1A);
-pub const BORDER: Color32 = Color32::from_rgb(0x2C, 0x31, 0x3A);
-pub const BORDER_STRONG: Color32 = Color32::from_rgb(0x3A, 0x41, 0x4D);
+/// The logo's background (#1C2024) is the window colour; the other surfaces are tinted from it.
+pub const WINDOW_BG: Color32 = Color32::from_rgb(0x1C, 0x20, 0x24);
+pub const TITLE_BG: Color32 = Color32::from_rgb(0x16, 0x19, 0x1D);
+pub const PANEL_BG: Color32 = Color32::from_rgb(0x26, 0x2B, 0x31);
+pub const INPUT_BG: Color32 = Color32::from_rgb(0x17, 0x1A, 0x1E);
+pub const BORDER: Color32 = Color32::from_rgb(0x33, 0x3A, 0x43);
+pub const BORDER_STRONG: Color32 = Color32::from_rgb(0x44, 0x4C, 0x58);
+/// The blue at the top of the logo icon's gradient; used for subtle glows on `WINDOW_BG`.
+pub const LOGO_GLOW: Color32 = Color32::from_rgb(0x28, 0x38, 0x47);
 pub const TEXT: Color32 = Color32::from_rgb(0xE8, 0xEA, 0xEE);
 pub const LABEL: Color32 = Color32::from_rgb(0xD5, 0xDA, 0xE3);
 pub const HINT: Color32 = Color32::from_rgb(0x9A, 0xA3, 0xB2);
 pub const ERROR: Color32 = Color32::from_rgb(0xE5, 0x5B, 0x5B);
 pub const CONTROL_RADIUS: u8 = 8;
 pub const PANEL_RADIUS: u8 = 14;
+
+pub const LOGO_PNG: &[u8] = include_bytes!("../assets/logo/logo.png");
+pub const ICON_PNG: &[u8] = include_bytes!("../assets/logo/icon.png");
 
 pub const INTER: &str = "Inter";
 pub const INTER_MEDIUM: &str = "Inter-Medium";
