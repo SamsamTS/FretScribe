@@ -91,6 +91,7 @@ impl App {
             theme::set_accent(egui::Color32::from_rgb(r, g, b));
         }
         theme::install_fonts(&cc.egui_ctx);
+        fretscribe_ui::kit::install(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx);
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default();

@@ -11,7 +11,7 @@ use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
 use fretscribe_ui::view::LANE_HEADER_WIDTH;
 use fretscribe_ui::{
-    GridEvent, GridOverlay, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, SpectroEvent, StaffView, TabView, TrackLanes,
+    GridEvent, GridOverlay, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
 };
 
 use crate::session::Session;
@@ -216,15 +216,14 @@ fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request
             (v.scroll_sec, v.pixels_per_sec) = (scroll_sec, pixels_per_sec);
             s.ctl.set_target(v);
         }
-        OverviewEvent::PlayRegionRequested => {
-            if let (Some(r), Some(p)) = (s.region, &s.player) {
-                p.seek(r.start_sec);
-                p.play();
+        OverviewEvent::Zoom(step) => {
+            let mut v = s.ctl.target.timeline();
+            match step {
+                ZoomStep::In => v.zoom_around((s.ctl.width() / 2.0) as f32, 1.25),
+                ZoomStep::Out => v.zoom_around((s.ctl.width() / 2.0) as f32, 1.0 / 1.25),
+                ZoomStep::Fit => v = TimelineView::new(0.0, s.ctl.width() / s.audio_len_sec.max(1.0)),
             }
-        }
-        OverviewEvent::LoopToggled(on) => {
-            s.ui.loop_enabled = on;
-            s.player_resync(false);
+            s.ctl.set_target(v);
         }
         OverviewEvent::SnapToggled(on) => s.overview_snap = on,
     }

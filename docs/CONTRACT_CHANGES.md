@@ -127,3 +127,9 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 
 - `ui::theme`: surfaces retuned around the logo background (`WINDOW_BG` = #1C2024); new `LOGO_GLOW`, `LOGO_PNG`, `ICON_PNG` (assets in `crates/ui/assets/logo/`, source `Logo.svg`; PNGs rendered with `rsvg-convert`, Montserrat Bold installed).
 - app: home screen has a pinned logo banner above the grid; tiles are New Project, Open (`HomeAction::OpenDialog`), then the recents. `Settings::window_mode` (`WindowMode::{Normal, Maximized, Fullscreen}`, serde default Normal) is restored on start; a normal window opens centred; the window icon is the logo icon.
+
+## 2026-11-15 - ui/app: editor toolbar redesign
+
+- `ui::kit` (new): `icon(name)`, `install(ctx)` (SVG loaders, called at app start), `ibtn`, `play_button`, `group`, `sep`, `selector`, `slider_popup`, `hint`. Icons are in `crates/ui/assets/icons/` (generated from `icons/gen_icons.py`).
+- `ui::overview`: the Loop / Play selection buttons are gone (they live in the toolbar transport); the left column is now the Zoom group (+ snap magnet). `OverviewEvent::{PlayRegionRequested, LoopToggled}` removed, `OverviewEvent::Zoom(ZoomStep::{In, Out, Fit})` added. `egui_extras` (svg) is a new `ui` dependency.
+- app: `toolbar.rs` follows `claude/editor-toolbar.dc.html`: two rows of captioned groups (Project, History, Transcription, Spectrogram / Transport, Speed, Listening, Notes & grid). The old toolbar zoom +/- are replaced by the overview Zoom group.

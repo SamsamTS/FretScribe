@@ -12,6 +12,7 @@ egui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+egui_extras = { version = "0.31", features = ["svg"] }
 
 [dev-dependencies]
 tempfile.workspace = true

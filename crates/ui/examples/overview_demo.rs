@@ -59,17 +59,8 @@ impl OverviewDemo {
             OverviewEvent::ViewportChanged { scroll_sec, pixels_per_sec } => {
                 self.view = TimelineView::new(scroll_sec, pixels_per_sec);
             }
-            OverviewEvent::PlayRegionRequested => {
-                if let Some(r) = self.region {
-                    self.playhead_sec = r.start_sec;
-                    self.status = format!("Play selection from {}", format_time(r.start_sec));
-                }
-            }
             OverviewEvent::SnapToggled(on) => self.snapping = on,
-            OverviewEvent::LoopToggled(on) => {
-                self.looping = on;
-                self.status = format!("Loop {}", if on { "on" } else { "off" });
-            }
+            OverviewEvent::Zoom(step) => self.status = format!("Zoom {step:?}"),
         }
     }
 }
