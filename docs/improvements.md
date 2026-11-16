@@ -27,7 +27,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
 | `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
 | `crates/ui/src/grid/mod.rs` | 503 | todo | |
-| `crates/notation/src/tab/solve.rs` | 492 | todo | |
+| `crates/notation/src/tab/solve.rs` | 492 | partial | run() and entry points read (I-023) |
 | `crates/ui/src/overview/logic.rs` | 485 | todo | |
 | `crates/ui/src/kit.rs` | 479 | todo | |
 | `crates/ui/src/overview/headless.rs` | 476 | todo | |
@@ -173,7 +173,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs` (rest), `resample.rs`, `synth.rs`, `decode.rs`; then `analysis` (`sync.rs`, `beatfit/`, `pitchref.rs`, `cqt.rs`), `notation` (`tab/solve.rs`, `staff/`), `ui` (`spectro/`, `grid/`, `overview/`, `note_editor/editor.rs`), `app` (`app.rs`, `session.rs`, `toolbar.rs`, `form*.rs`). Test files are read last (helper duplication already covered by I-005/I-006).
 
 ## Findings
-**Summary (interim, ~25 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui).** Top wins: I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, clippy clean on the default set.
+**Summary (interim, ~25 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui).** Top wins: I-023 (k full tab solves per k-note edit), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -360,4 +360,13 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 3. Change the tooltip to "Export is not available yet" (or remove the button until the feature exists).
 4. Use `s.luts.names()` (return `impl Iterator<Item = &str>` or cache `Vec<String>` in `LutSet`) instead of the per-frame `collect`; delete the duplicate.
 **Risk:** low; manual check: add a PNG to the `LUT/` folder while the app runs, open the dropdown, confirm it appears.
+
+### I-023 · Tab re-inference runs a full solve per edited note · impact: high · perf: multi-note edits cost k full solves instead of one · status: open
+**Where:** `crates/app/src/session.rs:335-342` `infer_affected`; `crates/notation/src/tab/solve.rs:400-452` `run`, `:461` `assign_tabs_range`; caller `crates/app/src/editor.rs:387`.
+**Problem:** `infer_affected` loops over the affected ids and calls `assign_tabs_range` for each. Every call rebuilds the whole `Ctx` (`spans`, `family` for all notes), all `Item`s (`build_items`, O(n)), then solves from the edited item to the next *locked* note, which is the end of the piece when nothing is locked (the default). Transposing or moving k selected notes therefore does k x (O(n) setup + O(n) combos + Viterbi over the rest of the piece). Also `iter().position(|n| n.id == *id)` per id and a second linear `contains` inside `run` (`:413`).
+**Instructions:**
+1. Add `assign_tabs_ranges(notes, times, tuning, capo, opts, edited: &[usize], backwards) -> Vec<u64>` in `solve.rs`: build `Ctx` and `items` once, compute each edited item's `(lo, hi)` window as now, sort and merge overlapping windows, and run `combos` + `viterbi` once per merged window (apply results in order).
+2. Make `infer_affected` map ids to indices with one pass (`HashMap<u64, usize>` over `notes`) and call the new function once; keep `assign_tabs_range` as a one-element wrapper for the tab-view callers.
+3. Add a test: editing 3 notes in one call gives the same `string_fret`s as three sequential single calls on a fixture with no locked notes (and with one lock in the middle).
+**Risk:** medium (solver ordering): results of sequential calls can differ when windows overlap and later calls start from earlier results; define the new behaviour as "solve each merged window once" and verify with the existing solver tests plus the new one. Measure: time `infer_affected` on a 2000-note piece with 200 selected notes before and after (expected from seconds to milliseconds).
 
