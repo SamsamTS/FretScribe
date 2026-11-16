@@ -102,6 +102,11 @@ pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// Frame of dialog windows: the window colour (like the toolbar), not the lighter panel grey.
+pub fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
+    egui::Frame::window(&ctx.style()).fill(WINDOW_BG)
+}
+
 /// Sets `Visuals` and `Style` from this module; call at start and after `set_accent`.
 pub fn apply(ctx: &egui::Context) {
     let accent = accent();

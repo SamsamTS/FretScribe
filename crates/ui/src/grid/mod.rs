@@ -396,7 +396,7 @@ pub fn can_merge_with_previous(measures: &[Measure], index: usize) -> bool {
 
 pub fn measure_label(measure: &Measure) -> String {
     format!(
-        "{}/{} \u{2669}={}",
+        "{}/{} \u{b7} {} BPM",
         measure.time_sig.numerator,
         measure.time_sig.denominator,
         format_bpm(measure.tempo_bpm)
@@ -411,15 +411,7 @@ pub fn effective_suffix(measure: &Measure, effective_bpm: f64) -> Option<String>
 
 fn label_job(measure: &Measure, effective_bpm: f64, font: egui::FontId, color: egui::Color32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
-    // Neither Inter nor JetBrains Mono has the quarter-note sign: it comes from the notation font.
-    let label = measure_label(measure);
-    let (before, after) = label.split_once('\u{2669}').unwrap_or((&label, ""));
-    job.append(before, 0.0, egui::TextFormat::simple(font.clone(), color));
-    if label.contains('\u{2669}') {
-        let notation = egui::FontId::new(font.size * 1.3, egui::FontFamily::Name(crate::staff_view::FONT_NAME.into()));
-        job.append("\u{E1D5}", 0.0, egui::TextFormat::simple(notation, color));
-        job.append(after, 0.0, egui::TextFormat::simple(font.clone(), color));
-    }
+    job.append(&measure_label(measure), 0.0, egui::TextFormat::simple(font.clone(), color));
     if let Some(suffix) = effective_suffix(measure, effective_bpm) {
         job.append(&suffix, 0.0, egui::TextFormat::simple(font, color.gamma_multiply(0.55)));
     }
@@ -461,9 +453,9 @@ mod tests {
     #[test]
     fn label_text() {
         let m = Measure::new(1, 0.0, 70.0, TimeSignature::COMMON);
-        assert_eq!(measure_label(&m), "4/4 \u{2669}=70");
+        assert_eq!(measure_label(&m), "4/4 \u{b7} 70 BPM");
         let m = Measure::new(1, 0.0, 97.5, TimeSignature::new(6, 8));
-        assert_eq!(measure_label(&m), "6/8 \u{2669}=97.5");
+        assert_eq!(measure_label(&m), "6/8 \u{b7} 97.5 BPM");
         assert_eq!(format_bpm(119.99), "120");
         assert_eq!(format_bpm(120.04), "120");
     }

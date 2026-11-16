@@ -334,7 +334,7 @@ fn text_wf(ui: &Ui, text: &str, font: FontId) -> f32 {
 }
 
 fn opts<'a>(width: f32, invalid: bool, left: i8, commit: &'a dyn Fn(&str) -> Option<String>) -> FieldOpts<'a> {
-    FieldOpts { width, height: FIELD_H, invalid, left, right: PAD, commit }
+    FieldOpts { width, height: FIELD_H, invalid, left, right: PAD, commit, tip: "" }
 }
 
 fn field(ui: &mut Ui, o: FieldOpts, leading: impl FnOnce(&mut Ui), text: &mut String, trailing: impl FnOnce(&mut Ui)) -> egui::Response {

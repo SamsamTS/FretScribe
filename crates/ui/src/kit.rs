@@ -20,7 +20,7 @@ icons!(
     "home", "add-track", "open", "save", "save-as", "export", "undo", "redo", "skip-start", "play", "pause", "stop", "play-selection", "loop",
     "follow-playhead", "keep-pitch", "synth", "guitar-focus", "snap", "snap-onsets", "follow-grid", "stay-with-audio", "rhythm", "tuning", "capo",
     "tuning-fork", "detect", "auto-fit-grid", "auto-tempo", "re-infer-tab", "zoom-in", "zoom-out", "zoom-fit", "chevron-down", "minus", "plus", "mute", "solo", "star", "star-filled", "offset-arrows", "auto-sync", "reset-offset",
-    "chevron-right", "string-colors", "high-contrast", "apply-following",
+    "chevron-right", "chevron-up", "string-colors", "apply-following",
 );
 
 pub const BUTTON: f32 = 36.0;
@@ -122,22 +122,28 @@ pub fn group_at(ui: &mut Ui, caption: &str, above: bool, add: impl FnOnce(&mut U
 
 /// The rounded panel of a group, without caption.
 pub fn group_frame(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Response {
+    group_frame_h(ui, BUTTON, add)
+}
+
+/// Like [`group_frame`] for controls `height` px tall. The gap between controls equals the padding around them.
+pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Response {
+    const PAD: f32 = 4.0;
     Frame::new()
         .fill(theme::PANEL_BG)
         .stroke(Stroke::new(1.0_f32, theme::BORDER))
         .corner_radius(CornerRadius::same(GROUP_RADIUS))
-        .inner_margin(4.0)
+        .inner_margin(PAD)
         .show(ui, |ui| {
-            ui.set_min_height(BUTTON);
-            ui.spacing_mut().item_spacing.x = 2.0;
-            ui.spacing_mut().interact_size.y = BUTTON; // rows start tall, so earlier labels are centred too
+            ui.set_min_height(height);
+            ui.spacing_mut().item_spacing.x = PAD;
+            ui.spacing_mut().interact_size.y = height; // rows start tall, so earlier labels are centred too
             ui.horizontal(add);
         })
         .response
 }
 
 pub fn sep(ui: &mut Ui) {
-    let (rect, _) = ui.allocate_exact_size(vec2(9.0, 22.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(1.0, 22.0), Sense::hover());
     ui.painter().vline(rect.center().x, rect.y_range(), Stroke::new(1.0_f32, theme::BORDER));
 }
 
@@ -415,6 +421,8 @@ pub struct FieldOpts<'a> {
     pub left: i8,
     pub right: i8,
     pub commit: &'a dyn Fn(&str) -> Option<String>,
+    /// Tooltip of the whole field (empty: none).
+    pub tip: &'a str,
 }
 
 
@@ -438,9 +446,13 @@ pub fn text_field(ui: &mut Ui, o: FieldOpts, leading: impl FnOnce(&mut Ui), text
         })
         .inner;
     finish_edit(ui, &edit, text, o.commit);
+    let edit = if o.tip.is_empty() { edit } else { edit.on_hover_text(o.tip) };
     let edge = if o.invalid { theme::ERROR } else if edit.has_focus() { theme::accent() } else { theme::BORDER };
     frame.frame.stroke = Stroke::new(1.0_f32, edge);
-    frame.end(ui);
+    let outer = frame.end(ui);
+    if !o.tip.is_empty() {
+        outer.on_hover_text(o.tip);
+    }
     edit
 }
 

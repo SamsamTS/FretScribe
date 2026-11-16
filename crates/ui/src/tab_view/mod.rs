@@ -10,19 +10,17 @@ mod colors;
 mod draw;
 mod edit;
 mod menu;
-mod tuning;
 #[cfg(test)]
 mod tests;
 
 use egui::{pos2, vec2, Color32, Key, Modifiers, Rect, Response, Sense, Stroke, Ui};
-use fretscribe_core::{NoteTimes, Project, Tuning};
+use fretscribe_core::{NoteTimes, Project};
 use fretscribe_notation::staff::StaffLayout;
 use fretscribe_notation::tab::{string_label_styled, LabelStyle, TabOptions};
 
 pub use colors::string_color;
 pub use edit::{apply, apply_tuning, menu_model, placements, MenuModel, Placement, TabApplied, TabEdit, TabError};
 pub use menu::link_name;
-pub use tuning::{TuningDraft, MAX_CAPO};
 
 use crate::spectro::white;
 use crate::view::TimelineView;
@@ -105,8 +103,6 @@ pub enum TabViewEvent {
     SeekRequested(f64),
     /// A manual edit for `apply`, with `TabViewState::propagate_backwards`.
     Edit(TabEdit),
-    /// The tuning popup was applied: `apply_tuning`.
-    TuningChanged { tuning: Tuning, capo: u8 },
     /// Recompute the string and fret of every unlocked note.
     ReinferRequested,
     /// Right drag: the numbers inside the rectangle (Ctrl adds to the selection). Same scheme as the note editor.
@@ -136,15 +132,12 @@ pub struct TabViewState {
     pub show_stems: bool,
     /// Keep a faint string tint on the lines when no menu is open.
     pub string_colors: bool,
-    /// Neutral lines even while choosing.
-    pub high_contrast: bool,
     flashes: Vec<(u64, f64)>,
     menu: Option<MenuModel>,
     menu_pos: Option<egui::Pos2>,
     marquee: Option<egui::Pos2>,
     preview: Option<(u8, u8)>,
     drag: Option<Drag>,
-    pub tuning: Option<TuningDraft>,
 }
 
 impl TabViewState {
@@ -166,9 +159,6 @@ impl TabViewState {
         self.flashes.extend(ids.iter().map(|&id| (id, now + FLASH_SEC)));
     }
 
-    pub fn open_tuning(&mut self, project: &Project) {
-        self.tuning = Some(TuningDraft { tuning: project.tuning.clone(), capo: project.capo });
-    }
 }
 
 pub struct TabOutput {
@@ -191,30 +181,8 @@ pub struct TabView<'a> {
 }
 
 impl TabView<'_> {
-    fn header(&self, ui: &mut Ui, state: &mut TabViewState, events: &mut Vec<TabViewEvent>) {
-        crate::kit::group_frame(ui, |ui| {
-            ui.spacing_mut().interact_size.y = 28.0;
-            let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
-                if crate::kit::ibtn_sized(ui, icon, tip, *value, 28.0, 18.0).clicked() {
-                    *value = !*value;
-                }
-            };
-            toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
-            toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
-            toggle(ui, "string-colors", "String colors", &mut state.string_colors);
-            toggle(ui, "high-contrast", "High contrast", &mut state.high_contrast);
-            crate::kit::sep(ui);
-            if crate::kit::ibtn_sized(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false, 28.0, 18.0).clicked() {
-                events.push(TabViewEvent::ReinferRequested);
-            }
-        });
-    }
-
     fn line_style(&self, geo: &Geo, state: &TabViewState, string: u8, now: f64) -> Stroke {
         let neutral = Stroke::new(1.0_f32, white(102));
-        if state.high_contrast {
-            return neutral;
-        }
         let color = string_color(usize::from(string), geo.strings);
         let chosen = |strings: Vec<u8>| strings.contains(&string);
         if let Some(d) = state.drag.as_ref().filter(|_| state.holding(now)) {
@@ -229,9 +197,18 @@ impl TabView<'_> {
         if state.string_colors { Stroke::new(1.0_f32, color.gamma_multiply(0.45)) } else { neutral }
     }
 
+    /// The tool row followed by the strip.
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
+        let mut events = toolbar(ui, state, None);
+        let mut out = self.show_body(ui, view, state);
+        events.append(&mut out.events);
+        out.events = events;
+        out
+    }
+
+    /// The strip alone (the host draws [`toolbar`] itself).
+    pub fn show_body(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
         let mut events = Vec::new();
-        self.header(ui, state, &mut events);
         let st = self.style;
         let project = self.project;
         let n = project.tuning.open_strings.len().max(1);
@@ -245,7 +222,7 @@ impl TabView<'_> {
         }
         let full = ui.painter_at(rect);
         full.rect_filled(rect, 0.0, st.background);
-        let colored = !state.high_contrast && (state.menu_open() || state.holding(now) || state.string_colors);
+        let colored = state.menu_open() || state.holding(now) || state.string_colors;
         for s in 0..n as u8 {
             full.hline(rect.x_range(), geo.y(s).round(), self.line_style(&geo, state, s, now));
             let label = string_label_styled(&project.tuning, s, LabelStyle::Convention).unwrap_or_default();
@@ -315,7 +292,7 @@ impl TabView<'_> {
             match pointer.map(|p| (p, hit(p))) {
                 Some((_, Some(id))) if mods.alt => events.push(TabViewEvent::Edit(TabEdit::Cycle { ids: vec![id], back: mods.shift })),
                 Some((_, Some(id))) => events.push(TabViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
-                Some((p, None)) if ruler.contains(p) => state.open_tuning(project),
+                Some((p, None)) if ruler.contains(p) => {}
                 Some((p, None)) => events.push(TabViewEvent::SeekRequested(geo.sec(view, p.x))),
                 None => {}
             }
@@ -384,7 +361,47 @@ impl TabView<'_> {
                 events.push(TabViewEvent::Edit(TabEdit::MoveString { ids, up: false }));
             }
         }
-        tuning::show(ui.ctx(), &mut state.tuning, &mut events);
         TabOutput { events, hovered, response }
     }
+}
+
+/// Height of the tool row drawn by [`toolbar`], including the space above and below it.
+pub const TOOLBAR_HEIGHT: f32 = 54.0;
+
+/// The tool row above the strip, aligned with the toolbar's groups. With `collapsed`, a button at the
+/// right end toggles it (the host then hides the sheet and the strip).
+pub fn toolbar(ui: &mut Ui, state: &mut TabViewState, collapsed: Option<&mut bool>) -> Vec<TabViewEvent> {
+    const SIDE: f32 = 16.0;
+    const BUTTON: f32 = 28.0;
+    let mut events = Vec::new();
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOLBAR_HEIGHT), Sense::hover());
+    let inner = Rect::from_min_max(pos2(rect.left() + SIDE, rect.top() + (TOOLBAR_HEIGHT - BUTTON - 10.0) / 2.0), pos2(rect.right() - SIDE, rect.bottom()));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
+        ui.set_width(inner.width());
+        crate::kit::group_frame_h(ui, BUTTON, |ui| {
+            let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
+                if crate::kit::ibtn_sized(ui, icon, tip, *value, BUTTON, 18.0).clicked() {
+                    *value = !*value;
+                }
+            };
+            toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
+            toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
+            toggle(ui, "string-colors", "String colors", &mut state.string_colors);
+            crate::kit::sep(ui);
+            if crate::kit::ibtn_sized(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false, BUTTON, 18.0).clicked() {
+                events.push(TabViewEvent::ReinferRequested);
+            }
+        });
+        if let Some(collapsed) = collapsed {
+            crate::kit::right_aligned(ui, "collapse_notation", |ui| {
+                crate::kit::group_frame_h(ui, BUTTON, |ui| {
+                    let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
+                    if crate::kit::ibtn_sized(ui, icon, tip, false, BUTTON, 18.0).clicked() {
+                        *collapsed = !*collapsed;
+                    }
+                });
+            });
+        }
+    });
+    events
 }

@@ -85,7 +85,6 @@ fn toggle(ui: &mut Ui, icon: &str, tip: &str, value: &mut bool) -> bool {
 fn transport(ui: &mut Ui, s: &mut Session) {
     let playing = s.player.as_ref().is_some_and(|p| p.is_playing());
     group(ui, "Transport", |ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
         if ibtn(ui, "skip-start", "Back to start", false).clicked() {
             s.seek(0.0);
         }
@@ -285,7 +284,7 @@ fn tuning_field(ui: &mut Ui, s: &mut Session) {
     let parsed = parse_tuning(&text, instrument);
     let name = parsed.as_ref().map(|t| t.name.clone()).unwrap_or_default();
     let normalise = |t: &str| normalise_tuning(t, instrument);
-    let opts = FieldOpts { width: 260.0, height: kit::BUTTON, invalid: parsed.is_err(), left: 10, right: 4, commit: &normalise };
+    let opts = FieldOpts { width: 260.0, height: kit::BUTTON, invalid: parsed.is_err(), left: 10, right: 4, commit: &normalise, tip: "Tuning: type the notes from the lowest string to the highest (e.g. DADGAD), or pick a preset" };
     let mut preset_pick = None;
     let edit = text_field(ui, opts, |ui| field_icon(ui, "tuning"), &mut text, |ui| {
         preset_pick = dropdown(ui, "tuning_preset", "", Some(28.0), &items, selected, Dd::RIGHT);
@@ -307,7 +306,7 @@ fn tuning_field(ui: &mut Ui, s: &mut Session) {
 /// "[capo icon] 0 [-] [+]" in a field-styled frame; the buttons grey out when they would do nothing.
 fn capo_stepper(ui: &mut Ui, capo: &mut u8) {
     const MAX: u8 = MAX_CAPO;
-    egui::Frame::new().fill(theme::INPUT_BG).stroke(egui::Stroke::new(1.0_f32, theme::BORDER)).corner_radius(theme::CONTROL_RADIUS).inner_margin(egui::Margin { left: 12, right: 4, top: 4, bottom: 4 }).show(ui, |ui| {
+    let frame = egui::Frame::new().fill(theme::INPUT_BG).stroke(egui::Stroke::new(1.0_f32, theme::BORDER)).corner_radius(theme::CONTROL_RADIUS).inner_margin(egui::Margin { left: 12, right: 4, top: 4, bottom: 4 }).show(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add(egui::Image::new(kit::icon("capo")).fit_to_exact_size(egui::vec2(16.0, 16.0)));
         // Fixed width (room for "12" plus padding) so the field never resizes.
@@ -321,20 +320,22 @@ fn capo_stepper(ui: &mut Ui, capo: &mut u8) {
             *capo += 1;
         }
     });
+    frame.response.on_hover_text("Capo: the fret the capo is on. Fret numbers keep counting from the nut");
 }
+
+const REFERENCE_TIP: &str = "Reference pitch (A4): Hz, or cents from 440 (e.g. -14c). Scroll to change by 0.5 Hz";
 
 /// "A = 440.0 Hz" typed (Hz, or cents from 440 like "-14c"), plus the detect button.
 fn reference_control(ui: &mut Ui, s: &mut Session) {
     let hz = s.project.reference_hz;
     let (key, mut text) = edit_buffer(ui, "reference", || format!("{hz:.1}"));
     let normalise = |t: &str| parse_reference(t).map(|v| format!("{v:.1}"));
-    let opts = FieldOpts { width: 130.0, height: kit::BUTTON, invalid: parse_reference(&text).is_none(), left: 10, right: 10, commit: &normalise };
+    let opts = FieldOpts { width: 176.0, height: kit::BUTTON, invalid: parse_reference(&text).is_none(), left: 10, right: 10, commit: &normalise, tip: REFERENCE_TIP };
     let edit = text_field(ui, opts, |ui| {
         field_icon(ui, "tuning-fork");
         hint(ui, "A =");
     }, &mut text, |ui| hint(ui, "Hz"));
     keep_buffer(ui, key, &edit, text.clone());
-    let edit = edit.on_hover_text("Reference pitch: Hz, or cents from 440 (e.g. -14c). Scroll to change by 0.5 Hz");
     let mut scrolled = hz;
     if kit::wheel_value(ui, &edit, &mut scrolled, &(400.0..=480.0), 0.5, false) {
         s.set_reference_hz(scrolled);

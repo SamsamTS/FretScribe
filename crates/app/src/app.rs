@@ -162,7 +162,7 @@ impl App {
         let Some(r) = self.recover.first() else { return };
         let name = r.saved_path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "an unsaved project".to_owned(), |s| s.to_string_lossy().into_owned());
         let mut choice = None;
-        egui::Window::new("Recovered work").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        egui::Window::new("Recovered work").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.label(format!("FretScribe did not close properly. A newer recovery copy of {name} exists."));
             ui.horizontal(|ui| {
                 if ui.button("Restore recovered version").clicked() {
@@ -506,7 +506,7 @@ impl App {
             return;
         }
         let mut choice = None;
-        egui::Window::new("Unsaved changes").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        egui::Window::new("Unsaved changes").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.label("The project has unsaved changes.");
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
@@ -607,7 +607,7 @@ fn missing_audio_dialog(ctx: &Context, s: &mut Session) {
         return;
     }
     let mut located = None;
-    egui::Window::new("Locate audio file...").collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    egui::Window::new("Locate audio file...").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
         for (id, path) in &missing {
             ui.horizontal(|ui| {
                 ui.label(s.project.track(*id).map_or("track", |t| t.name.as_str()));
