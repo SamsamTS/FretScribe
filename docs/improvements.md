@@ -37,7 +37,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/core/src/measures.rs` | 419 | todo | |
 | `crates/ui/src/overview/mod.rs` | 415 | todo | |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
-| `crates/app/src/toolbar.rs` | 409 | todo | |
+| `crates/app/src/toolbar.rs` | 409 | partial | lines 1-360 read (I-022) |
 | `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
 | `crates/ui/src/nav/maths.rs` | 404 | todo | |
 | `crates/core/src/tracks.rs` | 401 | todo | |
@@ -122,7 +122,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/audio/src/testutil.rs` | 91 | todo | |
 | `crates/ui/src/spectro/readout.rs` | 88 | todo | |
 | `crates/notation/src/tab/label.rs` | 86 | todo | |
-| `crates/app/src/luts.rs` | 85 | todo | |
+| `crates/app/src/luts.rs` | 85 | reviewed | I-022 |
 | `crates/audio/src/metadata.rs` | 80 | todo | |
 | `crates/ui/src/staff_view/links.rs` | 74 | todo | |
 | `crates/ui/src/spectro/ruler.rs` | 73 | todo | |
@@ -350,4 +350,14 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 2. Create the `Player` once in `start_creating`, store it in `Creating` (`player: Option<Player>`), and pass it into `open_file_with` instead of calling `Player::new()` there (use `Player::new()` only when none is given).
 3. `self.toasts.append(&mut s.toasts);` (fields are disjoint).
 **Risk:** low; manual check: create a project from the form with audio and confirm playback starts.
+
+### I-022 · Toolbar: LUT folder re-decoded every frame while the colour-map dropdown is open; leftovers · impact: med (perf) · saves ~6 lines · status: open
+**Where:** `crates/app/src/toolbar.rs:202-205` (rescan), `:206` (names), `:47` (`let _ = s;`), `:60` (tooltip); `crates/app/src/luts.rs:40` `names`; `crates/analysis/src/lut.rs:100` `discover_luts`.
+**Problem:** `kit::is_open(ui, "lut")` is true on every frame while the popup is open, so each frame runs `LutSet::scan`: `read_dir` plus a PNG decode of every palette file (`Lut::from_png`), and rebuilds `Arc<Lut>`s. That is disk I/O and image decoding at 60 fps for as long as the menu is shown. Also: `project(ui, s: &Session, ..)` ignores `s` (`let _ = s;`); the disabled export button's tooltip reads "Export arrives with Prompt 12", an internal planning reference visible to users; `LutSet::names()` exists but only tests use it, while the toolbar rebuilds a `Vec<String>` of names each frame.
+**Instructions:**
+1. Rescan only on the closed-to-open transition: keep `let was_open = ui.data(|d| d.get_temp::<bool>(id))` in egui temp memory (or a `bool` on `Session`), call `scan` when `is_open && !was_open`, then store `is_open`.
+2. Drop the `s` parameter of `project` and `let _ = s;`.
+3. Change the tooltip to "Export is not available yet" (or remove the button until the feature exists).
+4. Use `s.luts.names()` (return `impl Iterator<Item = &str>` or cache `Vec<String>` in `LutSet`) instead of the per-frame `collect`; delete the duplicate.
+**Risk:** low; manual check: add a PNG to the `LUT/` folder while the app runs, open the dropdown, confirm it appears.
 
