@@ -173,7 +173,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs` (rest), `resample.rs`, `synth.rs`, `decode.rs`; then `analysis` (`sync.rs`, `beatfit/`, `pitchref.rs`, `cqt.rs`), `notation` (`tab/solve.rs`, `staff/`), `ui` (`spectro/`, `grid/`, `overview/`, `note_editor/editor.rs`), `app` (`app.rs`, `session.rs`, `toolbar.rs`, `form*.rs`). Test files are read last (helper duplication already covered by I-005/I-006).
 
 ## Findings
-**Summary (interim, 17 of ~157 files read in full or part; 138 still todo).** Top wins: I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; 3 dependency edges removable (`anyhow`, app `thiserror`, app `log`; plus `uuid` in app). No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines.
+**Summary (interim, ~25 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui).** Top wins: I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -318,4 +318,13 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 **Problem:** each function draws, reads input, mutates state and emits events in one body, with 4-6 interleaved concerns (e.g. `show_body`: paint strings, notes, stems, drag, click, marquee, context menu, keyboard).
 **Instructions:** split mechanically along the existing comment boundaries into private functions taking the already-computed locals (`ctx`, `geo`, `heads`, `response`): for `show_body` use `paint(..)`, `drag(..)`, `clicks(..)`, `marquee(..)`, `context_menu(..)`, `keys(..)`; for the lane, extract the wheel-row accumulator (`:206-218`) and the resize handle (`:220-234`). No behaviour change; do one file per commit.
 **Risk:** low; UI tests in `tab_view/tests.rs` and `tracks/tests.rs` cover event output.
+
+### I-018 · 61 `pub` items unreachable from the crate root; 5 clippy hints · impact: low · saves 0 lines, shrinks API surface · status: open
+**Where (compiler `unreachable_pub`, `core`/`analysis` have none):** `ui/src/spectro/glyphs.rs` (19), `ui/src/staff_view/mod.rs` (7), `ui/src/tracks/icons.rs` (6), `ui/src/overview/waveform.rs` (6), `ui/src/tracks/geometry.rs` (3), `ui/src/overview/ruler.rs` (3), `ui/src/grid/popup.rs` (3), `notation/src/staff/value.rs` (3), `notation/src/staff/quant.rs` (3), `ui/src/spectro/pointer.rs` (2), `spectro/notes.rs` (2), `note_editor/draw.rs` (2), `tab_view/draw.rs` (1), `overview/logic.rs` (1). Clippy extras: `notation/src/staff/quant.rs:102` needless `collect`; by-value args never consumed at `notation/src/tab/solve.rs:400`, `ui/src/kit.rs:432`, `ui/src/note_editor/editor.rs:501` (take `&[NoteChange]`) and `:613`.
+**Problem:** items declared `pub` in private modules and never re-exported claim to be API; reviewers cannot tell what is used across crates. (Checked in a scratch copy: narrowing all 61 compiles, and exposes no additional dead code.)
+**Instructions:**
+1. `RUSTFLAGS="-W unreachable_pub" cargo check -p fretscribe-notation -p fretscribe-ui`, change each flagged `pub` to `pub(crate)` (61 one-word edits; the lint prints exact `file:line`).
+2. Apply the five clippy hints; run `cargo clippy -p fretscribe-notation -p fretscribe-ui -- -W clippy::needless_collect -W clippy::needless_pass_by_value`.
+3. Optionally add `#![warn(unreachable_pub)]` to the five library crates so it stays clean.
+**Risk:** none (compile-checked). The `app` and `audio` crates could not be checked here (no ALSA); run the same lint there.
 
