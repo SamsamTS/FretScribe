@@ -17,7 +17,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/analysis/src/sync.rs` | 632 | todo | |
 | `crates/core/src/snap_note.rs` | 630 | todo | |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
-| `crates/app/src/session.rs` | 583 | todo | |
+| `crates/app/src/session.rs` | 583 | partial | struct + new() read (I-019) |
 | `crates/app/src/form_ui.rs` | 581 | todo | |
 | `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
 | `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
@@ -327,4 +327,10 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 2. Apply the five clippy hints; run `cargo clippy -p fretscribe-notation -p fretscribe-ui -- -W clippy::needless_collect -W clippy::needless_pass_by_value`.
 3. Optionally add `#![warn(unreachable_pub)]` to the five library crates so it stays clean.
 **Risk:** none (compile-checked). The `app` and `audio` crates could not be checked here (no ALSA); run the same lint there.
+
+### I-019 · Write-only state in `Session` · impact: low · saves ~14 lines · status: open
+**Where:** `crates/app/src/session.rs:89,166,245,265` `load_progress`; `:96,106-110,173` `hints` and `struct Hints { lut_missing_shown }`; `:98,175` `ref_text`.
+**Problem:** none of the three is read anywhere (workspace-wide search); `load_progress` is only assigned from `LoadEvent::Progress`, `hints.lut_missing_shown` and `ref_text` are only initialised. The open-project dialog tracks its own progress (`app.rs:250,642`).
+**Instructions:** delete the three fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
+**Risk:** none; compile-checked by `cargo check -p fretscribe`.
 
