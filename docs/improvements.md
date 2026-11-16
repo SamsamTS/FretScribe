@@ -16,15 +16,15 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
 | `crates/analysis/src/sync.rs` | 632 | todo | |
 | `crates/core/src/snap_note.rs` | 630 | todo | |
-| `crates/core/src/persist.rs` | 608 | todo | |
+| `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
 | `crates/app/src/session.rs` | 583 | todo | |
 | `crates/app/src/form_ui.rs` | 581 | todo | |
 | `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
 | `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
-| `crates/core/src/undo.rs` | 552 | todo | |
+| `crates/core/src/undo.rs` | 552 | reviewed | prod part read; ok |
 | `crates/audio/src/focus.rs` | 516 | todo | |
 | `crates/core/src/tempo.rs` | 512 | todo | |
-| `crates/core/src/delta.rs` | 512 | todo | |
+| `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
 | `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
 | `crates/ui/src/grid/mod.rs` | 503 | todo | |
 | `crates/notation/src/tab/solve.rs` | 492 | todo | |
@@ -170,7 +170,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Core: `delta.rs`, `persist.rs`, `snap_note.rs`, `undo.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; then audio (`engine.rs`, `player.rs`), analysis, notation, ui, app.
+Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; then audio (`engine.rs`, `player.rs`: audio-thread behaviour first), analysis, notation, ui, app.
 
 ## Findings
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
@@ -265,4 +265,13 @@ Core: `delta.rs`, `persist.rs`, `snap_note.rs`, `undo.rs`, `tempo.rs`, `tracks.r
 **Problem:** the same tolerance is declared under 6 names in 7 files; a change to one silently diverges from the others.
 **Instructions:** put `pub(crate) const EPS: f64 = 1e-9;` (and `TIE_EPS`, `MIN_NOTE_SEC` if the three `1e-3` mean the same thing) in `tempo.rs` next to `BEAT_EPS`, delete the local copies and import. Keep separate only the ones with a different meaning.
 **Risk:** none.
+
+### I-012 · Small `core` cleanups: duplicated display constants, eager clones in `Delta::diff`, shadowed locals · impact: low · saves ~15 lines · status: open
+**Where:** `crates/core/src/persist.rs:59-61,73-87`; `crates/analysis/src/display.rs:5-7`; `crates/core/src/delta.rs:145-161`; `crates/core/src/delta.rs:93-96`.
+**Problem:** (a) `LEVELS_MIN_GAP`/`GAMMA_RANGE` in `persist.rs` duplicate `MIN_LEVELS_GAP`/`GAMMA_MIN`/`GAMMA_MAX` in `analysis/display.rs`, kept in sync by a comment; the comment's premise is backwards for the constants (`analysis` depends on `core`, not the other way round, so `analysis` can import them). (b) `sanitise` shadows `black`/`white` twice (`:75-78`). (c) `Delta::diff` clones `tracks`, `tuning` and (via `to_vec`) both measure lists for every edit even when nothing changed, because `Change::new` takes owned values and then drops them when equal.
+**Instructions:**
+1. In `analysis/display.rs` replace the three consts by `pub use fretscribe_core::persist::{LEVELS_MIN_GAP as MIN_LEVELS_GAP, ...}` (or rename core's to the analysis names, keeping the re-exports in `lib.rs:38` and `analysis/lib.rs:19`); update the comment in `persist.rs`.
+2. `persist.rs:75-78`: `let (mut black, mut white) = (finite_or(..).clamp(..), finite_or(..).clamp(..));`.
+3. `Change::new(before: &T, after: &T, same) -> Option<Self> where T: Clone` (clone only when different); pass `&before.tracks`, `&after.tracks`, etc.; same for the `grid` closure. This also lets `same_tracks` take `&[Track]` and drops the `#[allow(clippy::ptr_arg)]` at `:93`.
+**Risk:** none; `cargo test -p fretscribe-core -p fretscribe-analysis`. Verify 3 with the existing round-trip test `random_mixed_edits_round_trip_and_merge` (`delta.rs:442`).
 
