@@ -11,7 +11,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/ui/src/note_editor/editor_tests.rs` | 790 | todo | |
 | `crates/ui/src/note_editor/editor.rs` | 717 | todo | |
 | `crates/audio/src/player.rs` | 700 | reviewed | prod part read (I-014, I-013) |
-| `crates/app/src/app.rs` | 676 | todo | |
+| `crates/app/src/app.rs` | 676 | partial | lines 1-490 read (I-021) |
 | `crates/analysis/src/waveform.rs` | 656 | partial | peaks() read; ok |
 | `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
 | `crates/analysis/src/sync.rs` | 632 | todo | |
@@ -341,4 +341,13 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 1. Add `impl Project { pub fn note_times(&self) -> NoteTimes { NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)) } }` in `core` and use it at the sites above (only where no `TempoMap` is already in scope; keep `build(.., &tempo)` where it is).
 2. In `session.rs`, split `refresh()` into `refresh_model()` (without the resync) and `refresh()` = `refresh_model()` + `player_resync(false)`; call `refresh_model()` in `undo_redo` before the full resync.
 **Risk:** none; `cargo test --workspace`.
+
+### I-021 · `app.rs`: repeated file dialogs, audio device opened twice when creating a project · impact: low · saves ~12 lines · status: open
+**Where:** `crates/app/src/app.rs:221,377,426` (audio picker), `:346,357` (project picker), `:240` and `:292` (`Player::new()`), `:482-483` (toast drain).
+**Problem:** (a) the same `rfd::FileDialog::new().set_title(..).add_filter("Audio", &AUDIO_EXTS).pick_file()` chain appears 3 times, and the project filter twice. (b) `start_creating` builds a whole `Player` (opens the output stream) only to read `output_rate()`, drops it, and `open_file_with` builds another when the project opens: two device initialisations per new project (tens to hundreds of ms on some drivers). (c) `s.toasts.drain(..).collect::<Vec<_>>()` then `extend` is an `append`.
+**Instructions:**
+1. Add `fn pick_audio(title: &str) -> Option<PathBuf>` and `fn project_dialog() -> rfd::FileDialog`; use them at the 5 sites.
+2. Create the `Player` once in `start_creating`, store it in `Creating` (`player: Option<Player>`), and pass it into `open_file_with` instead of calling `Player::new()` there (use `Player::new()` only when none is given).
+3. `self.toasts.append(&mut s.toasts);` (fields are disjoint).
+**Risk:** low; manual check: create a project from the form with audio and confirm playback starts.
 
