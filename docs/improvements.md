@@ -12,7 +12,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/ui/src/note_editor/editor.rs` | 717 | todo | |
 | `crates/audio/src/player.rs` | 700 | reviewed | prod part read (I-014, I-013) |
 | `crates/app/src/app.rs` | 676 | todo | |
-| `crates/analysis/src/waveform.rs` | 656 | todo | |
+| `crates/analysis/src/waveform.rs` | 656 | partial | peaks() read; ok |
 | `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
 | `crates/analysis/src/sync.rs` | 632 | todo | |
 | `crates/core/src/snap_note.rs` | 630 | todo | |
@@ -64,7 +64,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/ui/src/overview/waveform.rs` | 296 | todo | |
 | `crates/app/src/home.rs` | 288 | todo | |
 | `crates/ui/src/note_editor/grace_entry.rs` | 285 | todo | |
-| `crates/ui/src/tracks/lane.rs` | 284 | todo | |
+| `crates/ui/src/tracks/lane.rs` | 284 | partial | show() read (I-016) |
 | `crates/ui/src/grid/popup.rs` | 282 | todo | |
 | `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
 | `crates/ui/src/tracks/header.rs` | 280 | todo | |
@@ -86,7 +86,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/ui/src/grid/lines.rs` | 197 | todo | |
 | `crates/ui/src/theme.rs` | 196 | todo | |
 | `crates/ui/src/tracks/lanes.rs` | 195 | todo | |
-| `crates/app/src/store.rs` | 193 | todo | |
+| `crates/app/src/store.rs` | 193 | partial | snap_candidates read (I-016) |
 | `crates/ui/src/note_editor/select.rs` | 192 | todo | |
 | `crates/ui/src/spectro/notes.rs` | 183 | todo | |
 | `crates/ui/src/grid/headless.rs` | 178 | todo | |
@@ -301,4 +301,13 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 1. Delete the three/two copies and `use fretscribe_core::{MAX_FRET, A4_MIDI}` (check `A4_MIDI` is re-exported in `core/src/lib.rs`; add it if not). Keep `pub use` of `MAX_FRET` in `notation` only if a caller outside the crate uses `fretscribe_notation::MAX_FRET` (`grep`).
 2. Remove `apply_focus_offline`, `OFFLINE_PAD_SEC`, its `lib.rs` export and tests, unless an analysis feature that needs a zero-phase focused signal is planned (then keep and cite where).
 **Risk:** none for 1; 2 needs a product decision.
+
+### I-016 · Per-frame work in the track lanes that could be cached or culled · impact: low-med · perf: ~1 KB alloc per lane per frame, O(all onsets) shapes per lane per frame, one sort of all targets per drag frame · status: open
+**Where:** `crates/ui/src/tracks/lane.rs:246` (`WaveformPalette::from_rgba` per lane per frame; also `crates/app/src/editor.rs:42`), `:262-267` (loops over every note start and every onset), `crates/app/src/store.rs:112-119` `snap_candidates` (+ `crates/analysis/src/sync.rs:91-92` `snap_offsets` sorts again).
+**Problem:** (a) the 256-colour waveform palette is rebuilt (`Vec<Color32>` of 256) for every lane on every frame from a LUT that only changes with `display_changed`. (b) `show` emits one `vline` per onset/note for the whole track even when off-screen; the onsets are sorted, so only the visible slice is needed. (c) every pointer move of an offset drag clones `beat_times`, appends all reference onsets and sorts the union inside `snap_offsets`.
+**Instructions:**
+1. Build `WaveformPalette` once next to `style.lut` (in `style_of` in `app/src/session.rs`, stored in the style struct), pass `&palette`; delete the two per-frame calls.
+2. In `lane.rs`, iterate `onsets[lo..hi]` with `lo = partition_point(|o| o + offset < view.start_sec)` and `hi` likewise on the visible end; for note ticks use the same bounds on `shared.times` (or skip ticks outside `view`).
+3. Make `snap_candidates` build the sorted target list once per drag (cache in `AudioStore` keyed by `(reference id, revision)`), or have `snap_offsets` take an already sorted slice and document it; drop the `clone()` + `extend`.
+**Risk:** low; visual check of lanes with onsets shown and offset dragging; `cargo test -p fretscribe-ui -p fretscribe`. Verify the gain by counting shapes per frame (`ctx.tessellation_stats` / egui `Shape` count) on a track with ~3000 onsets zoomed in.
 
