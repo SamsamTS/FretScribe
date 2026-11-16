@@ -1,5 +1,7 @@
 # Contract changes
 
+Theme (colours, fonts, icons, shared widgets and layout rules): see THEME_CONTRACT.md.
+
 Only what other crates or the app rely on. Newest entries last; superseded text is corrected in place.
 
 ## 2026-11-01 - audio

@@ -1,6 +1,8 @@
 # FretScribe conventions
 
 ```text
+
+Theme: see THEME_CONTRACT.md for colours, fonts, icons, shared widgets and layout rules.
 Project: "fretscribe" (display name "FretScribe"), a Windows desktop app in Rust (stable toolchain, edition 2021) for transcribing guitar music from audio into sheet music + tablature.
 Cargo workspace layout:
   crates/core      - pure data model + logic, no UI, no audio I/O (serde derives everywhere)
