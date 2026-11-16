@@ -7,7 +7,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/core/src/edit.rs` | 1186 | reviewed | prod part read (I-009, I-011) |
 | `crates/core/src/links.rs` | 969 | reviewed | prod part read (I-010) |
 | `crates/audio/src/mixer_tests.rs` | 814 | todo | |
-| `crates/audio/src/engine.rs` | 795 | todo | |
+| `crates/audio/src/engine.rs` | 795 | reviewed | read except `focus`/`synth` interplay (I-013) |
 | `crates/ui/src/note_editor/editor_tests.rs` | 790 | todo | |
 | `crates/ui/src/note_editor/editor.rs` | 717 | todo | |
 | `crates/audio/src/player.rs` | 700 | todo | |
@@ -170,7 +170,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; then audio (`engine.rs`, `player.rs`: audio-thread behaviour first), analysis, notation, ui, app.
+Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `player.rs`, `focus.rs`, `resample.rs`, `synth.rs`, `decode.rs`; then analysis, notation, ui (per-frame paths first), app.
 
 ## Findings
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
@@ -274,4 +274,13 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 2. `persist.rs:75-78`: `let (mut black, mut white) = (finite_or(..).clamp(..), finite_or(..).clamp(..));`.
 3. `Change::new(before: &T, after: &T, same) -> Option<Self> where T: Clone` (clone only when different); pass `&before.tracks`, `&after.tracks`, etc.; same for the `grid` closure. This also lets `same_tracks` take `&[Track]` and drops the `#[allow(clippy::ptr_arg)]` at `:93`.
 **Risk:** none; `cargo test -p fretscribe-core -p fretscribe-analysis`. Verify 3 with the existing round-trip test `random_mixed_edits_round_trip_and_merge` (`delta.rs:442`).
+
+### I-013 · Per-track peak metering runs on the audio thread but nothing reads it · impact: med · saves ~40 lines incl. tests · perf: removes a per-sample `max` per track and a `try_lock` + `Vec` rebuild per 64-frame block · status: open
+**Where:** `crates/audio/src/engine.rs:29` `PEAK_RELEASE_SEC`, `:46,55` `Shared::peaks`, `:109,133` `TrackState::peak`, `:249,283,288` `peak_block_decay`, `:332`, `:350-353` (`publish`), `:377`, `:671-680` (mix loop); `crates/audio/src/player.rs:373` `track_peak_levels`; consumers: `crates/audio/src/mixer_tests.rs:465-479`, `crates/audio/examples/play.rs:282`.
+**Problem:** no code in `app` or `ui` calls `track_peak_levels`; only a test and the CLI example do. The engine still updates `peak` for every sample of every audible track, decays it every block, and publishes a `Vec<(u64, f32)>` under a `Mutex` about 750 times per second at 48 kHz (`BLOCK_FRAMES` = 64).
+**Instructions:**
+1. Check `CONTEXT.md` for a planned level-meter UI; if none, delete all items listed above (the `peak` field, decay constant, `Shared::peaks`, `publish`'s lock block, the `peak` accumulation in `mix_tracks`, `Player::track_peak_levels`).
+2. Delete the test `peak_levels_report_audible_output_per_track` and the `levels` column in `examples/play.rs:276-288`.
+3. If a meter is planned, keep the feature but replace the `Mutex<Vec>` by one `AtomicU32` (f32 bits) per track slot (no lock, no allocation on the audio thread).
+**Risk:** low; `cargo test -p fretscribe-audio`. Verify there is no audible or timing change with `cargo run -p fretscribe-audio --example play`.
 
