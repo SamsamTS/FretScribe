@@ -17,7 +17,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/analysis/src/sync.rs` | 632 | todo | |
 | `crates/core/src/snap_note.rs` | 630 | todo | |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
-| `crates/app/src/session.rs` | 583 | partial | struct + new() read (I-019) |
+| `crates/app/src/session.rs` | 583 | partial | lines 1-460 read (I-019, I-020) |
 | `crates/app/src/form_ui.rs` | 581 | todo | |
 | `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
 | `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
@@ -333,4 +333,12 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 **Problem:** none of the three is read anywhere (workspace-wide search); `load_progress` is only assigned from `LoadEvent::Progress`, `hints.lut_missing_shown` and `ref_text` are only initialised. The open-project dialog tracks its own progress (`app.rs:250,642`).
 **Instructions:** delete the three fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
 **Risk:** none; compile-checked by `cargo check -p fretscribe`.
+
+### I-020 · `NoteTimes::build(&p.notes, &TempoMap::new(&p.measures))` repeated 22 times; redundant double resync · impact: low · saves ~20 line-widths, one resync per undo · status: open
+**Where:** `crates/app/src/session.rs:129,290,330,336,474`, `editor.rs:556`, `player_sync.rs:66`; `crates/ui/src/tab_view/edit.rs:92,168,236`, `note_editor/grace_entry.rs:209`; `crates/core/src/edit.rs:185,589`, `tracks.rs:144`, `grace.rs:197,224,232,244` (+ `examples`: `tab_demo.rs:35,55`, `note_editor_demo.rs:214`). Resync: `crates/app/src/session.rs:294` (inside `refresh`) then `:311`.
+**Problem:** the same two-call idiom builds a throwaway `TempoMap` just to build the times, in three crates. `undo_redo` calls `refresh()` (which ends in `player_resync(false)`) and immediately `player_resync(true)`, so the first is overwritten.
+**Instructions:**
+1. Add `impl Project { pub fn note_times(&self) -> NoteTimes { NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)) } }` in `core` and use it at the sites above (only where no `TempoMap` is already in scope; keep `build(.., &tempo)` where it is).
+2. In `session.rs`, split `refresh()` into `refresh_model()` (without the resync) and `refresh()` = `refresh_model()` + `player_resync(false)`; call `refresh_model()` in `undo_redo` before the full resync.
+**Risk:** none; `cargo test --workspace`.
 
