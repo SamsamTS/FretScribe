@@ -10,7 +10,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/audio/src/engine.rs` | 795 | reviewed | read except `focus`/`synth` interplay (I-013) |
 | `crates/ui/src/note_editor/editor_tests.rs` | 790 | todo | |
 | `crates/ui/src/note_editor/editor.rs` | 717 | todo | |
-| `crates/audio/src/player.rs` | 700 | todo | |
+| `crates/audio/src/player.rs` | 700 | reviewed | prod part read (I-014, I-013) |
 | `crates/app/src/app.rs` | 676 | todo | |
 | `crates/analysis/src/waveform.rs` | 656 | todo | |
 | `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
@@ -142,7 +142,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/ui/src/nav/tuning.rs` | 53 | todo | |
 | `crates/ui/src/note_editor/overlay.rs` | 51 | todo | |
 | `crates/core/src/lib.rs` | 50 | todo | |
-| `crates/audio/src/parallel.rs` | 50 | todo | |
+| `crates/audio/src/parallel.rs` | 50 | reviewed | I-014 |
 | `Cargo.toml` | 47 | reviewed | deps audited (I-001..I-003) |
 | `crates/audio/src/ramp.rs` | 46 | todo | |
 | `crates/analysis/examples/pitchref.rs` | 38 | todo | |
@@ -170,7 +170,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `player.rs`, `focus.rs`, `resample.rs`, `synth.rs`, `decode.rs`; then analysis, notation, ui (per-frame paths first), app.
+Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs`, `resample.rs`, `synth.rs`, `decode.rs`; then analysis, notation, ui (per-frame paths first), app.
 
 ## Findings
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
@@ -199,7 +199,7 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 **Risk:** none.
 
 ### I-004 · Dead production API (only called from tests) · impact: med · saves ~90 lines incl. their tests · status: open
-**Where:** `crates/ui/src/tracks/geometry.rs:39` `wave_top_px`; `crates/ui/src/nav/mod.rs:229` `max_scroll_points`; `crates/app/src/editor.rs:555` `note_times`; `crates/app/src/session.rs:571` `set_undo_policy`, `:580` `speed_mode`; `crates/analysis/src/spectrogram.rs:139` `suggested_levels`, `:154` `frame_to_sec`; `crates/core/src/undo.rs:74` `with_limit`, `:154` `undo_weight`, `:158` `redo_weight`; `crates/core/src/model.rs:271` `project_to_audio_time`; `crates/core/src/links.rs:183` `chain_fits_one_string`; `crates/core/src/grace.rs:231` `set_grace_kind`, `:299` `remove_grace`, `:366` `unlink_legato`; `crates/audio/src/player.rs:373` `track_peak_levels`; `crates/audio/src/resample.rs:71` `from_channels`; `crates/ui/src/note_editor/keymap.rs:183` `load_or_default`.
+**Where:** `crates/ui/src/tracks/geometry.rs:39` `wave_top_px`; `crates/ui/src/nav/mod.rs:229` `max_scroll_points`; `crates/app/src/editor.rs:555` `note_times`; `crates/app/src/session.rs:571` `set_undo_policy`, `:580` `speed_mode`; `crates/analysis/src/spectrogram.rs:139` `suggested_levels`, `:154` `frame_to_sec`; `crates/core/src/undo.rs:74` `with_limit`, `:154` `undo_weight`, `:158` `redo_weight`; `crates/core/src/model.rs:271` `project_to_audio_time`; `crates/core/src/links.rs:183` `chain_fits_one_string`; `crates/core/src/edit.rs:520` `remove_notes`; `crates/core/src/undo.rs:82` `set_policy` (only reached from the dead `set_undo_policy`); `crates/core/src/grace.rs:231` `set_grace_kind`, `:299` `remove_grace`, `:366` `unlink_legato`; `crates/audio/src/player.rs:373` `track_peak_levels`; `crates/audio/src/resample.rs:71` `from_channels`; `crates/ui/src/note_editor/keymap.rs:183` `load_or_default`.
 **Problem:** none of these has a non-test caller in the workspace (name search across all non-test code). They keep tests and API surface alive for nothing. Unused-in-app grace operations (`set_grace_kind`, `remove_grace`, `unlink_legato`) may be planned UI features: check `CONTEXT.md` first.
 **Instructions:**
 1. For each symbol, delete the definition and the tests that only exercise it (`grep -rw <name> crates`).
@@ -283,4 +283,14 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 2. Delete the test `peak_levels_report_audible_output_per_track` and the `levels` column in `examples/play.rs:276-288`.
 3. If a meter is planned, keep the feature but replace the `Mutex<Vec>` by one `AtomicU32` (f32 bits) per track slot (no lock, no allocation on the audio thread).
 **Risk:** low; `cargo test -p fretscribe-audio`. Verify there is no audible or timing change with `cargo run -p fretscribe-audio --example play`.
+
+### I-014 · `Player::set_tracks` path (decode-side preparation, cache, thread pool) is used by tests and the CLI example only · impact: high · saves ~110 lines · status: open
+**Where:** `crates/audio/src/player.rs:21-31` `TrackAudio`, `:73-81` `State::cache`, `:186-227` `set_tracks`, `:270-282` `load`, `:176-178` `sample_rate` (duplicate of `output_rate` at `:182`); `crates/audio/src/parallel.rs` (whole file, 40 lines); `crates/audio/src/decode.rs:148` `decode_files`; callers: `crates/audio/src/testutil.rs:21-38`, `player.rs` tests (`:570,626,628`), `crates/audio/examples/play.rs`.
+**Problem:** the app only calls `Player::set_prepared_tracks` (`crates/app/src/session.rs:230`) after preparing audio on a worker. `set_tracks`, `load`, the per-address `HashMap` cache of prepared audio, `TrackAudio` and the hand-written scoped thread pool `parallel_map` (a second pool next to the `rayon` one in `analysis`) exist for tests and the example, so production carries and ships ~110 lines nobody runs.
+**Instructions:**
+1. In `testutil.rs`, make `track()` return a `PreparedTrack` (call `PreparedAudio::new(&decoded, RATE)`) and `setup()` call `set_prepared_tracks`; adapt the three tests in `player.rs` the same way.
+2. Delete `TrackAudio`, `set_tracks`, `load`, `State::cache`, `parallel.rs` (and its `mod`), `decode_files`, and `Player::sample_rate` (keep `output_rate`; check `grep -rn 'sample_rate()' crates/app crates/audio/examples`).
+3. In `examples/play.rs` decode and prepare the file(s) with `decode_file` + `PreparedAudio::new` and call `set_prepared_tracks`.
+4. Remove the now-unused `AudioError` variants if the compiler reports them (`Resample("prepared audio went missing")` path).
+**Risk:** low; `cargo test -p fretscribe-audio`. If a future UI wants a synchronous "load this file" call, `load` is 5 lines on top of `set_prepared_tracks`.
 
