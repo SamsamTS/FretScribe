@@ -4,8 +4,8 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 ## Progress
 | File | Lines | Status | Notes |
 |---|---|---|---|
-| `crates/core/src/edit.rs` | 1186 | todo | |
-| `crates/core/src/links.rs` | 969 | todo | |
+| `crates/core/src/edit.rs` | 1186 | reviewed | prod part read (I-009, I-011) |
+| `crates/core/src/links.rs` | 969 | reviewed | prod part read (I-010) |
 | `crates/audio/src/mixer_tests.rs` | 814 | todo | |
 | `crates/audio/src/engine.rs` | 795 | todo | |
 | `crates/ui/src/note_editor/editor_tests.rs` | 790 | todo | |
@@ -36,7 +36,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/app/src/form.rs` | 428 | todo | |
 | `crates/core/src/measures.rs` | 419 | todo | |
 | `crates/ui/src/overview/mod.rs` | 415 | todo | |
-| `crates/ui/src/note_editor/modify.rs` | 412 | todo | |
+| `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
 | `crates/app/src/toolbar.rs` | 409 | todo | |
 | `crates/ui/src/tab_view/mod.rs` | 407 | todo | |
 | `crates/ui/src/nav/maths.rs` | 404 | todo | |
@@ -80,7 +80,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/app/src/autosave.rs` | 217 | todo | |
 | `crates/analysis/src/lut.rs` | 210 | todo | |
 | `crates/core/src/pitch.rs` | 206 | todo | |
-| `crates/core/src/overlap.rs` | 206 | todo | |
+| `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
 | `crates/ui/src/spectro/tests.rs` | 199 | todo | |
 | `crates/app/src/settings.rs` | 198 | todo | |
 | `crates/ui/src/grid/lines.rs` | 197 | todo | |
@@ -170,7 +170,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Cross-cutting pass and manifests done. File-by-file review still to do, largest first: `crates/core/src/edit.rs`, `links.rs`, `crates/audio/src/engine.rs`, `player.rs`, `crates/app/src/app.rs`. No `unwrap`/`expect` in non-test code and no copy-pasted blocks of 7+ lines were found.
+Core: `delta.rs`, `persist.rs`, `snap_note.rs`, `undo.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; then audio (`engine.rs`, `player.rs`), analysis, notation, ui, app.
 
 ## Findings
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
@@ -240,4 +240,29 @@ Cross-cutting pass and manifests done. File-by-file review still to do, largest 
 1. Build `onset_list` and `grid` inside the `for input in collected.inputs` loop's first iteration (lazily, e.g. `let mut onsets = None; ... onsets.get_or_insert_with(|| onset_targets(s))`), or cache the sorted list in `Session` and recompute when `s.store.revision` or track offsets change.
 2. At `:66`, pass `&s.editor.selection.ids` directly to `StaffView` if the borrow allows (it only needs `&[u64]`); otherwise leave.
 **Risk:** none. Verify: count allocations with a debug counter or time `onset_targets` on a project with ~5000 onsets (expected gain: ~100-300 us per frame).
+
+### I-009 · Redundant wrappers in `core/edit.rs` · impact: low · saves ~30 lines · status: open
+**Where:** `crates/core/src/edit.rs:120` `edit_notes`, `:143` `transact`, `:222` `set_tempo`, `:243` `set_time_sig`, `:19-21` consts.
+**Problem:** `edit_notes` only forwards to `transact` (two names, one behaviour; 17 vs 4 non-test callers). `Project::set_tempo` and `Project::set_time_sig` only call their `_scoped` twin with `Propagation::Following` and are called from tests only (`undo.rs:242,483`, `delta.rs:472`; the app uses `_scoped`). `SAME_TIME_EPS` and `INTEGER_EPS` are both `1e-9`.
+**Instructions:**
+1. Keep `edit_notes` as the single name: move the body of `transact` into it, replace the 4 `transact(` call sites (`grep -n 'transact(' crates/core/src`), delete `transact`.
+2. Delete `set_tempo` and `set_time_sig`; in those tests call `set_tempo_scoped(.., Propagation::Following, ..)` (or rename `_scoped` to the short names and drop the suffix, 14 + 9 call sites).
+3. Merge the two `1e-9` constants (see I-011).
+**Risk:** none; `cargo test -p fretscribe-core`.
+
+### I-010 · O(n²) re-tying and full-`Project` clone on every note edit and drag frame · impact: high · perf: edit and drag cost grows with notes² · status: open
+**Where:** `crates/core/src/links.rs:310-350` `tie_links`; `crates/core/src/overlap.rs:24` (`resolve_overlaps` calls it on every edit); `crates/ui/src/note_editor/modify.rs:149-157` `preview_changes` (called per pointer move at `editor.rs:322`); `crates/core/src/model.rs:308` `Project::note` (linear scan); other per-interaction `project.clone()`: `ui/src/note_editor/modify.rs:69`, `draw.rs:248,268`, `grace_entry.rs:70,130`, `tab_view/edit.rs:231`, `core/src/links.rs:421` `valid_links`.
+**Problem:** `tie_links` builds its link list with `self.outgoing(n.id)` for every note; each call does `note(id)` (O(n)) plus a scan for a legato target (O(n)), so one call is O(n²) even when `touched` has a single note. It is reached from every `resolve_overlaps` (transpose, resize, move, paste) and from `preview_changes`, which also clones the whole `Project` on each pointer move while dragging. With ~3000 notes that is ~18M note comparisons plus a deep clone per drag frame.
+**Instructions:**
+1. In `tie_links`, build `links` in one O(n) pass: for each note `n`, push `(n.id, to)` if `n.link_to == Some(to)`, and `(l.from, n.id)` if `n.legato == Some(l)`; or only look at links of `touched` and their partners (`outgoing(t)`, `incoming(t)`), which is O(|touched|·n). Keep the order of the result (tests at `links.rs:746-753`).
+2. In the loop, replace the repeated `self.note(..).cloned()` / `iter_mut().find(..)` with one `HashMap<u64, usize>` (id to index) built once per call.
+3. `preview_changes`: clone only what `resolve_overlaps` reads (`notes` and `measures`), e.g. extract `resolve_overlaps` into a function over `(&mut Vec<Note>, &[Measure])`, or add `Project::preview_overlaps(&self, changes)`; stop cloning `tracks`, tuning, etc.
+4. Longer term: give `Project` a `note_index` or keep `notes` sorted by id and use `binary_search` in `note()`/`note_mut()`.
+**Risk:** low for 1-2 (pure refactor, link tests in `links.rs` and `overlap.rs`); 3 touches the preview only. Verify with a benchmark or a test timing `resolve_overlaps` on a 5000-note project before and after (expected: from tens of ms to well under 1 ms for a single touched note).
+
+### I-011 · Epsilon constants redefined per file in `core` · impact: low · saves ~12 lines · status: open
+**Where:** `1e-9`: `crates/core/src/edit.rs:20,21`, `links.rs:20`, `grace.rs:20`, `snap_note.rs:17`, `overlap.rs:13`, `measures.rs:12`; `1e-12`: `snap.rs:17`, `snap_note.rs:18`; `1e-3`: `edit.rs:19` `MIN_MEASURE_SEC`, `grace.rs:19`, `links.rs:21`.
+**Problem:** the same tolerance is declared under 6 names in 7 files; a change to one silently diverges from the others.
+**Instructions:** put `pub(crate) const EPS: f64 = 1e-9;` (and `TIE_EPS`, `MIN_NOTE_SEC` if the three `1e-3` mean the same thing) in `tempo.rs` next to `BEAT_EPS`, delete the local copies and import. Keep separate only the ones with a different meaning.
+**Risk:** none.
 
