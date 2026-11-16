@@ -19,13 +19,13 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/core/src/persist.rs` | 608 | todo | |
 | `crates/app/src/session.rs` | 583 | todo | |
 | `crates/app/src/form_ui.rs` | 581 | todo | |
-| `crates/app/src/editor.rs` | 557 | todo | |
+| `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
 | `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
 | `crates/core/src/undo.rs` | 552 | todo | |
 | `crates/audio/src/focus.rs` | 516 | todo | |
 | `crates/core/src/tempo.rs` | 512 | todo | |
 | `crates/core/src/delta.rs` | 512 | todo | |
-| `crates/ui/src/note_editor/action.rs` | 507 | todo | |
+| `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
 | `crates/ui/src/grid/mod.rs` | 503 | todo | |
 | `crates/notation/src/tab/solve.rs` | 492 | todo | |
 | `crates/ui/src/overview/logic.rs` | 485 | todo | |
@@ -60,7 +60,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/staff/tests.rs` | 311 | todo | |
 | `crates/notation/src/tab/tests.rs` | 306 | todo | |
 | `crates/ui/src/note_editor/keymap.rs` | 303 | todo | |
-| `crates/app/src/jobs.rs` | 303 | todo | |
+| `crates/app/src/jobs.rs` | 303 | partial | Job abstraction read; ok |
 | `crates/ui/src/overview/waveform.rs` | 296 | todo | |
 | `crates/app/src/home.rs` | 288 | todo | |
 | `crates/ui/src/note_editor/grace_entry.rs` | 285 | todo | |
@@ -69,7 +69,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
 | `crates/ui/src/tracks/header.rs` | 280 | todo | |
 | `crates/ui/src/tab_view/draw.rs` | 277 | todo | |
-| `crates/app/src/loader.rs` | 275 | todo | |
+| `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
 | `crates/audio/src/decode.rs` | 269 | todo | |
 | `crates/analysis/src/beatfit/mod.rs` | 263 | todo | |
 | `crates/ui/src/nav/input.rs` | 261 | todo | |
@@ -170,7 +170,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Cross-cutting pass done (deps, dead pub, duplicated helpers). Next: `crates/core/src/edit.rs`, then rest of `core`.
+Cross-cutting pass and manifests done. File-by-file review still to do, largest first: `crates/core/src/edit.rs`, `links.rs`, `crates/audio/src/engine.rs`, `player.rs`, `crates/app/src/app.rs`. No `unwrap`/`expect` in non-test code and no copy-pasted blocks of 7+ lines were found.
 
 ## Findings
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
@@ -222,4 +222,22 @@ Cross-cutting pass done (deps, dead pub, duplicated helpers). Next: `crates/core
 1. In `core`, add `#[cfg(test)] pub(crate) mod testkit` with `secs(p, id)`, `close(a, b)` (1e-9) and `near(a, b)` (0.011); import it in `edit.rs`, `grace/tests.rs`, `tracks.rs`, `measures.rs` (which currently hosts them).
 2. In `analysis`, one `testkit::close(a, b, tol)` replacing the two f32 copies; same for `audio` (`focus.rs:341` is the generic form; move to `testutil`).
 **Risk:** none.
+
+### I-007 · `note_editor::action::apply` is a 187-line match with repeated patterns · impact: med · saves ~35 lines · status: open
+**Where:** `crates/ui/src/note_editor/action.rs:109-295` (`apply`); `:132` `ctx_grid`; `:211` shadowed `tempo`; `:294` last arm.
+**Problem:** (a) `let ctx_grid = grid;` is a pointless alias; (b) `ForceLegato` rebuilds `TempoMap` that already exists as `tempo` in scope (`:211`); (c) the final arm returns `Ok(Applied::default())` for variants already handled by the early `return`s (`:294`); (d) the pattern `project.notes.iter(_mut)().filter(|n| set.contains(&n.id))` appears 6 times (`:154,159,181,191,273,278`), each an O(notes x selected) scan over a `Vec`; (e) `Transpose`, `Resize`, `SetString`, `Delete`, `Duplicate` bodies are inlined instead of named functions.
+**Instructions:**
+1. Delete `ctx_grid` and use `grid`; delete the inner `tempo` at `:211`.
+2. Replace the last arm with `unreachable!()`-free restructuring: move the four early-return variants into a separate `fn apply_selection_action(...) -> Option<Applied>` called first, and make the main `match` exhaustive without the catch-all.
+3. Add `fn selected<'a>(notes: &'a [Note], ids: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note>` (and `_mut`) and build one `HashSet` from `ids`/`moved` once; use it at the six sites.
+4. Extract one function per large arm (`transpose`, `nudge`, `resize`, `force_legato`, `set_string`) so `apply` is a dispatch of about 40 lines.
+**Risk:** none for 1-3; run `cargo test -p fretscribe-ui note_editor`. Behaviour must stay identical (existing tests in `action.rs` and `editor_tests.rs`).
+
+### I-008 · Per-frame allocations in the editor panel · impact: low-med · perf: removes one `Vec<f64>` collect + sort per frame when "snap to onsets" is on · status: open
+**Where:** `crates/app/src/editor.rs:374` (`onset_targets(s)` at `:402`), `:375` (`snap_grid.clone()`), `:66` (`selection.ids.clone()`).
+**Problem:** `onset_list` gathers every onset of every beat track and sorts them (`O(N log N)`) on every frame, even when `collected.inputs` is empty (the usual case). The grid and selection ids are cloned per frame too.
+**Instructions:**
+1. Build `onset_list` and `grid` inside the `for input in collected.inputs` loop's first iteration (lazily, e.g. `let mut onsets = None; ... onsets.get_or_insert_with(|| onset_targets(s))`), or cache the sorted list in `Session` and recompute when `s.store.revision` or track offsets change.
+2. At `:66`, pass `&s.editor.selection.ids` directly to `StaffView` if the borrow allows (it only needs `&[u64]`); otherwise leave.
+**Risk:** none. Verify: count allocations with a debug counter or time `onset_targets` on a project with ~5000 onsets (expected gain: ~100-300 us per frame).
 
