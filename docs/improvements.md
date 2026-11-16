@@ -22,7 +22,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
 | `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
 | `crates/core/src/undo.rs` | 552 | reviewed | prod part read; ok |
-| `crates/audio/src/focus.rs` | 516 | todo | |
+| `crates/audio/src/focus.rs` | 516 | partial | top 140 lines + offline fn read (I-015) |
 | `crates/core/src/tempo.rs` | 512 | todo | |
 | `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
 | `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
@@ -293,4 +293,12 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 3. In `examples/play.rs` decode and prepare the file(s) with `decode_file` + `PreparedAudio::new` and call `set_prepared_tracks`.
 4. Remove the now-unused `AudioError` variants if the compiler reports them (`Resample("prepared audio went missing")` path).
 **Risk:** low; `cargo test -p fretscribe-audio`. If a future UI wants a synchronous "load this file" call, `load` is 5 lines on top of `set_prepared_tracks`.
+
+### I-015 · Musical constants defined in several crates; unused offline focus filter · impact: low · saves ~35 lines · status: open
+**Where:** `MAX_FRET = 24`: `crates/core/src/links.rs:17` (re-exported by `core/src/lib.rs:25`), `crates/notation/src/tab/mod.rs:13`, `crates/audio/src/focus.rs:17`. `A4_MIDI = 69.0`: `crates/core/src/pitch.rs:7`, `crates/analysis/src/cqt.rs:20`. Dead: `crates/audio/src/focus.rs:302` `apply_focus_offline` (+ `OFFLINE_PAD_SEC` `:26`, ~25 lines, tests at `focus_tests.rs`).
+**Problem:** `notation`, `audio` and `analysis` all depend on `core` yet re-declare its constants. `apply_focus_offline` is exported but called by nothing except its own tests (the app applies focus only in the real-time engine).
+**Instructions:**
+1. Delete the three/two copies and `use fretscribe_core::{MAX_FRET, A4_MIDI}` (check `A4_MIDI` is re-exported in `core/src/lib.rs`; add it if not). Keep `pub use` of `MAX_FRET` in `notation` only if a caller outside the crate uses `fretscribe_notation::MAX_FRET` (`grep`).
+2. Remove `apply_focus_offline`, `OFFLINE_PAD_SEC`, its `lib.rs` export and tests, unless an analysis feature that needs a zero-phase focused signal is planned (then keep and cite where).
+**Risk:** none for 1; 2 needs a product decision.
 
