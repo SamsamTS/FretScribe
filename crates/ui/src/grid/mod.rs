@@ -396,7 +396,7 @@ pub fn can_merge_with_previous(measures: &[Measure], index: usize) -> bool {
 
 pub fn measure_label(measure: &Measure) -> String {
     format!(
-        "{}/{} \u{b7} {} BPM",
+        "{}/{} \u{2669}={}",
         measure.time_sig.numerator,
         measure.time_sig.denominator,
         format_bpm(measure.tempo_bpm)
@@ -453,9 +453,9 @@ mod tests {
     #[test]
     fn label_text() {
         let m = Measure::new(1, 0.0, 70.0, TimeSignature::COMMON);
-        assert_eq!(measure_label(&m), "4/4 \u{b7} 70 BPM");
+        assert_eq!(measure_label(&m), "4/4 \u{2669}=70");
         let m = Measure::new(1, 0.0, 97.5, TimeSignature::new(6, 8));
-        assert_eq!(measure_label(&m), "6/8 \u{b7} 97.5 BPM");
+        assert_eq!(measure_label(&m), "6/8 \u{2669}=97.5");
         assert_eq!(format_bpm(119.99), "120");
         assert_eq!(format_bpm(120.04), "120");
     }
