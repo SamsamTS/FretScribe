@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-16 · branch commit 320dc50_
+_Last updated: 2026-11-16 · branch commit 33bdde0_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -38,7 +38,7 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/ui/src/overview/mod.rs` | 415 | todo | |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
 | `crates/app/src/toolbar.rs` | 409 | todo | |
-| `crates/ui/src/tab_view/mod.rs` | 407 | todo | |
+| `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
 | `crates/ui/src/nav/maths.rs` | 404 | todo | |
 | `crates/core/src/tracks.rs` | 401 | todo | |
 | `crates/core/src/snap.rs` | 400 | todo | |
@@ -170,9 +170,11 @@ _Last updated: 2026-11-16 · branch commit 320dc50_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs`, `resample.rs`, `synth.rs`, `decode.rs`; then analysis, notation, ui (per-frame paths first), app.
+Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs` (rest), `resample.rs`, `synth.rs`, `decode.rs`; then `analysis` (`sync.rs`, `beatfit/`, `pitchref.rs`, `cqt.rs`), `notation` (`tab/solve.rs`, `staff/`), `ui` (`spectro/`, `grid/`, `overview/`, `note_editor/editor.rs`), `app` (`app.rs`, `session.rs`, `toolbar.rs`, `form*.rs`). Test files are read last (helper duplication already covered by I-005/I-006).
 
 ## Findings
+**Summary (interim, 17 of ~157 files read in full or part; 138 still todo).** Top wins: I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; 3 dependency edges removable (`anyhow`, app `thiserror`, app `log`; plus `uuid` in app). No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines.
+
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
 **Problem:** `anyhow` has zero call sites in the workspace; `thiserror` and `log` are declared in `fretscribe-app` but never used there (no `log::`/`warn!` etc., no `derive(Error)`).
@@ -310,4 +312,10 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 2. In `lane.rs`, iterate `onsets[lo..hi]` with `lo = partition_point(|o| o + offset < view.start_sec)` and `hi` likewise on the visible end; for note ticks use the same bounds on `shared.times` (or skip ticks outside `view`).
 3. Make `snap_candidates` build the sorted target list once per drag (cache in `AudioStore` keyed by `(reference id, revision)`), or have `snap_offsets` take an already sorted slice and document it; drop the `clone()` + `extend`.
 **Risk:** low; visual check of lanes with onsets shown and offset dragging; `cargo test -p fretscribe-ui -p fretscribe`. Verify the gain by counting shapes per frame (`ctx.tessellation_stats` / egui `Shape` count) on a track with ~3000 onsets zoomed in.
+
+### I-017 · Very long `show`/`layout` functions mixing painting and input handling · impact: low-med · saves ~0 lines, lowers review cost · status: open
+**Where:** `crates/ui/src/tab_view/mod.rs:210-365` `show_body` (155 lines); `crates/app/src/editor.rs:23` `show` (160); `crates/ui/src/tracks/lane.rs:140` `show` (143); `crates/ui/src/tracks/header.rs:86` `show` (136); `crates/ui/src/spectro/glyphs.rs:271` `layout` (113); `crates/analysis/src/beatfit/fit.rs:22` `fit_measures` (129); `crates/analysis/src/sync.rs:108` `estimate_offset` (101).
+**Problem:** each function draws, reads input, mutates state and emits events in one body, with 4-6 interleaved concerns (e.g. `show_body`: paint strings, notes, stems, drag, click, marquee, context menu, keyboard).
+**Instructions:** split mechanically along the existing comment boundaries into private functions taking the already-computed locals (`ctx`, `geo`, `heads`, `response`): for `show_body` use `paint(..)`, `drag(..)`, `clicks(..)`, `marquee(..)`, `context_menu(..)`, `keys(..)`; for the lane, extract the wheel-row accumulator (`:206-218`) and the resize handle (`:220-234`). No behaviour change; do one file per commit.
+**Risk:** low; UI tests in `tab_view/tests.rs` and `tracks/tests.rs` cover event output.
 
