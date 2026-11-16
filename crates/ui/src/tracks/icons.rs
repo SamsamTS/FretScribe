@@ -1,7 +1,6 @@
 //! Small vector icons drawn with the painter, so no icon font is needed.
 
-use egui::epaint::PathStroke;
-use egui::{pos2, vec2, Color32, Painter, Pos2, Rect, Shape, Stroke};
+use egui::{pos2, Color32, Painter, Pos2, Rect, Stroke};
 use fretscribe_core::TrackRole;
 
 fn at(r: Rect, x: f32, y: f32) -> Pos2 {
@@ -48,33 +47,9 @@ pub fn role(p: &Painter, r: Rect, role: TrackRole, c: Color32) {
     }
 }
 
-pub fn star(p: &Painter, r: Rect, filled: bool, c: Color32) {
-    let (centre, outer) = (r.center(), r.width().min(r.height()) / 2.0);
-    let points: Vec<Pos2> = (0..10)
-        .map(|i| {
-            let angle = std::f32::consts::PI * (i as f32 / 5.0 - 0.5);
-            centre + vec2(angle.cos(), angle.sin()) * if i % 2 == 0 { outer } else { outer * 0.45 }
-        })
-        .collect();
-    let fill = if filled { c } else { Color32::TRANSPARENT };
-    p.add(Shape::Path(egui::epaint::PathShape { points, closed: true, fill, stroke: PathStroke::new(1.2_f32, c) }));
-}
-
-pub fn chevron(p: &Painter, r: Rect, open: bool, c: Color32) {
-    let (a, b, d) = if open { ((0.2, 0.35), (0.8, 0.35), (0.5, 0.7)) } else { ((0.35, 0.2), (0.35, 0.8), (0.7, 0.5)) };
-    p.add(Shape::convex_polygon(vec![at(r, a.0, a.1), at(r, b.0, b.1), at(r, d.0, d.1)], c, Stroke::NONE));
-}
-
 pub fn grip(p: &Painter, r: Rect, c: Color32) {
     for (x, y) in [(0.3, 0.2), (0.7, 0.2), (0.3, 0.5), (0.7, 0.5), (0.3, 0.8), (0.7, 0.8)] {
         p.circle_filled(at(r, x, y), 1.2, c);
     }
 }
 
-pub fn horizontal_arrows(p: &Painter, r: Rect, c: Color32) {
-    line(p, r, (0.1, 0.5), (0.9, 0.5), 1.3, c);
-    for (tip, back) in [(0.1, 0.3), (0.9, 0.7)] {
-        line(p, r, (tip, 0.5), (back, 0.3), 1.3, c);
-        line(p, r, (tip, 0.5), (back, 0.7), 1.3, c);
-    }
-}

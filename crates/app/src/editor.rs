@@ -11,7 +11,7 @@ use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
 use fretscribe_ui::view::LANE_HEADER_WIDTH;
 use fretscribe_ui::{
-    GridEvent, GridOverlay, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, SpectroEvent, StaffView, TabView, TrackLanes,
+    GridEvent, GridOverlay, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
 };
 
 use crate::session::Session;
@@ -28,13 +28,16 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
 
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
-    egui::TopBottomPanel::top("overview").show(ctx, |ui| {
+    // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
+    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: 4, bottom: 4 });
+    egui::TopBottomPanel::top("overview").frame(overview_frame).show(ctx, |ui| {
         let view = s.ctl.current.timeline();
-        let width = ctx.screen_rect().width();
+        let width = ctx.screen_rect().width() - LANE_HEADER_WIDTH;
         let starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
         let source = s.project.source_track;
         let store = &s.store;
         let out = OverviewTimeline::new(audio_len, &view, width, |range, columns| store.peaks(source, (range.start, range.end), columns))
+            .gutter(LANE_HEADER_WIDTH - 16.0)
             .measure_starts(&starts)
             .palette(fretscribe_ui::overview::WaveformPalette::from_rgba(&s.style.lut.colors))
             .playhead(s.ui.playhead_sec)
@@ -51,25 +54,38 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.recompute_staff();
     }
     let view = s.ctl.current.timeline();
-    let panel = egui::TopBottomPanel::bottom("notation").resizable(true).min_height(160.0).default_height(300.0).show(ctx, |ui| {
+    // Fixed height: the sheet, the tool row and a tab strip tall enough for the rhythm stems. A collapse
+    // button in the tool row leaves only that row.
+    let tab_style = TabStyle::default();
+    let strings = s.project.tuning.open_strings.len().max(1);
+    let full_height = StaffStyle::default().height() + tab_view::TOOLBAR_HEIGHT + tab_style.height(strings, true);
+    let height = if s.notation_collapsed { tab_view::TOOLBAR_HEIGHT } else { full_height };
+    let frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG);
+    let panel = egui::TopBottomPanel::bottom("notation").resizable(false).exact_height(height).frame(frame).show(ctx, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
         let selected = s.editor.selection.ids.clone();
         let playhead = None;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let mut collapsed = s.notation_collapsed;
+        if !collapsed {
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &StaffStyle::default(), timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
+        }
+        tab_events = tab_view::toolbar(ui, &mut s.tab_state, Some(&mut collapsed));
+        if !collapsed {
             let out = TabView {
                 project: &s.project,
                 times: &s.times,
                 staff: Some(&s.staff),
                 selected: &selected,
                 playhead,
-                style: &TabStyle::default(),
+                style: &tab_style,
                 opts: &s.tab_opts,
                 timeline_offset: LANE_HEADER_WIDTH,
             }
-            .show(ui, &view, &mut s.tab_state);
-            tab_events = out.events;
-        });
+            .show_body(ui, &view, &mut s.tab_state);
+            tab_events.extend(out.events);
+        }
+        s.notation_collapsed = collapsed;
     });
     let notation_rect = panel.response.rect;
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
@@ -86,6 +102,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
         let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
         seek_origin = ruler.left_top();
+        // The corner above the track headers shares the toolbar's background and captions like its groups.
+        let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
+        ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
+        fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         let (_, content_px) = s.lanes.strips(ctx, &s.project);
         let nav = NavContext {
             // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
@@ -216,15 +236,14 @@ fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request
             (v.scroll_sec, v.pixels_per_sec) = (scroll_sec, pixels_per_sec);
             s.ctl.set_target(v);
         }
-        OverviewEvent::PlayRegionRequested => {
-            if let (Some(r), Some(p)) = (s.region, &s.player) {
-                p.seek(r.start_sec);
-                p.play();
+        OverviewEvent::Zoom(step) => {
+            let mut v = s.ctl.target.timeline();
+            match step {
+                ZoomStep::In => v.zoom_around((s.ctl.width() / 2.0) as f32, 1.25),
+                ZoomStep::Out => v.zoom_around((s.ctl.width() / 2.0) as f32, 1.0 / 1.25),
+                ZoomStep::Fit => v = TimelineView::new(0.0, s.ctl.width() / s.audio_len_sec.max(1.0)),
             }
-        }
-        OverviewEvent::LoopToggled(on) => {
-            s.ui.loop_enabled = on;
-            s.player_resync(false);
+            s.ctl.set_target(v);
         }
         OverviewEvent::SnapToggled(on) => s.overview_snap = on,
     }
@@ -317,7 +336,7 @@ fn handle_tab(s: &mut Session, e: TabViewEvent) {
             Ok(applied) => s.push(applied.edit, false),
             Err(err) => s.toast(err.to_string(), true),
         },
-        TabViewEvent::TuningChanged { tuning, capo } => s.set_tuning_capo(tuning, capo),
+        TabViewEvent::ReinferRequested => s.reinfer_tab(),
         TabViewEvent::Marquee { ids, add } => {
             let mut all = if add { s.editor.selection.ids.clone() } else { Vec::new() };
             for id in ids {
@@ -404,7 +423,7 @@ pub fn dialogs(ctx: &Context, s: &mut Session) {
 fn exact_window(ctx: &Context, s: &mut Session) {
     let Some(mut f) = s.exact.take() else { return };
     let (mut keep, mut apply) = (true, false);
-    egui::Window::new("Exact edit").collapsible(false).open(&mut keep).show(ctx, |ui| {
+    egui::Window::new("Exact edit").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).open(&mut keep).show(ctx, |ui| {
         egui::Grid::new("exact").show(ui, |ui| {
             for (label, (bar, beat)) in [("Start bar / beat", &mut f.start), ("End bar / beat", &mut f.end)] {
                 ui.label(label);
@@ -443,7 +462,7 @@ fn exact_window(ctx: &Context, s: &mut Session) {
 fn confirm_delete(ctx: &Context, s: &mut Session) {
     let Some(event) = s.pending_delete else { return };
     let mut choice = None;
-    egui::Window::new("Delete measure?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    egui::Window::new("Delete measure?").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
         ui.label("This measure contains notes. Deleting it removes them too.");
         ui.horizontal(|ui| {
             if ui.button("Delete").clicked() {
@@ -472,7 +491,7 @@ fn sync_window(ctx: &Context, s: &mut Session) {
     let Some(d) = s.sync_dialog.take() else { return };
     let name = s.project.track(d.track).map_or_else(String::new, |t| t.name.clone());
     let (mut apply, mut close) = (None, false);
-    egui::Window::new(format!("Align '{name}'")).collapsible(false).show(ctx, |ui| {
+    egui::Window::new(format!("Align '{name}'")).frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
         ui.label("The alignment is uncertain. Pick an offset:");
         for c in &d.candidates {
             ui.horizontal(|ui| {
@@ -496,7 +515,7 @@ fn tempo_window(ctx: &Context, s: &mut Session) {
         return;
     }
     let (mut pick, mut close) = (None, false);
-    egui::Window::new("Detected tempo").collapsible(false).show(ctx, |ui| {
+    egui::Window::new("Detected tempo").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
         ui.label("Pick the tempo that matches the beat (the detector may find half or double):");
         for &(bpm, conf) in s.tempo_choices.iter().take(5) {
             if ui.button(format!("{bpm:.1} BPM  ({:.0}%)", conf * 100.0)).clicked() {
@@ -517,7 +536,7 @@ fn tempo_window(ctx: &Context, s: &mut Session) {
 fn pitch_window(ctx: &Context, s: &mut Session) {
     let Some(est) = s.pitch_result.clone() else { return };
     let (mut apply, mut close) = (false, false);
-    egui::Window::new("Reference pitch").collapsible(false).show(ctx, |ui| {
+    egui::Window::new("Reference pitch").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
         ui.label(format!("Estimated A = {:.1} Hz ({:+.0} cents, confidence {:.0}%)", est.a4_hz, est.cents, est.confidence * 100.0));
         ui.small("The detector only resolves offsets within +/-50 cents of A = 440. A recording a half step down, or played with a capo, reads about 0 cents: use the tuning presets and the capo for that.");
         ui.horizontal(|ui| {

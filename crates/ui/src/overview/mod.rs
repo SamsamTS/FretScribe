@@ -24,7 +24,7 @@ mod headless;
 use std::ops::Range;
 
 use egui::{
-    pos2, vec2, Align2, Button, Color32, CursorIcon, FontId, PointerButton, Rect, Sense, Stroke,
+    pos2, vec2, Align2, Color32, CursorIcon, FontId, PointerButton, Rect, Sense, Stroke,
     StrokeKind, Ui,
 };
 
@@ -45,13 +45,20 @@ const DEFAULT_WAVEFORM_HEIGHT: f32 = 44.0;
 /// How much lighter the odd measures' background is than the even ones'.
 pub const MEASURE_BAND_LIGHTEN: f32 = 0.05;
 
+/// A zoom button of the overview.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZoomStep {
+    In,
+    Out,
+    Fit,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OverviewEvent {
     SeekRequested(f64),
     RegionChanged(Option<RegionSelection>),
     ViewportChanged { scroll_sec: f64, pixels_per_sec: f64 },
-    PlayRegionRequested,
-    LoopToggled(bool),
+    Zoom(ZoomStep),
     SnapToggled(bool),
 }
 
@@ -82,7 +89,7 @@ impl Default for OverviewStyle {
     fn default() -> Self {
         Self {
             palette: WaveformPalette::default(),
-            ruler_background: Color32::from_rgb(26, 31, 42),
+            ruler_background: crate::theme::WINDOW_BG,
             ruler_text: Color32::from_rgb(170, 178, 196),
             tick: Color32::from_rgb(120, 130, 152),
             tick_minor: Color32::from_rgb(64, 72, 90),
@@ -111,6 +118,7 @@ where
     snap_points: Option<&'a [f64]>,
     snapping: bool,
     looping: bool,
+    gutter: f32,
     waveform_height: f32,
     style: OverviewStyle,
 }
@@ -132,6 +140,7 @@ where
             snap_points: None,
             snapping: true,
             looping: false,
+            gutter: 0.0,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
             style: OverviewStyle::default(),
         }
@@ -167,6 +176,13 @@ where
         self
     }
 
+    /// Width of the column left of the strip (holding the zoom buttons); the strip starts right after it,
+    /// so it can line up with the main view's timeline.
+    pub fn gutter(mut self, width: f32) -> Self {
+        self.gutter = width;
+        self
+    }
+
     pub fn waveform_height(mut self, height: f32) -> Self {
         self.waveform_height = height.max(8.0);
         self
@@ -187,7 +203,12 @@ where
         let mut events = Vec::new();
         let mut strip = Rect::NOTHING;
         ui.horizontal(|ui| {
-            ui.vertical(|ui| self.buttons(ui, region.is_some(), &mut events));
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let size = vec2(self.gutter, RULER_HEIGHT + self.waveform_height);
+            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                ui.set_min_size(size); // a child only keeps its content's size otherwise
+                self.buttons(ui, &mut events);
+            });
             let size = vec2(ui.available_width().max(1.0), RULER_HEIGHT + self.waveform_height);
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             strip = rect;
@@ -199,25 +220,19 @@ where
         OverviewOutput { events, strip }
     }
 
-    fn buttons(&self, ui: &mut Ui, has_region: bool, events: &mut Vec<OverviewEvent>) {
-        let loop_button = ui
-            .add(Button::new("Loop").selected(self.looping))
-            .on_hover_text("Repeat the selection (or the whole file when nothing is selected)");
-        if loop_button.clicked() {
-            events.push(OverviewEvent::LoopToggled(!self.looping));
-        }
-        let play = ui
-            .add_enabled(has_region, Button::new("Play selection"))
-            .on_hover_text("Play the selected region from its start")
-            .on_disabled_hover_text("Select a region first: drag on the overview");
-        if play.clicked() {
-            events.push(OverviewEvent::PlayRegionRequested);
-        }
-        let magnet = magnet_button(ui, self.snapping)
-            .on_hover_text("Snap the seek point and the selection (hold Alt to invert)");
-        if magnet.clicked() {
-            events.push(OverviewEvent::SnapToggled(!self.snapping));
-        }
+    /// The zoom group (with the snap magnet) left of the strip, bottom-aligned with it.
+    fn buttons(&self, ui: &mut Ui, events: &mut Vec<OverviewEvent>) {
+        crate::kit::group_at(ui, "Zoom", true, |ui| {
+            for (icon, tip, step) in [("zoom-in", "Zoom in", ZoomStep::In), ("zoom-out", "Zoom out", ZoomStep::Out), ("zoom-fit", "Zoom to fit", ZoomStep::Fit)] {
+                if crate::kit::ibtn(ui, icon, tip, false).clicked() {
+                    events.push(OverviewEvent::Zoom(step));
+                }
+            }
+            crate::kit::sep(ui);
+            if crate::kit::ibtn(ui, "snap", "Snap the seek point and the selection (hold Alt to invert)", self.snapping).clicked() {
+                events.push(OverviewEvent::SnapToggled(!self.snapping));
+            }
+        });
     }
 
     fn interact(
@@ -397,25 +412,4 @@ where
         painter.add(minor_ticks.into_shape());
         painter.add(major_ticks.into_shape());
     }
-}
-
-fn magnet_button(ui: &mut Ui, on: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(24.0, 20.0), Sense::click());
-    let visuals = ui.style().interact_selectable(&response, on);
-    let painter = ui.painter();
-    painter.rect(rect, visuals.corner_radius, visuals.weak_bg_fill, visuals.bg_stroke, StrokeKind::Inside);
-    let (c, r) = (rect.center() + vec2(0.0, -1.0), 5.0_f32);
-    let arc = (0..=12).map(|i| {
-        let a = std::f32::consts::PI * i as f32 / 12.0;
-        pos2(c.x - r * a.cos(), c.y - r * a.sin())
-    });
-    let points: Vec<_> = std::iter::once(pos2(c.x - r, c.y + 5.0))
-        .chain(arc)
-        .chain(std::iter::once(pos2(c.x + r, c.y + 5.0)))
-        .collect();
-    painter.add(egui::Shape::line(points, Stroke::new(3.0_f32, visuals.fg_stroke.color)));
-    for x in [c.x - r, c.x + r] {
-        painter.line_segment([pos2(x, c.y + 3.0), pos2(x, c.y + 5.0)], Stroke::new(3.0_f32, Color32::from_rgb(230, 80, 80)));
-    }
-    response
 }

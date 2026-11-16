@@ -35,7 +35,7 @@ pub fn paint_seek_line(ctx: &egui::Context, x: f32, top: f32) {
 pub fn show_time_ruler(ui: &mut Ui, view: &TimelineView, height: f32) -> Option<SpectroEvent> {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::click_and_drag());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, Color32::from_gray(34));
+    painter.rect_filled(rect, 0.0, crate::theme::WINDOW_BG);
     let step = ruler_step(view.pixels_per_sec);
     let range = view.visible_range(rect.width());
     let first = (range.start / step).floor() as i64;

@@ -1,5 +1,7 @@
 # Contract changes
 
+Theme (colours, fonts, icons, shared widgets and layout rules): see THEME_CONTRACT.md.
+
 Only what other crates or the app rely on. Newest entries last; superseded text is corrected in place.
 
 ## 2026-11-01 - audio
@@ -127,3 +129,14 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 
 - `ui::theme`: surfaces retuned around the logo background (`WINDOW_BG` = #1C2024); new `LOGO_GLOW`, `LOGO_PNG`, `ICON_PNG` (assets in `crates/ui/assets/logo/`, source `Logo.svg`; PNGs rendered with `rsvg-convert`, Montserrat Bold installed).
 - app: home screen has a pinned logo banner above the grid; tiles are New Project, Open (`HomeAction::OpenDialog`), then the recents. `Settings::window_mode` (`WindowMode::{Normal, Maximized, Fullscreen}`, serde default Normal) is restored on start; a normal window opens centred; the window icon is the logo icon.
+
+## 2026-11-15 - ui/app: editor toolbar redesign
+
+- `ui::kit` (new): `icon(name)`, `install(ctx)` (SVG loaders, called at app start), `ibtn`, `play_button`, `group`, `sep`, `selector`, `slider_popup`, `hint`. Icons are in `crates/ui/assets/icons/` (generated from `icons/gen_icons.py`).
+- `ui::overview`: the Loop / Play selection buttons are gone (they live in the toolbar transport); the left column is now the Zoom group (+ snap magnet). `OverviewEvent::{PlayRegionRequested, LoopToggled}` removed, `OverviewEvent::Zoom(ZoomStep::{In, Out, Fit})` added. `egui_extras` (svg) is a new `ui` dependency.
+- app: `toolbar.rs` follows `claude/editor-toolbar.dc.html`: two rows of captioned groups (Project, History, Transcription, Spectrogram / Transport, Speed, Listening, Notes & grid). The old toolbar zoom +/- are replaced by the overview Zoom group.
+- `ui::kit` follow-up: `Field` (`popup` / `dropdown`, scroll-wheel aware), `popup`, `menu_rows` (the new-project form's dropdown list, now shared by `form_ui`), `wheel`, `wheel_value`, `is_open`, `group_at`. `OverviewTimeline::gutter(width)` sets the column left of the strip; the app uses `LANE_HEADER_WIDTH - 16` so the strip starts at the spectrogram's left edge. The overview snap button uses the `snap` icon (the painted magnet is gone).
+- Backgrounds: overview ruler, spectrogram ruler, staff and tab strips use `theme::WINDOW_BG` (the toolbar colour); the area behind the lanes is `theme::TITLE_BG`. `TabViewEvent::ReinferRequested` is new (the re-infer button moved from the toolbar to the tab bar); the tab bar has no label and no tuning button. The "Add track" strip became a button inside the header column (same `TrackEvent::AddTrackRequested`).
+- Fonts: `theme::add_fonts` keeps only Inter / Inter Medium / JetBrains Mono (plus egui's small symbol font as a fallback for its own menu arrows); `FontFamily::Monospace` is JetBrains Mono. The sheet keeps Bravura for music glyphs, which the tempo label also uses for its quarter-note sign.
+- Removed: the tab view's tuning dialog (`TuningDraft`, `TabViewEvent::TuningChanged`, `TabViewState::{tuning, open_tuning}`; the toolbar edits tuning and capo) and "High contrast" (`TabViewState::high_contrast`). The tempo label keeps its "♩" sign, drawn by egui's small symbol font (kept as a fallback; Inter and JetBrains Mono lack the glyph).
+- `tab_view::toolbar(ui, state, collapsed)` / `TOOLBAR_HEIGHT` / `TabView::show_body` (the strip alone; `show` = toolbar + body). The app's sheet+tab panel has a fixed height (sheet + tool row + a tab strip with room for stems) and `Session::notation_collapsed` collapses it to the tool row. `kit::group_frame_h`, `FieldOpts::tip`, `theme::dialog_frame`; group gaps equal their padding (4 px).

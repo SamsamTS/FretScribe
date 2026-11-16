@@ -3,8 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use egui::epaint::{Shadow, StrokeKind};
-use egui::{Align, Align2, Area, Id, Order, Color32, CornerRadius, FontFamily, FontId, Frame, Key, Layout, Margin, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Shape, Stroke, TextEdit, Ui, Vec2};
+use egui::{Align, Align2, Id, Color32, CornerRadius, FontFamily, FontId, Frame, Key, Layout, Margin, Pos2, Rect, RichText, ScrollArea, Sense, Shape, Stroke, Ui, Vec2};
 use fretscribe_core::TrackRole;
+use fretscribe_ui::kit::{self, dropdown, fix_size, pill, text_field, Dd, FieldOpts};
 use fretscribe_ui::theme;
 
 use crate::form::{guess_role, normalise_number, normalise_time_sig, normalise_tuning, parse_tuning, preset_texts, FormErrors, FormValues, Instrument, Validated, MAX_CAPO};
@@ -17,7 +18,6 @@ const SMALL_R: u8 = 6;
 const ROUND: CornerRadius = CornerRadius::same(SMALL_R);
 /// Gap between a field's border and a dropdown inside it, equal to the one above and below (28 px in 38 + stroke).
 const PAD: i8 = 5;
-const KEY_USED: &str = "form_key_used";
 const ROLES: [TrackRole; 4] = [TrackRole::Guitar, TrackRole::Bass, TrackRole::Drums, TrackRole::Other];
 const SIGNATURES: [&str; 9] = ["2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8", "2/2"];
 const REFERENCE_NOTE: &str = "Offset from A = 440 Hz, limited to +/-50 cents (a semitone shift or a capo reads about 0).";
@@ -152,7 +152,7 @@ impl FormState {
                 action = out.inner;
             });
         });
-        let used = ui.data_mut(|d| d.remove_temp::<bool>(Id::new(KEY_USED))).unwrap_or(false);
+        let used = ui.data_mut(|d| d.remove_temp::<bool>(Id::new(kit::KEY_USED))).unwrap_or(false);
         let (enter, esc) = ui.input(|i| (i.key_pressed(Key::Enter) && !used, i.key_pressed(Key::Escape) && !used));
         match (action, validated) {
             (None, Ok(v)) if enter => Some(FormAction::Create(v)),
@@ -170,7 +170,7 @@ impl FormState {
 
         label(ui, "Project name");
         let hint_text = if self.name_from_tags { "From the file's tags" } else { "" };
-        let name = field(ui, Opts::new(inner, errors.name.is_some(), 12, &|t| (t.trim() != t).then(|| t.trim().to_owned())), |_| {}, &mut self.values.name, |_| {});
+        let name = field(ui, opts(inner, errors.name.is_some(), 12, &|t| (t.trim() != t).then(|| t.trim().to_owned())), |_| {}, &mut self.values.name, |_| {});
         self.name_from_tags &= !name.changed();
         hint(ui, errors.name.as_deref(), hint_text);
         ui.add_space(24.0);
@@ -229,7 +229,7 @@ impl FormState {
         label(ui, "Base BPM");
         let chips: Vec<String> = self.bpm_candidates.iter().map(|c| chip_text(c.0)).collect();
         let mut picked = None;
-        let opts = Opts::new(w, error.is_some(), 12, &|t| normalise_number(t, 1));
+        let opts = opts(w, error.is_some(), 12, &|t| normalise_number(t, 1));
         field(ui, opts, |_| {}, &mut self.values.bpm, |ui| {
             picked = estimate_ui(ui, &chips, self.estimating, "Estimated tempo, click to use it");
         });
@@ -244,7 +244,7 @@ impl FormState {
         let items = SIGNATURES.map(str::to_owned);
         let selected = SIGNATURES.iter().position(|s| *s == self.values.time_sig);
         let mut picked = None;
-        let opts = Opts::new(w, error.is_some(), 12, &normalise_time_sig);
+        let opts = opts(w, error.is_some(), 12, &normalise_time_sig);
         field(ui, opts, |_| {}, &mut self.values.time_sig, |ui| {
             picked = dropdown(ui, "sig", "", Some(28.0), &items, selected, Dd::RIGHT);
         });
@@ -258,7 +258,7 @@ impl FormState {
         label(ui, "Frequency reference");
         let chip = self.reference.filter(|r| r.2 > 0.0).map(|r| chip_text(f64::from(r.1)));
         let mut picked = None;
-        let opts = Opts::new(w, error.is_some(), 12, &|t| normalise_number(t, 1));
+        let opts = opts(w, error.is_some(), 12, &|t| normalise_number(t, 1));
         field(ui, opts, |ui| drop(ui.label(RichText::new("A =").color(theme::HINT))), &mut self.values.reference_hz, |ui| {
             picked = estimate_ui(ui, chip.as_slice(), self.estimating, REFERENCE_NOTE);
             ui.label(RichText::new("Hz").color(theme::HINT));
@@ -281,7 +281,7 @@ impl FormState {
         let instruments = [Instrument::Guitar, Instrument::Bass].map(|i| instrument_label(i).to_owned());
         let inst_sel = [Instrument::Guitar, Instrument::Bass].iter().position(|i| *i == instrument);
         let normalise = |t: &str| normalise_tuning(t, instrument);
-        let opts = Opts::new(w, error.is_some(), PAD, &normalise);
+        let opts = opts(w, error.is_some(), PAD, &normalise);
         let lead = |ui: &mut Ui| inst_pick = dropdown(ui, "instrument", instrument_label(instrument), None, &instruments, inst_sel, Dd::LEFT);
         field(ui, opts, lead, &mut self.values.tuning, |ui| {
             preset_pick = dropdown(ui, "preset", "", Some(28.0), &items, preset_sel, Dd::RIGHT);
@@ -333,6 +333,14 @@ fn text_wf(ui: &Ui, text: &str, font: FontId) -> f32 {
     ui.fonts(|f| f.layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x)
 }
 
+fn opts<'a>(width: f32, invalid: bool, left: i8, commit: &'a dyn Fn(&str) -> Option<String>) -> FieldOpts<'a> {
+    FieldOpts { width, height: FIELD_H, invalid, left, right: PAD, commit, tip: "" }
+}
+
+fn field(ui: &mut Ui, o: FieldOpts, leading: impl FnOnce(&mut Ui), text: &mut String, trailing: impl FnOnce(&mut Ui)) -> egui::Response {
+    text_field(ui, o, leading, text, trailing)
+}
+
 fn row(ui: &mut Ui, widths: &[f32], mut column: impl FnMut(usize, &mut Ui, f32)) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = COL_GAP;
@@ -346,11 +354,6 @@ fn row(ui: &mut Ui, widths: &[f32], mut column: impl FnMut(usize, &mut Ui, f32))
     });
 }
 
-fn fix_size(ui: &mut Ui, size: Vec2) {
-    ui.set_min_size(size);
-    ui.set_max_size(size);
-}
-
 fn label(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).font(FontId::new(14.0, theme::medium())).color(theme::LABEL));
     ui.add_space(6.0);
@@ -361,154 +364,6 @@ fn hint(ui: &mut Ui, error: Option<&str>, text: &str) {
     if !text.is_empty() {
         ui.add_space(6.0);
         ui.add(egui::Label::new(RichText::new(text).small().color(color)).wrap());
-    }
-}
-
-/// Allocates a clickable rounded box and lets `content` paint into it.
-fn pill(ui: &mut Ui, size: Vec2, radius: CornerRadius, fill: Color32, edge: Color32, enabled: bool, content: impl FnOnce(&Painter, Rect)) -> egui::Response {
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let (rect, resp) = ui.allocate_exact_size(size, sense);
-    let fill = if enabled && resp.hovered() { theme::BORDER } else { fill };
-    ui.painter().rect(rect, radius, fill, Stroke::new(1.0_f32, edge), StrokeKind::Inside);
-    content(ui.painter(), rect);
-    if enabled {
-        resp.on_hover_cursor(egui::CursorIcon::PointingHand)
-    } else {
-        resp
-    }
-}
-
-fn chevron(p: &Painter, c: Pos2) {
-    p.add(Shape::line(vec![c + Vec2::new(-4.0, -2.0), c + Vec2::new(0.0, 2.0), c + Vec2::new(4.0, -2.0)], Stroke::new(1.6_f32, theme::HINT)));
-}
-
-fn font13() -> FontId {
-    FontId::new(13.0, FontFamily::Proportional)
-}
-
-#[derive(Clone, Copy)]
-struct Dd {
-    height: f32,
-    radius: CornerRadius,
-    right: bool,
-}
-
-impl Dd {
-    const LEFT: Self = Self { height: 28.0, radius: ROUND, right: false };
-    const RIGHT: Self = Self { height: 28.0, radius: ROUND, right: true };
-}
-
-/// Button with a label and chevron that opens a list (selected item dotted and bold, menu as wide
-/// as its widest item, right-aligned under the button when `d.right`); `width` None fits the label.
-fn dropdown(ui: &mut Ui, salt: &str, label: &str, width: Option<f32>, items: &[String], selected: Option<usize>, d: Dd) -> Option<usize> {
-    let w = width.unwrap_or_else(|| text_w(ui, label, 13.0) + 8.0 + 6.0 + 12.0 + 8.0);
-    let resp = pill(ui, Vec2::new(w, d.height), d.radius, theme::PANEL_BG, theme::BORDER, true, |p, r| {
-        if label.is_empty() {
-            chevron(p, r.center());
-        } else {
-            p.text(Pos2::new(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, label, font13(), theme::TEXT);
-            chevron(p, Pos2::new(r.right() - 12.0, r.center().y));
-        }
-    });
-    let id = ui.make_persistent_id((salt, "dropdown"));
-    if resp.clicked() {
-        ui.memory_mut(|m| m.toggle_popup(id));
-    }
-    if !ui.memory(|m| m.is_popup_open(id)) {
-        return None;
-    }
-    const ROW_H: f32 = 28.0;
-    const TEXT_X: f32 = 26.0;
-    let bold = FontId::new(13.0, theme::medium());
-    let menu_w = items.iter().map(|t| text_wf(ui, t, bold.clone())).fold(0.0, f32::max) + TEXT_X + 12.0;
-    let (pos, pivot) = if d.right { (resp.rect.right_bottom(), Align2::RIGHT_TOP) } else { (resp.rect.left_bottom(), Align2::LEFT_TOP) };
-    let mut picked = None;
-    let area = Area::new(id).order(Order::Foreground).fixed_pos(pos + Vec2::new(0.0, 4.0)).pivot(pivot).show(ui.ctx(), |ui| {
-        Frame::popup(ui.style()).inner_margin(Margin::same(4)).show(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::ZERO;
-            ui.set_width(menu_w.max(w - 8.0));
-            for (i, text) in items.iter().enumerate() {
-                let (rect, row) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
-                let on = selected == Some(i);
-                if row.hovered() {
-                    ui.painter().rect_filled(rect, CornerRadius::same(4), theme::BORDER);
-                }
-                let y = rect.center().y;
-                if on {
-                    ui.painter().circle_filled(Pos2::new(rect.left() + 12.0, y), 2.5, theme::accent());
-                }
-                let font = if on { bold.clone() } else { font13() };
-                ui.painter().text(Pos2::new(rect.left() + TEXT_X, y), Align2::LEFT_CENTER, text, font, theme::TEXT);
-                if row.clicked() {
-                    picked = Some(i);
-                }
-            }
-        });
-    });
-    let outside = ui.input(|i| i.pointer.any_click()) && !area.response.contains_pointer() && !resp.contains_pointer();
-    if picked.is_some() || outside || ui.input(|i| i.key_pressed(Key::Escape)) {
-        ui.memory_mut(|m| m.close_popup());
-    }
-    picked
-}
-
-struct Opts<'a> {
-    width: f32,
-    invalid: bool,
-    left: i8,
-    commit: &'a dyn Fn(&str) -> Option<String>,
-}
-
-impl<'a> Opts<'a> {
-    fn new(width: f32, invalid: bool, left: i8, commit: &'a dyn Fn(&str) -> Option<String>) -> Self {
-        Self { width, invalid, left, commit }
-    }
-}
-
-/// Text box in a rounded frame with a leading widget and trailing widgets (added right to left).
-/// Enter commits (and normalises through `commit`), Escape restores the text from when the field
-/// got the caret; both release the caret and tell the form not to treat the key as its own.
-fn field(ui: &mut Ui, o: Opts, leading: impl FnOnce(&mut Ui), text: &mut String, trailing: impl FnOnce(&mut Ui)) -> egui::Response {
-    let mut frame = Frame::new().fill(theme::INPUT_BG).corner_radius(CornerRadius::same(theme::CONTROL_RADIUS)).inner_margin(Margin { left: o.left, right: PAD, top: 0, bottom: 0 }).begin(ui);
-    let inner = &mut frame.content_ui;
-    fix_size(inner, Vec2::new(o.width - f32::from(o.left) - f32::from(PAD) - 2.0, FIELD_H - 2.0));
-    let edit = inner
-        .with_layout(Layout::left_to_right(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            leading(ui);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                trailing(ui);
-                let w = ui.available_width();
-                ui.add(TextEdit::singleline(text).frame(false).margin(Margin::ZERO).desired_width(w).vertical_align(Align::Center))
-            })
-            .inner
-        })
-        .inner;
-    finish_edit(ui, &edit, text, o.commit);
-    let edge = if o.invalid { theme::ERROR } else if edit.has_focus() { theme::accent() } else { theme::BORDER };
-    frame.frame.stroke = Stroke::new(1.0_f32, edge);
-    frame.end(ui);
-    edit
-}
-
-fn finish_edit(ui: &Ui, edit: &egui::Response, text: &mut String, commit: &dyn Fn(&str) -> Option<String>) {
-    let key = Id::new("field_original").with(edit.id);
-    if edit.gained_focus() {
-        ui.data_mut(|d| d.insert_temp(key, text.clone()));
-    }
-    if !edit.lost_focus() {
-        return;
-    }
-    let (esc, enter) = ui.input(|i| (i.key_pressed(Key::Escape), i.key_pressed(Key::Enter)));
-    if esc {
-        if let Some(original) = ui.data(|d| d.get_temp::<String>(key)) {
-            *text = original;
-        }
-    } else if let Some(normal) = commit(text) {
-        *text = normal;
-    }
-    if esc || enter {
-        ui.data_mut(|d| d.insert_temp(Id::new(KEY_USED), true));
     }
 }
 

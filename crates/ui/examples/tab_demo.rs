@@ -6,7 +6,7 @@ use eframe::egui;
 use fretscribe_core::{next_note_id, LinkType, Note, NoteTimes, Project, TempoMap, TimePos, TimeSignature, Track, TrackRole, UndoStack};
 use fretscribe_notation::staff::{layout, StaffOptions};
 use fretscribe_notation::tab::{assign_tabs, TabOptions};
-use fretscribe_ui::tab_view::{apply, apply_tuning, TabEdit, TabStyle, TabView, TabViewEvent, TabViewState};
+use fretscribe_ui::tab_view::{apply, TabEdit, TabStyle, TabView, TabViewEvent, TabViewState};
 use fretscribe_ui::note_editor::{time_order, Selection};
 use fretscribe_ui::TimelineView;
 
@@ -63,15 +63,11 @@ impl eframe::App for Demo {
                         self.selected.click(id, ctrl, shift, &order);
                     }
                     TabViewEvent::Edit(edit) => self.edit(&edit, now),
-                    TabViewEvent::TuningChanged { tuning, capo } => {
-                        let edit = apply_tuning(&mut self.project, tuning, capo, &self.opts);
-                        self.undo.push(edit);
-                    }
                     TabViewEvent::Marquee { ids, add } => {
                         self.selected.marquee(&ids, add);
                     }
                     TabViewEvent::ClearSelection => self.selected.clear(),
-                    TabViewEvent::SeekRequested(_) => {}
+                    TabViewEvent::SeekRequested(_) | TabViewEvent::ReinferRequested => {}
                 }
             }
         });

@@ -55,7 +55,7 @@ impl Default for StaffStyle {
             ink: Color32::from_rgb(235, 235, 235),
             selected: Color32::from_rgb(110, 180, 255),
             playhead: Color32::from_rgb(255, 90, 80),
-            background: Color32::from_rgb(22, 22, 26),
+            background: crate::theme::WINDOW_BG,
         }
     }
 }

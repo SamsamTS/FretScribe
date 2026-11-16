@@ -62,6 +62,8 @@ pub struct Session {
     pub editor: NoteEditor,
     pub keymap: Keymap,
     pub tab_state: TabViewState,
+    /// The sheet and tab panel is hidden, leaving only its tool row.
+    pub notation_collapsed: bool,
     pub tab_opts: TabOptions,
     pub staff: StaffLayout,
     pub staff_dirty: bool,
@@ -142,6 +144,7 @@ impl Session {
             editor: NoteEditor::default(),
             keymap: Keymap::default(),
             tab_state: TabViewState::default(),
+            notation_collapsed: false,
             tab_opts: TabOptions::default(),
             staff: StaffLayout::default(),
             staff_dirty: true,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::spectro::SpectroStyle;
-use crate::view::{PitchView, TimelineView};
+use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 fn project() -> Project {
     let mut p = Project::new(Track::new(1, "Guitar", TrackRole::Guitar), 20.0, 120.0, TimeSignature::COMMON);
@@ -107,8 +107,10 @@ fn mute_button_and_add_row_emit_events() {
         h.frame(Vec::new());
     }
     let (_, content) = h.state.strips(&h.ctx, &h.project);
-    let plus = Pos2::new(100.0, (content - STRIP_PITCH_PX) as f32 + 10.0);
-    assert!(h.click(plus).contains(&TrackEvent::AddTrackRequested));
+    // The button sits in the middle of the last row, inside the header column.
+    let row_middle = (content - STRIP_PITCH_PX) as f32 + STRIP_PITCH_PX as f32 / 2.0;
+    assert!(h.click(Pos2::new(100.0, row_middle)).contains(&TrackEvent::AddTrackRequested));
+    assert!(!h.click(Pos2::new(LANE_HEADER_WIDTH + 100.0, row_middle)).contains(&TrackEvent::AddTrackRequested), "only the button adds a track, not the whole row");
 }
 
 #[test]

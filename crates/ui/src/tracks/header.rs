@@ -9,13 +9,12 @@ use super::geometry::STRIP_PITCH_PX;
 use super::icons;
 use super::offset::{clamp_offset, format_offset, nudged, parse_offset};
 use crate::view::LANE_HEADER_WIDTH;
+use crate::{kit, theme};
 
 const PAD: f32 = 4.0;
 const ICON: f32 = 16.0;
-const MUTE_COLOR: Color32 = Color32::from_rgb(235, 160, 30);
-const SOLO_COLOR: Color32 = Color32::from_rgb(245, 225, 60);
 const NOT_AUDIBLE_OPACITY: f32 = 0.45;
-const BASE_BG: Color32 = Color32::from_rgb(32, 34, 40);
+const BASE_BG: Color32 = theme::PANEL_BG;
 const ROLES: [(TrackRole, &str); 4] = [(TrackRole::Guitar, "Guitar"), (TrackRole::Bass, "Bass"), (TrackRole::Drums, "Drums"), (TrackRole::Other, "Other")];
 
 pub struct HeaderParams<'a> {
@@ -58,12 +57,19 @@ fn button(ui: &Ui, rect: Rect, salt: &str, enabled: bool, paint: impl FnOnce(&Pa
     response
 }
 
-fn text_button(ui: &Ui, rect: Rect, salt: &str, label: &str, enabled: bool, active: Option<Color32>) -> Response {
+fn text_button(ui: &Ui, rect: Rect, salt: &str, label: &str, enabled: bool) -> Response {
     button(ui, rect, salt, enabled, |p, hovered| {
-        let fill = active.unwrap_or(if hovered { Color32::from_gray(70) } else { Color32::from_gray(50) });
-        p.rect_filled(rect, 3.0, fill);
-        let text = if active.is_some() { Color32::BLACK } else if enabled { Color32::from_gray(210) } else { Color32::from_gray(110) };
-        p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(11.0), text);
+        kit::button_bg(ui, rect, hovered, false, false, None, 6);
+        let color = if enabled { theme::TEXT } else { theme::HINT };
+        p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(11.0), color);
+    })
+}
+
+/// A toolbar-style icon button (`on`: toggled look) filling `rect`.
+fn icon_button(ui: &Ui, rect: Rect, salt: &str, name: &str, on: bool) -> Response {
+    button(ui, rect, salt, true, |_, hovered| {
+        kit::button_bg(ui, rect, hovered, false, on, None, 6);
+        kit::icon_at(ui, name, rect, 16.0);
     })
 }
 
@@ -97,7 +103,7 @@ impl TrackHeader {
         let cw = content.width();
         let mut events = Vec::new();
         let id = track.id;
-        let ink = Color32::from_gray(200);
+        let ink = theme::LABEL;
 
         let grip = button(ui, row_rect(content, 0, 0.0, 14.0), "grip", true, |p, _| icons::grip(p, row_rect(content, 0, 0.0, 14.0), ink));
         let grip = grip.interact(Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
@@ -138,11 +144,11 @@ impl TrackHeader {
             }
         }
 
-        let star = button(ui, star_rect, "star", true, |p, hovered| icons::star(p, star_rect.shrink(2.0), is_reference, if is_reference || hovered { SOLO_COLOR } else { Color32::from_gray(120) }));
+        let star = icon_button(ui, star_rect, "star", if is_reference { "star-filled" } else { "star" }, false);
         if star.on_hover_text("Reference track for sync").clicked() {
             events.push(TrackEvent::SetReference(id));
         }
-        if button(ui, chevron_rect, "chevron", true, |p, _| icons::chevron(p, chevron_rect.shrink(3.0), !track.spectrogram_collapsed, ink)).on_hover_text("Show or hide the spectrogram").clicked() {
+        if icon_button(ui, chevron_rect, "chevron", if track.spectrogram_collapsed { "chevron-right" } else { "chevron-down" }, false).on_hover_text("Show or hide the spectrogram").clicked() {
             events.push(TrackEvent::CollapseToggled(id));
         }
         let mut menu_ui = ui.new_child(UiBuilder::new().max_rect(menu_rect));
@@ -181,17 +187,18 @@ impl TrackHeader {
             }
         });
 
-        let mute = text_button(ui, row_rect(content, 1, 0.0, 22.0), "mute", "M", true, track.muted.then_some(MUTE_COLOR));
+        let mute = icon_button(ui, row_rect(content, 1, 0.0, 22.0), "mute", "mute", track.muted);
         if mute.on_hover_text("Mute").clicked() {
             events.push(TrackEvent::MuteToggled(id));
         }
-        let solo = text_button(ui, row_rect(content, 1, 24.0, 22.0), "solo", "S", true, track.solo.then_some(SOLO_COLOR));
+        let solo = icon_button(ui, row_rect(content, 1, 24.0, 22.0), "solo", "solo", track.solo);
         let exclusive = solo.clicked() && ui.input(|i| i.modifiers.alt);
         if solo.on_hover_text("Solo (Alt+click: exclusive)").clicked() {
             events.push(TrackEvent::SoloToggled { id, exclusive });
         }
         let slider_rect = row_rect(content, 1, 50.0, cw - 104.0);
         let mut slider_ui = ui.new_child(UiBuilder::new().max_rect(slider_rect));
+        kit::style_slider(&mut slider_ui);
         slider_ui.spacing_mut().slider_width = slider_rect.width();
         let mut percent = track.volume * 100.0;
         let slider = slider_ui.add(Slider::new(&mut percent, 0.0..=Track::MAX_VOLUME * 100.0).show_value(false));
@@ -203,12 +210,12 @@ impl TrackHeader {
         painter.text(row_rect(content, 1, cw - 50.0, 50.0).right_center(), Align2::RIGHT_CENTER, volume_text(track.volume), FontId::monospace(10.0), ink);
 
         let handle_rect = row_rect(content, 2, 0.0, ICON);
-        let offset_handle = button(ui, handle_rect, "offset-handle", true, |p, _| icons::horizontal_arrows(p, handle_rect, ink)).interact(Sense::drag()).on_hover_text("Drag to move the audio").on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+        let offset_handle = icon_button(ui, handle_rect, "offset-handle", "offset-arrows", false).interact(Sense::drag()).on_hover_text("Drag to move the audio").on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
         offset_field(ui, row_rect(content, 2, 20.0, 86.0), id, offset_sec, is_source && *move_notes, &mut events);
-        if text_button(ui, row_rect(content, 2, 110.0, 62.0), "auto", "Auto sync", !is_reference, None).on_hover_text("Estimate the offset against the reference track").clicked() {
+        if text_button(ui, row_rect(content, 2, 110.0, 62.0), "auto", "Auto sync", !is_reference).on_hover_text("Estimate the offset against the reference track").clicked() {
             events.push(TrackEvent::SyncRequested(id));
         }
-        if text_button(ui, row_rect(content, 2, 176.0, 22.0), "reset", "0", true, None).on_hover_text("Reset the offset to 0").clicked() {
+        if icon_button(ui, row_rect(content, 2, 176.0, 22.0), "reset", "reset-offset", false).on_hover_text("Reset the offset to 0").clicked() {
             events.push(TrackEvent::OffsetChanged { id, offset_sec: 0.0, move_notes: is_source && *move_notes });
         }
         HeaderOutput { events, grip, offset_handle }

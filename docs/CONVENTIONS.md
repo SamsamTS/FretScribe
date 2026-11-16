@@ -15,3 +15,5 @@ Time is stored in SECONDS (f64) for audio-aligned things, and in BEATS (f64, qua
 Theme: the application is DARK THEME ONLY. There is no light theme and no theme switching; use `egui::Visuals::dark()` once at startup and design every color (grid lines, notes, staff, tab, menus, string colors) for dark backgrounds, with no `dark_mode` parameters anywhere.
 Code quality: idiomatic Rust, no unwrap in non-test code, unit tests for logic, `cargo clippy` clean. COMMENTS: keep them minimal. The readers are senior developers, so write self-explanatory code and comment only what the code cannot say (a non-obvious invariant, a subtle formula, a workaround and its reason). No narration of what the next line does, no doc comments that merely restate a name or signature, no commented-out code; a short module-level comment is enough for a non-trivial algorithm. The explanatory comments inside the type definitions of CORE_TYPES.md are specification for you, not text to copy into the source.
 ```
+
+Theme: see THEME_CONTRACT.md for colours, fonts, icons, shared widgets and layout rules.

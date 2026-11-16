@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{pos2, vec2, Align2, Color32, Context, FontId, Id, Rect, Sense, Stroke, Ui, UiBuilder};
+use egui::{pos2, vec2, Context, CornerRadius, FontId, Id, Rect, Sense, Stroke, Ui, UiBuilder};
 use fretscribe_core::{audible_tracks, NoteTimes, Project};
 
 use super::events::TrackEvent;
@@ -133,6 +133,7 @@ impl TrackLanes<'_> {
         };
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));
         area.set_clip_rect(lanes.intersect(ui.clip_rect()));
+        area.painter().rect_filled(lanes, 0.0, crate::theme::TITLE_BG);
         let (mut events, mut spectro) = (Vec::new(), Vec::new());
         let mut source_pointer = None;
         let mut rects = Vec::new();
@@ -165,10 +166,15 @@ impl TrackLanes<'_> {
 
         let plus = Rect::from_min_size(pos2(lanes.left(), lanes.top() - scroll_y_pt + (content_px - STRIP_PITCH_PX) as f32 / ppp), vec2(lanes.width(), STRIP_PITCH_PX as f32 / ppp));
         if plus.intersects(lanes) {
-            let response = area.interact(plus, area.id().with("add-track"), Sense::click());
-            let painter = area.painter_at(plus);
-            painter.rect_filled(plus, 0.0, if response.hovered() { Color32::from_gray(40) } else { Color32::from_gray(28) });
-            painter.text(pos2(lanes.left() + LANE_HEADER_WIDTH / 2.0, plus.center().y), Align2::CENTER_CENTER, "+  Add track", FontId::proportional(13.0), Color32::from_gray(190));
+            // A button inside the header column (never wider than it), in the row below the last track.
+            let button = Rect::from_center_size(pos2(lanes.left() + LANE_HEADER_WIDTH / 2.0, plus.center().y), vec2(LANE_HEADER_WIDTH - 16.0, 32.0));
+            let response = area.interact(button, area.id().with("add-track"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            area.painter().rect(button, CornerRadius::same(crate::theme::CONTROL_RADIUS), if response.hovered() { crate::theme::BORDER } else { crate::theme::PANEL_BG }, Stroke::new(1.0_f32, crate::theme::BORDER), egui::StrokeKind::Inside);
+            let galley = area.painter().layout_no_wrap("Add track".to_owned(), FontId::proportional(13.0), crate::theme::TEXT);
+            let (icon, gap) = (18.0, 8.0);
+            let x = button.center().x - (icon + gap + galley.size().x) / 2.0;
+            crate::kit::icon_at(&area, "add-track", Rect::from_min_size(pos2(x, button.center().y - icon / 2.0), vec2(icon, icon)), icon);
+            area.painter().galley(pos2(x + icon + gap, button.center().y - galley.size().y / 2.0), galley, crate::theme::TEXT);
             if response.clicked() {
                 events.push(TrackEvent::AddTrackRequested);
             }
