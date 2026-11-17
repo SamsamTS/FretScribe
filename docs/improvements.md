@@ -328,10 +328,10 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 3. Optionally add `#![warn(unreachable_pub)]` to the five library crates so it stays clean.
 **Risk:** none (compile-checked). The `app` and `audio` crates could not be checked here (no ALSA); run the same lint there.
 
-### I-019 · Write-only state in `Session` · impact: low · saves ~14 lines · status: open
-**Where:** `crates/app/src/session.rs:89,166,245,265` `load_progress`; `:96,106-110,173` `hints` and `struct Hints { lut_missing_shown }`; `:98,175` `ref_text`.
+### I-019 · Write-only state in `Session` and `Settings` · impact: low · saves ~17 lines · status: open
+**Where:** `crates/app/src/settings.rs:36,60` `default_tuning` (never read: the form uses its own `default_tuning(instrument)` at `form_ui.rs:319`); `crates/app/src/session.rs:89,166,245,265` `load_progress`; `:96,106-110,173` `hints` and `struct Hints { lut_missing_shown }`; `:98,175` `ref_text`.
 **Problem:** none of the three is read anywhere (workspace-wide search); `load_progress` is only assigned from `LoadEvent::Progress`, `hints.lut_missing_shown` and `ref_text` are only initialised. The open-project dialog tracks its own progress (`app.rs:250,642`).
-**Instructions:** delete the three fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
+**Instructions:** delete `Settings::default_tuning` (old `settings.json` files keep loading: the struct does not use `deny_unknown_fields`), the three session fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
 **Risk:** none; compile-checked by `cargo check -p fretscribe`.
 
 ### I-020 · `NoteTimes::build(&p.notes, &TempoMap::new(&p.measures))` repeated 22 times; redundant double resync · impact: low · saves ~20 line-widths, one resync per undo · status: open
