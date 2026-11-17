@@ -37,6 +37,7 @@ impl From<TimelineView> for ViewState {
         Self {
             scroll_sec: v.scroll_sec,
             pixels_per_sec: v.pixels_per_sec,
+            ..Self::default()
         }
     }
 }

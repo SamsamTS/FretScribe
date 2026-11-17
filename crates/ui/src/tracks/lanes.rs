@@ -85,6 +85,17 @@ impl TrackLanesState {
         }
     }
 
+    /// Rows set per track, sorted by id, for saving.
+    pub fn saved_rows(&self) -> Vec<(u64, u32)> {
+        let mut rows: Vec<_> = self.rows.iter().map(|(id, n)| (*id, *n)).collect();
+        rows.sort_unstable();
+        rows
+    }
+
+    pub fn restore_rows(&mut self, rows: &[(u64, u32)]) {
+        self.rows = rows.iter().map(|(id, n)| (*id, geometry::clamp_rows(i64::from(*n)))).collect();
+    }
+
     pub fn configured_rows(&self, track_id: u64) -> u32 {
         self.rows.get(&track_id).copied().unwrap_or(SPECTRO_ROWS)
     }

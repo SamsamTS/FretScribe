@@ -26,6 +26,10 @@ const MIGRATIONS: &[Migration] = &[];
 pub struct ViewState {
     pub scroll_sec: f64,
     pub pixels_per_sec: f64,
+    /// Vertical scroll of the track lanes, in points.
+    pub scroll_y: f64,
+    /// Visible pitch range `(low, high)` in MIDI; `None` keeps the default.
+    pub pitch: Option<(f64, f64)>,
 }
 
 impl Default for ViewState {
@@ -33,6 +37,8 @@ impl Default for ViewState {
         Self {
             scroll_sec: 0.0,
             pixels_per_sec: 100.0,
+            scroll_y: 0.0,
+            pitch: None,
         }
     }
 }
@@ -58,6 +64,15 @@ pub struct UiState {
     /// Constant-Q quality factor of the spectrograms.
     pub spectro_q: f32,
     pub lut_name: String,
+    pub notation_collapsed: bool,
+    /// Track lane options `(notes on all lanes, onsets, move notes)`; `None` keeps the defaults.
+    pub lane_options: Option<(bool, bool, bool)>,
+    /// Tab options `(propagate backwards, stems, string colours)`; `None` keeps the defaults.
+    pub tab_options: Option<(bool, bool, bool)>,
+    pub snap_on: bool,
+    pub overview_snap: bool,
+    /// Spectrogram rows shown per track id (only those that differ from the default).
+    pub lane_rows: Vec<(u64, u32)>,
 }
 
 /// Same values as `analysis::{MIN_LEVELS_GAP, GAMMA_MIN, GAMMA_MAX}` (core cannot depend on analysis).
@@ -89,6 +104,8 @@ impl UiState {
         self.spectro_white = white;
         self.spectro_gamma =
             finite_or(self.spectro_gamma, 1.0).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
+        self.view.scroll_y = if self.view.scroll_y.is_finite() { self.view.scroll_y.max(0.0) } else { 0.0 };
+        self.view.pitch = self.view.pitch.filter(|(lo, hi)| lo.is_finite() && hi.is_finite() && lo < hi);
         self.spectro_q = finite_or(self.spectro_q, 40.0).clamp(*Q_RANGE.start(), *Q_RANGE.end());
     }
 }
@@ -110,6 +127,12 @@ impl Default for UiState {
             spectro_white: 1.0,
             spectro_gamma: 1.0,
             spectro_q: 40.0,
+            notation_collapsed: false,
+            lane_options: None,
+            tab_options: None,
+            snap_on: true,
+            overview_snap: true,
+            lane_rows: Vec::new(),
             lut_name: "Classic".to_owned(),
         }
     }

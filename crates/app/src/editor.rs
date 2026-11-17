@@ -26,6 +26,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let tempo = TempoMap::new(&s.project.measures);
     let audio_len = s.audio_len_sec.max(s.store.shared_audio_end(&s.project)).max(1.0);
 
+    // Navigation runs first, on last frame's regions, so the overview, lanes and notation all draw the same view.
+    if let Some(regions) = s.nav_regions {
+        let (_, content_px) = s.lanes.strips(ctx, &s.project);
+        s.ctl.run(ctx, &NavContext { regions, map: &tempo, audio_len_sec: audio_len, content_px, strip_pitch_px: STRIP_PITCH_PX });
+    }
+
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
     // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
@@ -114,16 +120,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
         ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
-        let (_, content_px) = s.lanes.strips(ctx, &s.project);
-        let nav = NavContext {
-            // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
-            regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes },
-            map: &tempo,
-            audio_len_sec: audio_len,
-            content_px,
-            strip_pitch_px: STRIP_PITCH_PX,
-        };
-        s.ctl.run(ctx, &nav);
+        // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;

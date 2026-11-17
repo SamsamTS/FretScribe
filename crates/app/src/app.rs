@@ -114,6 +114,7 @@ impl App {
             last_size: None,
             window_mode: WindowMode::default(),
         };
+        (app.last_size, app.window_mode) = (app.settings.window_size, app.settings.window_mode);
         if app.luts.builtin_fallback {
             app.toast("LUT folder not found: using the built-in palette (copy LUT/ next to the executable)", false);
         }
@@ -342,14 +343,22 @@ impl App {
     /// Remembers the windowed size only while the window is normal, so a maximised size never becomes the restore size.
     fn track_window(&mut self, ctx: &Context) {
         let (maximized, fullscreen) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false)));
+        let previous = self.window_mode;
         self.window_mode = match (fullscreen, maximized) {
             (true, _) => WindowMode::Fullscreen,
             (_, true) => WindowMode::Maximized,
             _ => WindowMode::Normal,
         };
-        if self.window_mode == WindowMode::Normal {
-            let r = ctx.screen_rect();
-            self.last_size = Some((r.width(), r.height()));
+        if self.window_mode != WindowMode::Normal {
+            return;
+        }
+        // A window created maximised has no windowed geometry of its own: restore the remembered size.
+        match self.last_size.filter(|_| previous != WindowMode::Normal) {
+            Some((w, h)) => ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h))),
+            None => {
+                let r = ctx.screen_rect();
+                self.last_size = Some((r.width(), r.height()));
+            }
         }
     }
 
