@@ -51,7 +51,7 @@ _Last updated: 2026-11-17 · base commit 3c1c6aa_
 | `crates/analysis/src/spectrogram_tests.rs` | 378 | todo | |
 | `crates/core/src/grace.rs` | 375 | todo | |
 | `crates/ui/src/tab_view/tests.rs` | 372 | todo | |
-| `crates/core/src/model.rs` | 365 | todo | |
+| `crates/core/src/model.rs` | 365 | partial | note lookup read (I-025) |
 | `crates/ui/src/spectro/glyphs/tests.rs` | 355 | todo | |
 | `crates/ui/src/view.rs` | 352 | todo | |
 | `crates/audio/src/focus_tests.rs` | 347 | todo | |
@@ -173,7 +173,7 @@ _Last updated: 2026-11-17 · base commit 3c1c6aa_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 24 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 25 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -379,4 +379,13 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 2. Cull before layout: in `items(notes, times)` keep the notes whose `[start, end]` intersects the visible time range widened by a margin, plus every link or legato partner of a kept note (look up by id before filtering) so cross-edge links still draw.
 3. Cache the `Scene` in `SpectroCache` keyed by `(revision, view window, pitch window, size)`, as the texture already is, so a static view does zero layout work.
 **Risk:** medium (hit-testing and link drawing must stay identical); run `cargo test -p fretscribe-ui spectro` and compare screenshots with a few links at the window edge. Verify the gain with 5000 notes: time `layout` (expected: a few ms down to well under 1 ms when zoomed in).
+
+### I-025 · Linear `find`-by-id inside loops (per frame and per edit) · impact: low-med · perf: O(k·n) where O(n) is enough · status: open
+**Where:** `crates/ui/src/tab_view/draw.rs:169` (`grace_xs`, runs every frame: for each main note of a grace group, `project.notes.iter().find(..)`); `crates/notation/src/staff/mod.rs:368-375` (`links`: `find` per link, on every layout); `crates/ui/src/staff_view/links.rs:19`; `crates/app/src/session.rs:338`; `crates/notation/src/tab/solve.rs:481`; `crates/core/src/model.rs:308` `Project::note` (124 call sites).
+**Problem:** there is no id index and notes are not kept sorted by id (`validate` only checks uniqueness), so each lookup is O(n). `grace_xs` does it per grace group on every frame; `staff::links` does it per link on every re-layout.
+**Instructions:**
+1. In `grace_xs` and `staff::links`, build `let by_id: HashMap<u64, &Note> = notes.iter().map(|n| (n.id, n)).collect();` once and use it (about 3 lines each).
+2. In `grace_xs`, skip groups whose main note is outside `c.view` before measuring text (`c.text_width` is the expensive call).
+3. If lookups remain hot after I-010, add the id index discussed there; do not add it first.
+**Risk:** none; `cargo test -p fretscribe-ui -p fretscribe-notation`.
 
