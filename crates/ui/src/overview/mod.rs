@@ -215,8 +215,9 @@ where
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let size = vec2(self.gutter, RULER_HEIGHT + self.waveform_height);
-            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| {
+            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.set_min_size(size); // a child only keeps its content's size otherwise
+                ui.set_max_width((self.gutter - 16.0).max(0.0)); // centred on the lane headers, which start 16 px further left
                 self.buttons(ui, &mut events);
             });
             let size = vec2(ui.available_width().max(1.0), RULER_HEIGHT + self.waveform_height);
@@ -232,14 +233,7 @@ where
 
     /// The zoom group (with the snap magnet) left of the strip, bottom-aligned with it.
     fn buttons(&self, ui: &mut Ui, events: &mut Vec<OverviewEvent>) {
-        let key = ui.id().with("buttons_width");
-        let width: f32 = ui.data(|d| d.get_temp(key)).unwrap_or(0.0);
-        let margin = ((self.gutter - width) / 2.0 - 8.0).max(0.0);
-        let used = ui
-            .horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                ui.add_space(margin);
-                crate::kit::group_at(ui, "View", true, |ui| {
+        crate::kit::group_at(ui, "View", true, |ui| {
                     for (icon, tip, step) in [
                         ("zoom-in", "Zoom in", ZoomStep::In),
                         ("zoom-out", "Zoom out", ZoomStep::Out),
@@ -268,12 +262,7 @@ where
                     if crate::kit::ibtn(ui, "onsets", "Show onsets", onsets).clicked() {
                         events.push(OverviewEvent::OnsetsToggled(!onsets));
                     }
-                });
-            })
-            .response
-            .rect
-            .width();
-        ui.data_mut(|d| d.insert_temp(key, used - margin));
+        });
     }
 
     fn interact(

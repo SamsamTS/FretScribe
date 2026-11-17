@@ -267,10 +267,7 @@ fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut
     let mut row = ui.new_child(
         UiBuilder::new()
             .id_salt(("tools", id))
-            .max_rect(Rect::from_min_size(
-                area.min,
-                vec2(area.width(), kit::BUTTON),
-            ))
+            .max_rect(Rect::from_min_size(area.min, vec2(area.width(), kit::BUTTON)))
             .layout(egui::Layout::left_to_right(Align::Center)),
     );
     row.spacing_mut().item_spacing.x = 4.0;
@@ -278,28 +275,16 @@ fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut
     for b in &tools.buttons {
         if b.label == "String" {
             lock = Some(b);
-        } else if row
-            .add_enabled_ui(b.enabled, |ui| {
-                kit::ibtn_sized(ui, b.icon, &b.tooltip, false, 30.0, 18.0)
-            })
-            .inner
-            .clicked()
-        {
+        } else if row.add_enabled_ui(b.enabled, |ui| kit::ibtn(ui, b.icon, &b.tooltip, false)).inner.clicked() {
             events.push(TrackEvent::NoteAction(b.action));
         }
     }
     let items: Vec<String> = (1..=tools.strings.min(9))
         .map(|n| format!("String {n}"))
         .collect();
-    let text = tools
-        .locked
-        .map_or("Auto string".to_owned(), |n| format!("String {n}"));
+    let text = tools.locked.map_or("A".to_owned(), |n| n.to_string());
     let (field, picked) = kit::Field::new(&text, &tools.string_tip)
-        .icon(if tools.locked.is_some() {
-            "lock"
-        } else {
-            "unlock"
-        })
+        .width(kit::BUTTON * 1.25)
         .dropdown(
             &mut row,
             &format!("tool-string-{id}"),

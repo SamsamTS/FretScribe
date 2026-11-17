@@ -108,7 +108,7 @@ pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap) -
         strings,
         locked,
         string_tip:
-            "Lock the selected notes to a string (1-9, mouse wheel); right-click locks or unlocks"
+            "String lock of the selected notes (A = automatic): pick 1-9 or use the mouse wheel; right-click locks or unlocks"
                 .to_owned(),
     }
 }
