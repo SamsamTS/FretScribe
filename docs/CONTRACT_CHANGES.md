@@ -150,5 +150,5 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 ## 2026-11-17 - core: view state in the project file; ui: tab toolbar and track tools
 
 - core: `ViewState::{scroll_y, pitch}` and `UiState::{notation_collapsed, lane_options, tab_options, snap_on, overview_snap, lane_rows}`, all serde-defaulted, so older files load unchanged. `UiState::guitar_8vb` (default true) drives `StaffOptions::guitar_octave`.
-- ui: `tab_view::toolbar(ui, state, collapsed, guitar_8vb)` replaces the old toolbar (above the sheet, `TOOLBAR_HEIGHT` 70, collapse button first); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
+- ui: `tab_view::{collapse_row, sheet_tools, tab_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `sheet_tools`/`tab_tools` sit in the header column of their lanes); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
 - app: navigation runs at the start of the frame on the previous frame's regions (the sheet and tab no longer lag behind the lanes while scrolling); restoring a window that started maximised sends the remembered size.

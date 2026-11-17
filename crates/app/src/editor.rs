@@ -74,11 +74,13 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let playhead = None;
         let mut collapsed = s.notation_collapsed;
         let octave = s.ui.guitar_8vb;
-        tab_events = tab_view::toolbar(ui, &mut s.tab_state, Some(&mut collapsed), &mut s.ui.guitar_8vb);
-        s.staff_dirty |= octave != s.ui.guitar_8vb;
+        tab_view::collapse_row(ui, &mut collapsed);
         if !collapsed {
+            let width = ui.available_width();
+            let sheet_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, StaffStyle::default().height()));
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &StaffStyle::default(), timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
+            let tab_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_style.height(strings, s.tab_state.show_stems)));
             let out = TabView {
                 project: &s.project,
                 times: &s.times,
@@ -89,8 +91,11 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
                 opts: &s.tab_opts,
                 timeline_offset: LANE_HEADER_WIDTH,
             }
-            .show_body(ui, &view, &mut s.tab_state);
-            tab_events.extend(out.events);
+            .show(ui, &view, &mut s.tab_state);
+            tab_events = out.events;
+            tab_events.extend(tab_view::tab_tools(ui, tab_lane, &mut s.tab_state));
+            tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb);
+            s.staff_dirty |= octave != s.ui.guitar_8vb;
         }
         s.notation_collapsed = collapsed;
     });

@@ -197,17 +197,8 @@ impl TabView<'_> {
         if state.string_colors { Stroke::new(1.0_f32, color.gamma_multiply(0.45)) } else { neutral }
     }
 
-    /// The tool row followed by the strip.
+    /// The strip; the host draws the tools ([`sheet_tools`], [`tab_tools`]) itself.
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
-        let mut events = toolbar(ui, state, None, &mut true);
-        let mut out = self.show_body(ui, view, state);
-        events.append(&mut out.events);
-        out.events = events;
-        out
-    }
-
-    /// The strip alone (the host draws [`toolbar`] itself).
-    pub fn show_body(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
         let mut events = Vec::new();
         let st = self.style;
         let project = self.project;
@@ -367,41 +358,59 @@ impl TabView<'_> {
     }
 }
 
-/// Height of the tool row drawn by [`toolbar`], including the space above and below it.
-pub const TOOLBAR_HEIGHT: f32 = 70.0;
+/// Height of the row above the sheet that holds the collapse button.
+pub const TOOLBAR_HEIGHT: f32 = 52.0;
 
-/// The tool row above the sheet, built like the main toolbar's captioned groups. The collapse button is at
-/// the far left (with `collapsed`, the host then hides the sheet and the strip); `guitar_8vb` is the sheet's
-/// guitar octave transposition.
-pub fn toolbar(ui: &mut Ui, state: &mut TabViewState, collapsed: Option<&mut bool>, guitar_8vb: &mut bool) -> Vec<TabViewEvent> {
-    let mut events = Vec::new();
+/// Left margin of the tools in the header column (the lane headers' own margin).
+const TOOLS_MARGIN: f32 = 16.0;
+
+/// The collapse button, in the header column of the row above the sheet.
+pub fn collapse_row(ui: &mut Ui, collapsed: &mut bool) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOLBAR_HEIGHT), Sense::hover());
-    let inner = Rect::from_min_max(pos2(rect.left() + 16.0, rect.top() + 4.0), pos2(rect.right() - 16.0, rect.bottom()));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
-        ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+    let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
+    let at = Rect::from_min_size(pos2(rect.left() + TOOLS_MARGIN, rect.top() + (TOOLBAR_HEIGHT - crate::kit::BUTTON) / 2.0), vec2(crate::kit::BUTTON, crate::kit::BUTTON));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(at), |ui| {
+        if crate::kit::ibtn(ui, icon, tip, false).clicked() {
+            *collapsed = !*collapsed;
+        }
+    });
+}
+
+/// A captioned tool group at the top left of a lane's header column (`lane` is the lane's full rect).
+fn lane_tools(ui: &mut Ui, lane: Rect, caption: &str, add: impl FnOnce(&mut Ui)) {
+    let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 4.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - TOOLS_MARGIN, lane.bottom()));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
+        ui.set_clip_rect(ui.clip_rect().intersect(lane));
+        crate::kit::group_at(ui, caption, true, add);
+    });
+}
+
+/// The sheet's tools, in the header column of the sheet lane: guitar 8vb (the guitar is written an octave
+/// above its sound).
+pub fn sheet_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool) {
+    lane_tools(ui, lane, "Sheet", |ui| {
+        if crate::kit::ibtn(ui, "guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", *guitar_8vb).clicked() {
+            *guitar_8vb = !*guitar_8vb;
+        }
+    });
+}
+
+/// The tab's tools, in the header column of the tab lane.
+pub fn tab_tools(ui: &mut Ui, lane: Rect, state: &mut TabViewState) -> Vec<TabViewEvent> {
+    let mut events = Vec::new();
+    lane_tools(ui, lane, "Tab", |ui| {
         let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
             if crate::kit::ibtn(ui, icon, tip, *value).clicked() {
                 *value = !*value;
             }
         };
-        if let Some(collapsed) = collapsed {
-            crate::kit::group(ui, "Notation", |ui| {
-                let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
-                if crate::kit::ibtn(ui, icon, tip, false).clicked() {
-                    *collapsed = !*collapsed;
-                }
-            });
+        toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
+        toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
+        toggle(ui, "string-colors", "String colors", &mut state.string_colors);
+        crate::kit::sep(ui);
+        if crate::kit::ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
+            events.push(TabViewEvent::ReinferRequested);
         }
-        crate::kit::group(ui, "Sheet", |ui| toggle(ui, "guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", guitar_8vb));
-        crate::kit::group(ui, "Tab", |ui| {
-            toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
-            toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
-            toggle(ui, "string-colors", "String colors", &mut state.string_colors);
-            crate::kit::sep(ui);
-            if crate::kit::ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
-                events.push(TabViewEvent::ReinferRequested);
-            }
-        });
     });
     events
 }
