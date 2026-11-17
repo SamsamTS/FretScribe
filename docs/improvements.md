@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-16 · branch commit 33bdde0_
+_Last updated: 2026-11-17 · base commit 3c1c6aa_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -170,10 +170,10 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/notation/src/lib.rs` | 4 | todo | |
 
 ## Next
-Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs` (rest), `resample.rs`, `synth.rs`, `decode.rs`; then `analysis` (`sync.rs`, `beatfit/`, `pitchref.rs`, `cqt.rs`), `notation` (`tab/solve.rs`, `staff/`), `ui` (`spectro/`, `grid/`, `overview/`, `note_editor/editor.rs`), `app` (`app.rs`, `session.rs`, `toolbar.rs`, `form*.rs`). Test files are read last (helper duplication already covered by I-005/I-006).
+Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~25 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 24 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -344,11 +344,12 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 
 ### I-021 · `app.rs`: repeated file dialogs, audio device opened twice when creating a project · impact: low · saves ~12 lines · status: open
 **Where:** `crates/app/src/app.rs:221,377,426` (audio picker), `:346,357` (project picker), `:240` and `:292` (`Player::new()`), `:482-483` (toast drain).
-**Problem:** (a) the same `rfd::FileDialog::new().set_title(..).add_filter("Audio", &AUDIO_EXTS).pick_file()` chain appears 3 times, and the project filter twice. (b) `start_creating` builds a whole `Player` (opens the output stream) only to read `output_rate()`, drops it, and `open_file_with` builds another when the project opens: two device initialisations per new project (tens to hundreds of ms on some drivers). (c) `s.toasts.drain(..).collect::<Vec<_>>()` then `extend` is an `append`.
+**Problem:** (a) the same `rfd::FileDialog::new().set_title(..).add_filter("Audio", &AUDIO_EXTS).pick_file()` chain appears 3 times, and the project filter twice. (b) `start_creating` builds a whole `Player` (opens the output stream) only to read `output_rate()`, drops it, and `open_file_with` builds another when the project opens: two device initialisations per new project (tens to hundreds of ms on some drivers). (c) `s.toasts.drain(..).collect::<Vec<_>>()` then `extend` is an `append`. (d) `App::toast` (`:132`) and `Session::toast` (`session.rs:189`) have identical bodies.
 **Instructions:**
 1. Add `fn pick_audio(title: &str) -> Option<PathBuf>` and `fn project_dialog() -> rfd::FileDialog`; use them at the 5 sites.
 2. Create the `Player` once in `start_creating`, store it in `Creating` (`player: Option<Player>`), and pass it into `open_file_with` instead of calling `Player::new()` there (use `Player::new()` only when none is given).
 3. `self.toasts.append(&mut s.toasts);` (fields are disjoint).
+4. Add `Toast::new(text, error)` in `session.rs` and use it in both `toast` methods (or give `App` a `Vec<Toast>` helper shared via a small `Toasts` struct).
 **Risk:** low; manual check: create a project from the form with audio and confirm playback starts.
 
 ### I-022 · Toolbar: LUT folder re-decoded every frame while the colour-map dropdown is open; leftovers · impact: med (perf) · saves ~6 lines · status: open
