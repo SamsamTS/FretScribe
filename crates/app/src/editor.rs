@@ -185,9 +185,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let sep = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("header_separator")));
     let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
     let x = seek_origin.x.round();
-    let bar_top = notation_rect.top() + tab_view::TOOLBAR_HEIGHT;
-    sep.vline(x, seek_origin.y..=notation_rect.top(), stroke);
-    sep.vline(x, bar_top..=ctx.screen_rect().bottom(), stroke);
+    sep.vline(x, seek_origin.y..=ctx.screen_rect().bottom(), stroke);
+    sep.vline((x - fretscribe_ui::staff_view::NOTATION_HEAD_W).round(), notation_rect.top()..=ctx.screen_rect().bottom(), stroke);
 
     // ---- events -------------------------------------------------------------------------
     for e in overview_events {

@@ -215,7 +215,7 @@ impl TabView<'_> {
         full.rect_filled(rect, 0.0, st.background);
         let colored = state.menu_open() || state.holding(now) || state.string_colors;
         for s in 0..n as u8 {
-            full.hline((rect.left() + self.timeline_offset - 62.0)..=rect.right(), geo.y(s).round(), self.line_style(&geo, state, s, now));
+            full.hline((rect.left() + self.timeline_offset - crate::staff_view::NOTATION_HEAD_W)..=rect.right(), geo.y(s).round(), self.line_style(&geo, state, s, now));
             let label = string_label_styled(&project.tuning, s, LabelStyle::Convention).unwrap_or_default();
             let color = if colored { string_color(usize::from(s), n) } else { st.ink.gamma_multiply(0.7) };
             let font = egui::FontId::proportional(st.font * 0.85);
@@ -224,7 +224,7 @@ impl TabView<'_> {
         }
         for (i, ch) in "TAB".chars().enumerate() {
             let y = geo.top + (n as f32 - 1.0) * geo.gap / 2.0 + (i as f32 - 1.0) * st.font;
-            full.text(pos2(rect.left() + self.timeline_offset - 46.0, y), egui::Align2::CENTER_CENTER, ch, egui::FontId::proportional(st.font), st.ink.gamma_multiply(0.7));
+            full.text(pos2(rect.left() + self.timeline_offset - crate::staff_view::NOTATION_HEAD_W + 14.0, y), egui::Align2::CENTER_CENTER, ch, egui::FontId::proportional(st.font), st.ink.gamma_multiply(0.7));
         }
         let ruler = Rect::from_min_max(rect.min, pos2(rect.left() + self.timeline_offset, rect.bottom()));
 
