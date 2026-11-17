@@ -48,6 +48,8 @@ pub struct UiState {
     pub snap_grid: SnapGrid,
     /// Sheet: notes may only cross a main beat when they start on it.
     pub strict_beats: bool,
+    /// Sheet: guitar music is written an octave above its sound.
+    pub guitar_8vb: bool,
     pub focus_enabled: bool,
     pub focus_strength: f32,
     pub spectro_black: f32,
@@ -101,6 +103,7 @@ impl Default for UiState {
             note_policy: NotePolicy::default(),
             snap_grid: SnapGrid::default(),
             strict_beats: true,
+            guitar_8vb: true,
             focus_enabled: false,
             focus_strength: 0.5,
             spectro_black: 0.0,

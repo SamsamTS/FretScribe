@@ -227,7 +227,8 @@ impl<'a> SpectrogramView<'a> {
 
     /// One band per semitone (naturals and accidentals), alternating in brightness; the band under
     /// the cursor is highlighted.
-    fn draw_guides(&self, painter: &Painter, geo: &SpectroGeometry, cursor_midi: Option<i32>) {
+    /// The note labels go to `labels`, a layer above the grid and the seek line.
+    fn draw_guides(&self, painter: &Painter, labels: &Painter, geo: &SpectroGeometry, cursor_midi: Option<i32>) {
         let rect = geo.rect;
         let semitone_px = rect.height() / geo.pitch.span();
         let open = open_pitches(self.tuning, self.capo);
@@ -245,10 +246,10 @@ impl<'a> SpectrogramView<'a> {
             let labelled = is_open || midi.rem_euclid(12) == 0 || (is_natural(midi) && semitone_px >= SEMITONE_PX_FOR_ALL_LABELS) || semitone_px >= SEMITONE_PX_FOR_ALL_LABELS * 1.5;
             if labelled && (0..=127).contains(&midi) && geo.pitch.min_midi <= midi as f32 && midi as f32 <= geo.pitch.max_midi {
                 let color = if is_open { OPEN_STRING } else if cursor_midi == Some(midi) { Color32::WHITE } else { white(170) };
-                let galley = painter.layout_no_wrap(midi_to_name(midi as u8), FontId::monospace(10.0), color);
+                let galley = labels.layout_no_wrap(midi_to_name(midi as u8), FontId::monospace(10.0), color);
                 let at = pos2(rect.left() + 3.0, geo.midi_to_y(midi as f32) - galley.size().y / 2.0);
-                painter.rect_filled(Rect::from_min_size(at, galley.size()).expand(1.0), 2.0, label_bg);
-                painter.galley(at, galley, Color32::WHITE);
+                labels.rect_filled(Rect::from_min_size(at, galley.size()).expand(1.0), 2.0, label_bg);
+                labels.galley(at, galley, Color32::WHITE);
             }
         }
     }
@@ -298,7 +299,8 @@ impl<'a> SpectrogramView<'a> {
             painter.rect_filled(above, 0.0, shade);
             painter.rect_filled(below, 0.0, shade);
         }
-        self.draw_guides(&painter, &geo, cursor_midi);
+        let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
+        self.draw_guides(&painter, &labels, &geo, cursor_midi);
         notes::draw_notes(&painter, &geo, self.notes, times, self.selected, self.note_opacity, hovered_id);
         if let Some(ghost) = self.ghost {
             notes::draw_ghost(&painter, &geo, ghost);

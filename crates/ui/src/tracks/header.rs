@@ -264,13 +264,18 @@ impl TrackHeader {
 }
 
 fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut Vec<TrackEvent>) {
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .id_salt(("tools", id))
-            .max_rect(Rect::from_min_size(area.min, vec2(area.width(), kit::BUTTON)))
-            .layout(egui::Layout::left_to_right(Align::Center)),
-    );
-    row.spacing_mut().item_spacing.x = 4.0;
+    let row_at = |ui: &mut Ui, n: usize| {
+        let top = area.top() + n as f32 * (kit::BUTTON + 4.0);
+        let mut row = ui.new_child(
+            UiBuilder::new()
+                .id_salt(("tools", id, n))
+                .max_rect(Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), kit::BUTTON)))
+                .layout(egui::Layout::left_to_right(Align::Center)),
+        );
+        row.spacing_mut().item_spacing.x = 4.0;
+        row
+    };
+    let mut row = row_at(ui, 0);
     let mut lock = None;
     for b in &tools.buttons {
         if b.label == "String" {
@@ -279,12 +284,16 @@ fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut
             events.push(TrackEvent::NoteAction(b.action));
         }
     }
+    if area.height() < 2.0 * kit::BUTTON + 4.0 {
+        return;
+    }
+    let mut row = row_at(ui, 1);
     let items: Vec<String> = (1..=tools.strings.min(9))
         .map(|n| format!("String {n}"))
         .collect();
-    let text = tools.locked.map_or("A".to_owned(), |n| n.to_string());
+    let text = tools.locked.map_or("Auto string".to_owned(), |n| format!("String {n}"));
     let (field, picked) = kit::Field::new(&text, &tools.string_tip)
-        .width(kit::BUTTON * 1.25)
+        .icon(if tools.locked.is_some() { "lock" } else { "unlock" })
         .dropdown(
             &mut row,
             &format!("tool-string-{id}"),

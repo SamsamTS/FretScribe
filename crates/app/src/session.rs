@@ -342,7 +342,7 @@ impl Session {
     }
 
     pub fn recompute_staff(&mut self) {
-        let opts = StaffOptions { beat_rule: self.ui.strict_beats, ..StaffOptions::default() };
+        let opts = StaffOptions { beat_rule: self.ui.strict_beats, guitar_octave: self.ui.guitar_8vb, ..StaffOptions::default() };
         self.staff = staff::layout(&self.project.notes, &self.project.measures, &opts);
         self.staff_dirty = false;
     }

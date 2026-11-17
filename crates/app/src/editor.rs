@@ -67,12 +67,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let selected = s.editor.selection.ids.clone();
         let playhead = None;
         let mut collapsed = s.notation_collapsed;
+        let octave = s.ui.guitar_8vb;
+        tab_events = tab_view::toolbar(ui, &mut s.tab_state, Some(&mut collapsed), &mut s.ui.guitar_8vb);
+        s.staff_dirty |= octave != s.ui.guitar_8vb;
         if !collapsed {
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &StaffStyle::default(), timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
-        }
-        tab_events = tab_view::toolbar(ui, &mut s.tab_state, Some(&mut collapsed));
-        if !collapsed {
             let out = TabView {
                 project: &s.project,
                 times: &s.times,
@@ -89,6 +89,13 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.notation_collapsed = collapsed;
     });
     let notation_rect = panel.response.rect;
+    let lines = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_lines")));
+    let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
+    for y in [notation_rect.top() + tab_view::TOOLBAR_HEIGHT, notation_rect.top() + tab_view::TOOLBAR_HEIGHT + StaffStyle::default().height()] {
+        if y < notation_rect.bottom() - 1.0 {
+            lines.hline(notation_rect.x_range(), y.round(), stroke);
+        }
+    }
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
     GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);
 
@@ -159,7 +166,14 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         paint_grid_lines(ui, &tempo, &view, notation_timeline);
     });
 
-    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y);
+    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y, seek_origin.x);
+    // Header column separator, down to the window bottom except beside the notation toolbar.
+    let sep = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("header_separator")));
+    let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
+    let x = seek_origin.x.round();
+    let bar_top = notation_rect.top() + tab_view::TOOLBAR_HEIGHT;
+    sep.vline(x, seek_origin.y..=notation_rect.top(), stroke);
+    sep.vline(x, bar_top..=ctx.screen_rect().bottom(), stroke);
 
     // ---- events -------------------------------------------------------------------------
     for e in overview_events {

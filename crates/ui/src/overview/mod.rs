@@ -215,9 +215,8 @@ where
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let size = vec2(self.gutter, RULER_HEIGHT + self.waveform_height);
-            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Center), |ui| {
+            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 ui.set_min_size(size); // a child only keeps its content's size otherwise
-                ui.set_max_width((self.gutter - 16.0).max(0.0)); // centred on the lane headers, which start 16 px further left
                 self.buttons(ui, &mut events);
             });
             let size = vec2(ui.available_width().max(1.0), RULER_HEIGHT + self.waveform_height);

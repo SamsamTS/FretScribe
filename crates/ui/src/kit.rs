@@ -75,6 +75,7 @@ icons!(
     "bridge",
     "lock",
     "unlock",
+    "guitar-8vb",
 );
 
 pub const BUTTON: f32 = 36.0;

@@ -199,7 +199,7 @@ impl TabView<'_> {
 
     /// The tool row followed by the strip.
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
-        let mut events = toolbar(ui, state, None);
+        let mut events = toolbar(ui, state, None, &mut true);
         let mut out = self.show_body(ui, view, state);
         events.append(&mut out.events);
         out.events = events;
@@ -227,7 +227,9 @@ impl TabView<'_> {
             full.hline(rect.x_range(), geo.y(s).round(), self.line_style(&geo, state, s, now));
             let label = string_label_styled(&project.tuning, s, LabelStyle::Convention).unwrap_or_default();
             let color = if colored { string_color(usize::from(s), n) } else { st.ink.gamma_multiply(0.7) };
-            full.text(pos2(rect.left() + self.timeline_offset - 16.0, geo.y(s)), egui::Align2::RIGHT_CENTER, label, egui::FontId::proportional(st.font * 0.85), color);
+            let font = egui::FontId::proportional(st.font * 0.85);
+            // Centred on one column and on a shared baseline, so lower-case and capital labels line up.
+            full.text(pos2(rect.left() + self.timeline_offset - 24.0, geo.y(s).round() + font.size * 0.36), egui::Align2::CENTER_BOTTOM, label, font, color);
         }
         for (i, ch) in "TAB".chars().enumerate() {
             let y = geo.top + (n as f32 - 1.0) * geo.gap / 2.0 + (i as f32 - 1.0) * st.font;
@@ -366,42 +368,40 @@ impl TabView<'_> {
 }
 
 /// Height of the tool row drawn by [`toolbar`], including the space above and below it.
-pub const TOOLBAR_HEIGHT: f32 = 54.0;
+pub const TOOLBAR_HEIGHT: f32 = 70.0;
 
-/// The tool row above the strip, aligned with the toolbar's groups. With `collapsed`, a button at the
-/// right end toggles it (the host then hides the sheet and the strip).
-pub fn toolbar(ui: &mut Ui, state: &mut TabViewState, collapsed: Option<&mut bool>) -> Vec<TabViewEvent> {
-    const SIDE: f32 = 16.0;
-    const BUTTON: f32 = 28.0;
+/// The tool row above the sheet, built like the main toolbar's captioned groups. The collapse button is at
+/// the far left (with `collapsed`, the host then hides the sheet and the strip); `guitar_8vb` is the sheet's
+/// guitar octave transposition.
+pub fn toolbar(ui: &mut Ui, state: &mut TabViewState, collapsed: Option<&mut bool>, guitar_8vb: &mut bool) -> Vec<TabViewEvent> {
     let mut events = Vec::new();
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOLBAR_HEIGHT), Sense::hover());
-    let inner = Rect::from_min_max(pos2(rect.left() + SIDE, rect.top() + (TOOLBAR_HEIGHT - BUTTON - 10.0) / 2.0), pos2(rect.right() - SIDE, rect.bottom()));
+    let inner = Rect::from_min_max(pos2(rect.left() + 16.0, rect.top() + 4.0), pos2(rect.right() - 16.0, rect.bottom()));
     ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
-        ui.set_width(inner.width());
-        crate::kit::group_frame_h(ui, BUTTON, |ui| {
-            let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
-                if crate::kit::ibtn_sized(ui, icon, tip, *value, BUTTON, 18.0).clicked() {
-                    *value = !*value;
+        ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+        let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
+            if crate::kit::ibtn(ui, icon, tip, *value).clicked() {
+                *value = !*value;
+            }
+        };
+        if let Some(collapsed) = collapsed {
+            crate::kit::group(ui, "Notation", |ui| {
+                let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
+                if crate::kit::ibtn(ui, icon, tip, false).clicked() {
+                    *collapsed = !*collapsed;
                 }
-            };
+            });
+        }
+        crate::kit::group(ui, "Sheet", |ui| toggle(ui, "guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", guitar_8vb));
+        crate::kit::group(ui, "Tab", |ui| {
             toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
             toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
             toggle(ui, "string-colors", "String colors", &mut state.string_colors);
             crate::kit::sep(ui);
-            if crate::kit::ibtn_sized(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false, BUTTON, 18.0).clicked() {
+            if crate::kit::ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
                 events.push(TabViewEvent::ReinferRequested);
             }
         });
-        if let Some(collapsed) = collapsed {
-            crate::kit::right_aligned(ui, "collapse_notation", |ui| {
-                crate::kit::group_frame_h(ui, BUTTON, |ui| {
-                    let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
-                    if crate::kit::ibtn_sized(ui, icon, tip, false, BUTTON, 18.0).clicked() {
-                        *collapsed = !*collapsed;
-                    }
-                });
-            });
-        }
     });
     events
 }
