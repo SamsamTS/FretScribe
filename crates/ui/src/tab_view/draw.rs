@@ -39,7 +39,7 @@ pub(super) fn links(notes: &[Note]) -> Vec<Link> {
 
 pub(super) struct Ctx<'a> {
     pub p: &'a Painter,
-    pub geo: &'a Geo,
+    pub geo: &'a Geo<'a>,
     pub view: &'a TimelineView,
     pub st: &'a TabStyle,
     pub project: &'a Project,

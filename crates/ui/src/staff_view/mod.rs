@@ -11,6 +11,7 @@ use egui::{pos2, vec2, Align2, Color32, FontData, FontDefinitions, FontFamily, F
 use fretscribe_notation::staff::{Accidental, Base, GraceMark, StaffEvent, StaffLayout};
 
 use crate::spectro::white;
+use crate::note_grid::NoteGrid;
 use crate::view::TimelineView;
 
 pub const FONT_NAME: &str = "Bravura";
@@ -31,8 +32,6 @@ const MARGIN: f32 = 5.0;
 /// staff and tab lines start).
 pub const NOTATION_HEAD_W: f32 = 72.0;
 
-/// Notes sit this far right of their time position's grid line, so the line does not cut through them.
-pub const NOTE_INSET: f32 = 7.0;
 
 pub fn add_fonts(fonts: &mut FontDefinitions) {
     fonts.font_data.insert(FONT_NAME.to_owned(), Arc::new(FontData::from_static(FONT_BYTES)));
@@ -96,6 +95,7 @@ pub struct StaffView<'a> {
     pub selected: &'a [u64],
     pub playhead: Option<f64>,
     pub style: &'a StaffStyle,
+    pub grid: &'a NoteGrid,
     /// Width of the left column that holds the clef and key signature (the timeline starts at its
     /// right edge, like the lanes); notes never draw there. 0 overlays them on the timeline.
     pub timeline_offset: f32,
@@ -109,10 +109,17 @@ pub(crate) struct Paint<'a> {
     pub s: f32,
     pub view: &'a TimelineView,
     pub style: &'a StaffStyle,
+    pub grid: &'a NoteGrid,
 }
 
 impl Paint<'_> {
+    /// Where a note at `sec` is drawn.
     pub fn px(&self, sec: f64) -> f32 {
+        self.x + self.grid.x(self.view, sec)
+    }
+
+    /// The exact x of `sec`, for bars and the seek line.
+    pub fn tx(&self, sec: f64) -> f32 {
         self.x + self.view.sec_to_x(sec)
     }
 
@@ -459,7 +466,7 @@ impl Paint<'_> {
     fn time_sigs(&self, layout: &StaffLayout) {
         for m in layout.measures.iter().filter(|m| m.show_time_sig) {
             let digits = digits(u32::from(m.time_sig.numerator)).chars().count().max(digits(u32::from(m.time_sig.denominator)).chars().count());
-            self.time_sig(m, self.px(m.start_sec) - 0.8 * self.s - 0.9 * self.s * digits as f32);
+            self.time_sig(m, self.tx(m.start_sec) - 0.8 * self.s - 0.9 * self.s * digits as f32);
         }
     }
 
@@ -476,9 +483,9 @@ impl StaffView<'_> {
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.style.height()), Sense::click());
         let full = ui.painter_at(rect);
         full.rect_filled(rect, 0.0, self.style.background);
-        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset + NOTE_INSET, rect.top()), rect.max);
+        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
         let painter = ui.painter_at(body);
-        let mk = |p| Paint { p, x: body.left(), top: rect.top() + (self.style.height() - 4.0 * s) / 2.0, s, view, style: self.style };
+        let mk = |p| Paint { p, x: body.left(), top: rect.top() + (self.style.height() - 4.0 * s) / 2.0, s, view, style: self.style, grid: self.grid };
         let paint = mk(&painter);
         let layout = self.layout;
         paint.staff(rect);
@@ -498,7 +505,7 @@ impl StaffView<'_> {
             links::draw(&paint, layout, self.selected);
         }
         if let Some(sec) = self.playhead {
-            let x = paint.px(sec);
+            let x = paint.tx(sec);
             painter.vline(x, rect.y_range(), Stroke::new(1.0_f32, self.style.playhead));
         }
         mk(&full).header(rect, layout, self.timeline_offset);
@@ -563,7 +570,7 @@ mod tests {
             let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 300.0))), ..Default::default() };
             let _ = ctx.run(input, |ctx| {
                 CentralPanel::default().show(ctx, |ui| {
-                    let out = StaffView { layout: &staff, selected: &[3], playhead: Some(0.5), style: &style, timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0));
+                    let out = StaffView { layout: &staff, selected: &[3], playhead: Some(0.5), style: &style, grid: &NoteGrid::default(), timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0));
                     assert!(out.events.is_empty());
                 });
             });

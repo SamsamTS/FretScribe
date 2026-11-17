@@ -22,6 +22,7 @@ pub use colors::string_color;
 pub use edit::{apply, apply_tuning, menu_model, placements, MenuModel, Placement, TabApplied, TabEdit, TabError};
 pub use menu::link_name;
 
+use crate::note_grid::NoteGrid;
 use crate::spectro::white;
 use crate::view::TimelineView;
 
@@ -71,14 +72,16 @@ impl TabStyle {
 
 /// Maps strings and time to pixels. `left` is where the timeline starts, `top` the highest string's line.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Geo {
+pub struct Geo<'a> {
+    /// Keeps notes between grid lines, shared with the sheet.
+    pub grid: &'a NoteGrid,
     pub left: f32,
     pub top: f32,
     pub gap: f32,
     pub strings: usize,
 }
 
-impl Geo {
+impl Geo<'_> {
     pub fn y(&self, string: u8) -> f32 {
         self.top + (self.strings as f32 - 1.0 - f32::from(string)) * self.gap
     }
@@ -88,7 +91,13 @@ impl Geo {
         (self.strings.saturating_sub(1) as f32 - from_top) as u8
     }
 
+    /// Where a note at `sec` is drawn.
     pub fn x(&self, view: &TimelineView, sec: f64) -> f32 {
+        self.left + self.grid.x(view, sec)
+    }
+
+    /// The exact x of `sec`, for the playhead.
+    pub fn tx(&self, view: &TimelineView, sec: f64) -> f32 {
         self.left + view.sec_to_x(sec)
     }
 
@@ -176,12 +185,13 @@ pub struct TabView<'a> {
     pub playhead: Option<f64>,
     pub style: &'a TabStyle,
     pub opts: &'a TabOptions,
+    pub grid: &'a NoteGrid,
     /// Width of the left column (labels); the timeline starts at its right edge, like the lanes.
     pub timeline_offset: f32,
 }
 
 impl TabView<'_> {
-    fn line_style(&self, geo: &Geo, state: &TabViewState, string: u8, now: f64) -> Stroke {
+    fn line_style(&self, geo: &Geo<'_>, state: &TabViewState, string: u8, now: f64) -> Stroke {
         let neutral = Stroke::new(1.0_f32, white(102));
         let color = string_color(usize::from(string), geo.strings);
         let chosen = |strings: Vec<u8>| strings.contains(&string);
@@ -204,8 +214,8 @@ impl TabView<'_> {
         let project = self.project;
         let n = project.tuning.open_strings.len().max(1);
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), st.height(n, state.show_stems)), Sense::click_and_drag());
-        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset + crate::staff_view::NOTE_INSET, rect.top()), rect.max);
-        let geo = Geo { left: body.left(), top: rect.top() + st.top_margin(), gap: st.gap, strings: n };
+        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
+        let geo = Geo { grid: self.grid, left: body.left(), top: rect.top() + st.top_margin(), gap: st.gap, strings: n };
         let now = ui.input(|i| i.time);
         state.flashes.retain(|f| f.1 > now);
         if !state.flashes.is_empty() {
@@ -241,7 +251,7 @@ impl TabView<'_> {
             }
         }
         if let Some(sec) = self.playhead {
-            painter.vline(geo.x(view, sec), rect.y_range(), Stroke::new(1.0_f32, st.playhead));
+            painter.vline(geo.tx(view, sec), rect.y_range(), Stroke::new(1.0_f32, st.playhead));
         }
 
         let hit = |pos| heads.iter().rev().find(|h| h.1.expand(3.0).contains(pos)).map(|h| h.0);

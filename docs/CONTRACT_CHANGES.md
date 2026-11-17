@@ -153,6 +153,6 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 - ui: `tab_view::{collapse_row, sheet_tools, tab_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `sheet_tools`/`tab_tools` sit in the header column of their lanes); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
 - app: navigation runs at the start of the frame on the previous frame's regions (the sheet and tab no longer lag behind the lanes while scrolling); restoring a window that started maximised sends the remembered size.
 
-## 2026-11-17 - ui: notation note inset
+## 2026-11-18 - ui/app: shared note placement and grid thinning
 
-Sheet and tab notes are drawn `NOTE_INSET` (7 px) right of their time position so grid, measure and seek lines no longer cut through them. No contract change.
+`NoteGrid` (ui) replaces the fixed note inset. Sheet and tab draw notes at `NoteGrid::x`, which keeps each note inside its grid cell and clear of the lines, identically in both views; `StaffView`/`TabView` take a `grid` field. Notation grid lines drop by halves as the zoom falls (measure lines stay). Drawn x is nudged only; playhead, bars and click-to-seek use the exact time. No core change.

@@ -6,6 +6,7 @@ use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{BeatKind, EditError, NoteTimes, Project, TempoMap, Track};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env};
 use fretscribe_ui::spectro::{paint_seek_line, show_time_ruler};
+use fretscribe_ui::NoteGrid;
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
@@ -61,6 +62,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.recompute_staff();
     }
     let view = s.ctl.current.timeline();
+    let note_grid = NoteGrid::new(&tempo, &view, ctx.screen_rect().width());
     // Fixed height: the sheet, the tool row and a tab strip tall enough for the rhythm stems. A collapse
     // button in the tool row leaves only that row.
     let tab_style = TabStyle::default();
@@ -81,7 +83,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             ui.allocate_rect(row, egui::Sense::hover());
         } else {
             let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
-            let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
+            let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, grid: &note_grid, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
             let tab_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_style.height(strings, s.tab_state.show_stems)));
             let out = TabView {
@@ -92,6 +94,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
                 playhead,
                 style: &tab_style,
                 opts: &s.tab_opts,
+                grid: &note_grid,
                 timeline_offset: LANE_HEADER_WIDTH,
             }
             .show(ui, &view, &mut s.tab_state);
@@ -177,7 +180,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     notation_ui.show(ctx, |ui| {
         ui.set_clip_rect(notation_timeline);
         let view = s.ctl.current.timeline();
-        paint_grid_lines(ui, &tempo, &view, notation_timeline);
+        paint_grid_lines(ui, &note_grid, &view, notation_timeline);
     });
 
     paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y, seek_origin.x);
@@ -216,17 +219,12 @@ fn track_mut(p: &mut Project, id: u64) -> Option<&mut Track> {
     p.tracks.iter_mut().find(|t| t.id == id)
 }
 
-fn paint_grid_lines(ui: &egui::Ui, tempo: &TempoMap, view: &fretscribe_ui::TimelineView, rect: Rect) {
+fn paint_grid_lines(ui: &egui::Ui, grid: &NoteGrid, view: &fretscribe_ui::TimelineView, rect: Rect) {
     let painter = ui.painter_at(rect);
-    for i in 0..tempo.len() {
-        for line in tempo.beat_lines(i) {
-            let x = rect.left() + view.sec_to_x(line.time_sec);
-            if x < rect.left() || x > rect.right() {
-                continue;
-            }
-            let alpha = if line.kind == BeatKind::Measure { 70 } else { 22 };
-            painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(alpha)));
-        }
+    for &(sec, kind) in grid.lines() {
+        let x = rect.left() + view.sec_to_x(sec);
+        let alpha = if kind == BeatKind::Measure { 70 } else { 22 };
+        painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(alpha)));
     }
 }
 
