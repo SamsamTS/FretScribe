@@ -12,6 +12,7 @@ use crate::Request;
 
 const FOCUS_TIP: &str = "Emphasises the guitar's frequency range in the mix, based on the tuning, capo and reference pitch. It does not separate instruments.";
 const LEVELS_TIP: &str = "Levels: everything below the left handle is black, everything above the right handle is the brightest colour";
+const Q_TIP: &str = "Spectrogram quality factor: higher resolves pitch better, lower resolves time better (recomputes the spectrograms)";
 const GAMMA_TIP: &str = "Gamma: lower it to make only the strongest values stand out, raise it to bring out the weakest ones";
 
 /// Gap between the two rows, and between the second row and the panel's bottom line.
@@ -53,6 +54,10 @@ fn project(ui: &mut Ui, s: &Session, requests: &mut Vec<Request>) {
         };
         push(ui, "home", Request::Home, "Back to the home screen");
         sep(ui);
+        ui.add_enabled_ui(false, |ui| {
+            ibtn(ui, "settings", "Settings (not available yet)", false)
+        });
+        sep(ui);
         push(ui, "add-track", Request::AddTrack, "Add an audio track");
         push(ui, "open", Request::Open, "Open a project");
         push(ui, "save", Request::Save, "Save (Ctrl+S)");
@@ -63,8 +68,32 @@ fn project(ui: &mut Ui, s: &Session, requests: &mut Vec<Request>) {
 
 fn history(ui: &mut Ui, s: &mut Session) {
     group(ui, "History", |ui| {
-        let undo = ui.add_enabled_ui(s.undo.can_undo(), |ui| ibtn(ui, "undo", &format!("Undo: {}", s.undo.undo_label().unwrap_or("nothing to undo")), false)).inner;
-        let redo = ui.add_enabled_ui(s.undo.can_redo(), |ui| ibtn(ui, "redo", &format!("Redo: {}", s.undo.redo_label().unwrap_or("nothing to redo")), false)).inner;
+        let undo = ui
+            .add_enabled_ui(s.undo.can_undo(), |ui| {
+                ibtn(
+                    ui,
+                    "undo",
+                    &format!(
+                        "Undo: {} (Ctrl+Z)",
+                        s.undo.undo_label().unwrap_or("nothing to undo")
+                    ),
+                    false,
+                )
+            })
+            .inner;
+        let redo = ui
+            .add_enabled_ui(s.undo.can_redo(), |ui| {
+                ibtn(
+                    ui,
+                    "redo",
+                    &format!(
+                        "Redo: {} (Ctrl+Y)",
+                        s.undo.redo_label().unwrap_or("nothing to redo")
+                    ),
+                    false,
+                )
+            })
+            .inner;
         if undo.clicked() {
             s.undo_redo(false);
         } else if redo.clicked() {
@@ -135,9 +164,36 @@ fn grid(ui: &mut Ui, s: &mut Session) {
         }
         s.policy = if follow { NotePolicy::FollowGrid } else { NotePolicy::KeepAudioPosition };
         sep(ui);
-        toggle(ui, "snap", "Snap to the grid", &mut s.snap_on);
-        for (triplet, options, id, tip) in [(false, STRAIGHT_DIVISIONS.as_slice(), "snap_straight", "Straight division (right-click: none / back)"), (true, TRIPLET_DIVISIONS.as_slice(), "snap_triplet", "Triplet division (right-click: none / back)")] {
-            let current = if triplet { s.ui.snap_grid.triplet() } else { s.ui.snap_grid.straight() };
+        let keys = |next| {
+            s.keymap
+                .shortcut_label(fretscribe_ui::note_editor::NoteAction::SnapPreset { next })
+                .unwrap_or_default()
+        };
+        let snap_tip = format!(
+            "Snap to the grid ({} / {}: previous / next preset)",
+            keys(false),
+            keys(true)
+        );
+        toggle(ui, "snap", &snap_tip, &mut s.snap_on);
+        for (triplet, options, id, tip) in [
+            (
+                false,
+                STRAIGHT_DIVISIONS.as_slice(),
+                "snap_straight",
+                "Straight division (right-click: none / back)",
+            ),
+            (
+                true,
+                TRIPLET_DIVISIONS.as_slice(),
+                "snap_triplet",
+                "Triplet division (right-click: none / back)",
+            ),
+        ] {
+            let current = if triplet {
+                s.ui.snap_grid.triplet()
+            } else {
+                s.ui.snap_grid.straight()
+            };
             let name = |d: Option<u8>| d.map_or("None", division_name).to_owned();
             let items: Vec<String> = std::iter::once(None).chain(options.iter().copied().map(Some)).map(name).collect();
             let selected = current.map_or(Some(0), |c| options.iter().position(|o| *o == c).map(|i| i + 1));
@@ -198,6 +254,22 @@ fn display(ui: &mut Ui, s: &mut Session) {
         if gamma != s.ui.spectro_gamma {
             s.ui.spectro_gamma = gamma;
             changed = true;
+        }
+        padded_hint(ui, "Q");
+        let q_range = fretscribe_core::Q_RANGE;
+        let mut q = s.ui.spectro_q;
+        let (r, _) = Field::new(&format!("{q:.0}"), Q_TIP)
+            .width(64.0)
+            .popup(ui, "q", |ui| {
+                slider_popup(ui, &mut q, q_range.clone(), "", "", 1.0, true)
+            });
+        kit::wheel_value(ui, &r, &mut q, &q_range, 0.1, true);
+        if r.double_clicked() {
+            q = fretscribe_analysis::SpectrogramParams::default().q;
+        }
+        s.ui.spectro_q = q.clamp(*q_range.start(), *q_range.end());
+        if s.ui.spectro_q != s.q_applied && !ui.input(|i| i.pointer.any_down()) {
+            s.q_changed();
         }
         if kit::is_open(ui, "lut") {
             let dir = s.luts.dir.clone();

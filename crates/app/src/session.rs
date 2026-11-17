@@ -61,6 +61,8 @@ pub struct Session {
     pub revision: u64,
     pub editor: NoteEditor,
     pub keymap: Keymap,
+    /// Commands of the header tool grid, applied by the note editor next frame.
+    pub tool_actions: Vec<fretscribe_ui::note_editor::NoteAction>,
     pub tab_state: TabViewState,
     /// The sheet and tab panel is hidden, leaving only its tool row.
     pub notation_collapsed: bool,
@@ -86,6 +88,12 @@ pub struct Session {
     pub autosave: AutosavePolicy,
     pub keep_history: bool,
     pub loads: Vec<LoadJob>,
+    /// Spectrogram recomputation after a Q change; a newer change replaces (cancels) it.
+    pub requant: Option<LoadJob>,
+    /// Where navigation input is read, from the previous frame's layout.
+    pub nav_regions: Option<fretscribe_ui::NavRegions>,
+    /// The Q the spectrograms were last (re)computed with.
+    pub q_applied: f32,
     pub load_progress: Option<(f32, String)>,
     pub jobs: Jobs,
     pub sync_on_ready: Vec<u64>,
@@ -125,9 +133,13 @@ impl Session {
         let undo = history
             .filter(|_| settings.keep_history_in_file)
             .map_or_else(|| UndoStack::with_policy(policy), |h| UndoStack::from_saved(h, &project, policy));
-        let nav = ViewState { scroll_sec: ui.view.scroll_sec, scroll_y: 0.0, pixels_per_sec: ui.view.pixels_per_sec };
+        let nav = ViewState { scroll_sec: ui.view.scroll_sec, scroll_y: ui.view.scroll_y, pixels_per_sec: ui.view.pixels_per_sec };
         let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
         let audio_len_sec = project.measures.last().map_or(0.0, |m| m.start_sec);
+        let (keymap, keymap_error) = crate::settings::settings_dir().map_or_else(
+            || (Keymap::default(), None),
+            |d| Keymap::load_or_default(&d.join("keymap.json")),
+        );
         let mut s = Self {
             reference_track: project.source_track,
             style: style_of(&ui, &luts),
@@ -142,7 +154,8 @@ impl Session {
             times,
             revision: 1,
             editor: NoteEditor::default(),
-            keymap: Keymap::default(),
+            keymap,
+            tool_actions: Vec::new(),
             tab_state: TabViewState::default(),
             notation_collapsed: false,
             tab_opts: TabOptions::default(),
@@ -163,6 +176,9 @@ impl Session {
             autosave: AutosavePolicy { enabled: settings.autosave_enabled, interval_secs: settings.autosave_secs, every_edits: settings.autosave_every_edits },
             keep_history: settings.keep_history_in_file,
             loads: Vec::new(),
+            requant: None,
+            nav_regions: None,
+            q_applied: ui.spectro_q,
             load_progress: None,
             jobs: Jobs::default(),
             sync_on_ready: Vec::new(),
@@ -182,7 +198,11 @@ impl Session {
             ui,
             project,
         };
+        s.restore_view();
         s.recompute_staff();
+        if let Some(e) = keymap_error {
+            s.toast(e, true);
+        }
         s
     }
 
@@ -212,7 +232,11 @@ impl Session {
     /// Starts loading the audio of the given tracks (ids already in the project).
     pub fn load_tracks(&mut self, tracks: Vec<(u64, PathBuf)>) {
         if !tracks.is_empty() {
-            self.loads.push(LoadJob::spawn(tracks, self.output_rate()));
+            self.loads.push(LoadJob::spawn(
+                tracks,
+                self.output_rate(),
+                self.ui.spectro_q,
+            ));
         }
     }
 
@@ -235,10 +259,11 @@ impl Session {
     /// Applies loader events; returns true while something is still loading.
     pub fn poll_loads(&mut self) -> bool {
         let mut events = Vec::new();
-        for job in &mut self.loads {
+        for job in self.loads.iter_mut().chain(self.requant.as_mut()) {
             events.extend(job.poll(&mut self.store));
         }
         self.loads.retain(|j| !j.is_finished());
+        self.requant.take_if(|j| j.is_finished());
         let (mut ready, mut spectro) = (false, false);
         for e in events {
             match e {
@@ -261,10 +286,11 @@ impl Session {
         if spectro {
             self.revision += 1;
         }
-        if self.loads.is_empty() {
+        let busy = !self.loads.is_empty() || self.requant.is_some();
+        if !busy {
             self.load_progress = None;
         }
-        !self.loads.is_empty()
+        busy
     }
 
     // ---- model edits ---------------------------------------------------------------------
@@ -320,7 +346,7 @@ impl Session {
     }
 
     pub fn recompute_staff(&mut self) {
-        let opts = StaffOptions { beat_rule: self.ui.strict_beats, ..StaffOptions::default() };
+        let opts = StaffOptions { beat_rule: self.ui.strict_beats, guitar_octave: self.ui.guitar_8vb, ..StaffOptions::default() };
         self.staff = staff::layout(&self.project.notes, &self.project.measures, &opts);
         self.staff_dirty = false;
     }
@@ -542,10 +568,37 @@ impl Session {
 
     // ---- persistence ---------------------------------------------------------------------
 
+    /// Applies the view state stored in `ui` (panels, lanes, pitch range, options).
+    fn restore_view(&mut self) {
+        let ui = &self.ui;
+        if let Some((lo, hi)) = ui.view.pitch {
+            let range = fretscribe_ui::nav::PitchRange { lo, hi };
+            (self.ctl.pitch.target, self.ctl.pitch.current) = (range, range);
+        }
+        self.notation_collapsed = ui.notation_collapsed;
+        if let Some((all, onsets, mv)) = ui.lane_options {
+            self.lanes.options = fretscribe_ui::LaneOptions { show_notes_on_all: all, show_onsets: onsets, move_notes: mv };
+        }
+        if let Some((back, stems, colors)) = ui.tab_options {
+            (self.tab_state.propagate_backwards, self.tab_state.show_stems, self.tab_state.string_colors) = (back, stems, colors);
+        }
+        (self.snap_on, self.overview_snap) = (ui.snap_on, ui.overview_snap);
+        self.lanes.restore_rows(&ui.lane_rows);
+    }
+
     /// Copies the live view state into `ui` and builds the file to write.
     pub fn snapshot(&mut self) -> ProjectFile {
         self.ui.view.scroll_sec = self.ctl.target.scroll_sec;
         self.ui.view.pixels_per_sec = self.ctl.target.pixels_per_sec;
+        self.ui.view.scroll_y = self.ctl.target.scroll_y;
+        self.ui.view.pitch = Some((self.ctl.pitch.target.lo, self.ctl.pitch.target.hi));
+        self.ui.notation_collapsed = self.notation_collapsed;
+        let o = &self.lanes.options;
+        self.ui.lane_options = Some((o.show_notes_on_all, o.show_onsets, o.move_notes));
+        let t = &self.tab_state;
+        self.ui.tab_options = Some((t.propagate_backwards, t.show_stems, t.string_colors));
+        (self.ui.snap_on, self.ui.overview_snap) = (self.snap_on, self.overview_snap);
+        self.ui.lane_rows = self.lanes.saved_rows();
         self.ui.selected_region = self.region.map(|r| (r.start_sec, r.end_sec));
         self.ui.note_policy = self.policy;
         let mut file = ProjectFile::new(self.project.clone());
@@ -570,6 +623,22 @@ impl Session {
 
     pub fn set_undo_policy(&mut self, policy: UndoPolicy) {
         self.undo.set_policy(policy);
+    }
+
+    /// Recomputes the loaded spectrograms with the Q in `ui`, in the background.
+    pub fn q_changed(&mut self) {
+        self.q_applied = self.ui.spectro_q;
+        let tracks: Vec<_> = self
+            .store
+            .tracks
+            .iter_mut()
+            .filter(|(_, t)| t.spectrogram_ready)
+            .map(|(id, t)| {
+                t.spectrogram_ready = false;
+                (*id, t.mono.clone(), t.sample_rate)
+            })
+            .collect();
+        self.requant = Some(LoadJob::requantise(tracks, self.ui.spectro_q));
     }
 
     pub fn display_changed(&mut self) {

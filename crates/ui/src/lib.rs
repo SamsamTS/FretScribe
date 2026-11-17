@@ -4,6 +4,7 @@ pub mod grid;
 pub mod kit;
 pub mod nav;
 pub mod note_editor;
+pub mod note_grid;
 pub mod overview;
 pub mod spectro;
 pub mod staff_view;
@@ -14,6 +15,7 @@ pub mod view;
 
 pub use grid::{GridEvent, GridOverlay, GridStyle};
 pub use nav::{NavContext, NavRegions, ViewController, ViewTuning};
+pub use note_grid::NoteGrid;
 pub use overview::{ZoomStep, OverviewEvent, OverviewOutput, OverviewStyle, OverviewTimeline};
 pub use spectro::{GhostShape, HitZone, SpectroCache, SpectroEvent, SpectroOutput, SpectroStyle, SpectrogramView, WaveformView};
 pub use staff_view::{StaffOutput, StaffStyle, StaffView, StaffViewEvent};

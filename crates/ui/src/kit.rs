@@ -17,10 +17,65 @@ macro_rules! icons {
 }
 
 icons!(
-    "home", "add-track", "open", "save", "save-as", "export", "undo", "redo", "skip-start", "play", "pause", "stop", "play-selection", "loop",
-    "follow-playhead", "keep-pitch", "synth", "guitar-focus", "snap", "snap-onsets", "follow-grid", "stay-with-audio", "rhythm", "tuning", "capo",
-    "tuning-fork", "detect", "auto-fit-grid", "auto-tempo", "re-infer-tab", "zoom-in", "zoom-out", "zoom-fit", "chevron-down", "minus", "plus", "mute", "solo", "star", "star-filled", "offset-arrows", "auto-sync", "reset-offset",
-    "chevron-right", "chevron-up", "string-colors", "apply-following",
+    "home",
+    "add-track",
+    "open",
+    "save",
+    "save-as",
+    "export",
+    "undo",
+    "redo",
+    "skip-start",
+    "play",
+    "pause",
+    "stop",
+    "play-selection",
+    "loop",
+    "follow-playhead",
+    "keep-pitch",
+    "synth",
+    "guitar-focus",
+    "snap",
+    "snap-onsets",
+    "follow-grid",
+    "stay-with-audio",
+    "rhythm",
+    "tuning",
+    "capo",
+    "tuning-fork",
+    "detect",
+    "auto-fit-grid",
+    "auto-tempo",
+    "re-infer-tab",
+    "zoom-in",
+    "zoom-out",
+    "zoom-fit",
+    "chevron-down",
+    "minus",
+    "plus",
+    "mute",
+    "solo",
+    "star",
+    "star-filled",
+    "offset-arrows",
+    "auto-sync",
+    "reset-offset",
+    "chevron-right",
+    "chevron-up",
+    "string-colors",
+    "apply-following",
+    "layers",
+    "onsets",
+    "settings",
+    "link",
+    "unlink",
+    "link-type",
+    "grace",
+    "legato",
+    "bridge",
+    "lock",
+    "unlock",
+    "guitar-8vb",
 );
 
 pub const BUTTON: f32 = 36.0;
@@ -446,12 +501,21 @@ pub fn text_field(ui: &mut Ui, o: FieldOpts, leading: impl FnOnce(&mut Ui), text
         })
         .inner;
     finish_edit(ui, &edit, text, o.commit);
-    let edit = if o.tip.is_empty() { edit } else { edit.on_hover_text(o.tip) };
-    let edge = if o.invalid { theme::ERROR } else if edit.has_focus() { theme::accent() } else { theme::BORDER };
+    let edge = if o.invalid {
+        theme::ERROR
+    } else if edit.has_focus() {
+        theme::accent()
+    } else {
+        theme::BORDER
+    };
     frame.frame.stroke = Stroke::new(1.0_f32, edge);
     let outer = frame.end(ui);
     if !o.tip.is_empty() {
-        outer.on_hover_text(o.tip);
+        if edit.hovered() {
+            edit.clone().on_hover_text(o.tip);
+        } else {
+            outer.on_hover_text(o.tip);
+        }
     }
     edit
 }

@@ -22,6 +22,7 @@ pub use colors::string_color;
 pub use edit::{apply, apply_tuning, menu_model, placements, MenuModel, Placement, TabApplied, TabEdit, TabError};
 pub use menu::link_name;
 
+use crate::note_grid::NoteGrid;
 use crate::spectro::white;
 use crate::view::TimelineView;
 
@@ -71,14 +72,16 @@ impl TabStyle {
 
 /// Maps strings and time to pixels. `left` is where the timeline starts, `top` the highest string's line.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Geo {
+pub struct Geo<'a> {
+    /// Keeps notes between grid lines, shared with the sheet.
+    pub grid: &'a NoteGrid,
     pub left: f32,
     pub top: f32,
     pub gap: f32,
     pub strings: usize,
 }
 
-impl Geo {
+impl Geo<'_> {
     pub fn y(&self, string: u8) -> f32 {
         self.top + (self.strings as f32 - 1.0 - f32::from(string)) * self.gap
     }
@@ -88,7 +91,13 @@ impl Geo {
         (self.strings.saturating_sub(1) as f32 - from_top) as u8
     }
 
+    /// Where a note at `sec` is drawn.
     pub fn x(&self, view: &TimelineView, sec: f64) -> f32 {
+        self.left + self.grid.x(view, sec)
+    }
+
+    /// The exact x of `sec`, for the playhead.
+    pub fn tx(&self, view: &TimelineView, sec: f64) -> f32 {
         self.left + view.sec_to_x(sec)
     }
 
@@ -176,12 +185,13 @@ pub struct TabView<'a> {
     pub playhead: Option<f64>,
     pub style: &'a TabStyle,
     pub opts: &'a TabOptions,
+    pub grid: &'a NoteGrid,
     /// Width of the left column (labels); the timeline starts at its right edge, like the lanes.
     pub timeline_offset: f32,
 }
 
 impl TabView<'_> {
-    fn line_style(&self, geo: &Geo, state: &TabViewState, string: u8, now: f64) -> Stroke {
+    fn line_style(&self, geo: &Geo<'_>, state: &TabViewState, string: u8, now: f64) -> Stroke {
         let neutral = Stroke::new(1.0_f32, white(102));
         let color = string_color(usize::from(string), geo.strings);
         let chosen = |strings: Vec<u8>| strings.contains(&string);
@@ -197,24 +207,15 @@ impl TabView<'_> {
         if state.string_colors { Stroke::new(1.0_f32, color.gamma_multiply(0.45)) } else { neutral }
     }
 
-    /// The tool row followed by the strip.
+    /// The strip; the host draws the tools ([`sheet_tools`], [`tab_tools`]) itself.
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
-        let mut events = toolbar(ui, state, None);
-        let mut out = self.show_body(ui, view, state);
-        events.append(&mut out.events);
-        out.events = events;
-        out
-    }
-
-    /// The strip alone (the host draws [`toolbar`] itself).
-    pub fn show_body(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
         let mut events = Vec::new();
         let st = self.style;
         let project = self.project;
         let n = project.tuning.open_strings.len().max(1);
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), st.height(n, state.show_stems)), Sense::click_and_drag());
         let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
-        let geo = Geo { left: body.left(), top: rect.top() + st.top_margin(), gap: st.gap, strings: n };
+        let geo = Geo { grid: self.grid, left: body.left(), top: rect.top() + st.top_margin(), gap: st.gap, strings: n };
         let now = ui.input(|i| i.time);
         state.flashes.retain(|f| f.1 > now);
         if !state.flashes.is_empty() {
@@ -224,14 +225,16 @@ impl TabView<'_> {
         full.rect_filled(rect, 0.0, st.background);
         let colored = state.menu_open() || state.holding(now) || state.string_colors;
         for s in 0..n as u8 {
-            full.hline(rect.x_range(), geo.y(s).round(), self.line_style(&geo, state, s, now));
+            full.hline((rect.left() + self.timeline_offset - crate::staff_view::NOTATION_HEAD_W)..=rect.right(), geo.y(s).round(), self.line_style(&geo, state, s, now));
             let label = string_label_styled(&project.tuning, s, LabelStyle::Convention).unwrap_or_default();
             let color = if colored { string_color(usize::from(s), n) } else { st.ink.gamma_multiply(0.7) };
-            full.text(pos2(rect.left() + self.timeline_offset - 16.0, geo.y(s)), egui::Align2::RIGHT_CENTER, label, egui::FontId::proportional(st.font * 0.85), color);
+            let font = egui::FontId::proportional(st.font * 0.85);
+            // Centred on one column and on a shared baseline, so lower-case and capital labels line up.
+            full.text(pos2(rect.left() + self.timeline_offset - 24.0, geo.y(s).round() + font.size * 0.36), egui::Align2::CENTER_BOTTOM, label, font, color);
         }
         for (i, ch) in "TAB".chars().enumerate() {
             let y = geo.top + (n as f32 - 1.0) * geo.gap / 2.0 + (i as f32 - 1.0) * st.font;
-            full.text(pos2(rect.left() + 12.0, y), egui::Align2::CENTER_CENTER, ch, egui::FontId::proportional(st.font), st.ink.gamma_multiply(0.7));
+            full.text(pos2(rect.left() + self.timeline_offset - crate::staff_view::NOTATION_HEAD_W + 14.0, y), egui::Align2::CENTER_CENTER, ch, egui::FontId::proportional(st.font), st.ink.gamma_multiply(0.7));
         }
         let ruler = Rect::from_min_max(rect.min, pos2(rect.left() + self.timeline_offset, rect.bottom()));
 
@@ -248,7 +251,7 @@ impl TabView<'_> {
             }
         }
         if let Some(sec) = self.playhead {
-            painter.vline(geo.x(view, sec), rect.y_range(), Stroke::new(1.0_f32, st.playhead));
+            painter.vline(geo.tx(view, sec), rect.y_range(), Stroke::new(1.0_f32, st.playhead));
         }
 
         let hit = |pos| heads.iter().rev().find(|h| h.1.expand(3.0).contains(pos)).map(|h| h.0);
@@ -365,42 +368,58 @@ impl TabView<'_> {
     }
 }
 
-/// Height of the tool row drawn by [`toolbar`], including the space above and below it.
-pub const TOOLBAR_HEIGHT: f32 = 54.0;
+/// Height of the row at the top of the notation panel that holds the collapse button (the sheet's strip
+/// extends through it).
+pub const TOOLBAR_HEIGHT: f32 = 52.0;
 
-/// The tool row above the strip, aligned with the toolbar's groups. With `collapsed`, a button at the
-/// right end toggles it (the host then hides the sheet and the strip).
-pub fn toolbar(ui: &mut Ui, state: &mut TabViewState, collapsed: Option<&mut bool>) -> Vec<TabViewEvent> {
-    const SIDE: f32 = 16.0;
-    const BUTTON: f32 = 28.0;
+/// Left margin of the tools in the header column (the lane headers' own margin).
+const TOOLS_MARGIN: f32 = 16.0;
+
+/// The collapse button, at the left of `row` (the header column's top).
+pub fn collapse_button(ui: &mut Ui, row: Rect, collapsed: &mut bool) {
+    let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
+    let at = Rect::from_min_size(pos2(row.left() + TOOLS_MARGIN, row.top() + (row.height() - crate::kit::BUTTON) / 2.0), vec2(crate::kit::BUTTON, crate::kit::BUTTON));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(at), |ui| {
+        if crate::kit::ibtn(ui, icon, tip, false).clicked() {
+            *collapsed = !*collapsed;
+        }
+    });
+}
+
+/// A captioned tool group at the top left of a lane's header column (`lane` is the lane's full rect).
+fn lane_tools(ui: &mut Ui, lane: Rect, caption: &str, add: impl FnOnce(&mut Ui)) {
+    let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 10.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - TOOLS_MARGIN, lane.bottom()));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
+        ui.set_clip_rect(ui.clip_rect().intersect(lane));
+        crate::kit::group_at(ui, caption, true, add);
+    });
+}
+
+/// The sheet's tools, in the header column of the sheet lane: guitar 8vb (the guitar is written an octave
+/// above its sound).
+pub fn sheet_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool) {
+    lane_tools(ui, lane, "Sheet", |ui| {
+        if crate::kit::ibtn(ui, "guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", *guitar_8vb).clicked() {
+            *guitar_8vb = !*guitar_8vb;
+        }
+    });
+}
+
+/// The tab's tools, in the header column of the tab lane.
+pub fn tab_tools(ui: &mut Ui, lane: Rect, state: &mut TabViewState) -> Vec<TabViewEvent> {
     let mut events = Vec::new();
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOLBAR_HEIGHT), Sense::hover());
-    let inner = Rect::from_min_max(pos2(rect.left() + SIDE, rect.top() + (TOOLBAR_HEIGHT - BUTTON - 10.0) / 2.0), pos2(rect.right() - SIDE, rect.bottom()));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
-        ui.set_width(inner.width());
-        crate::kit::group_frame_h(ui, BUTTON, |ui| {
-            let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
-                if crate::kit::ibtn_sized(ui, icon, tip, *value, BUTTON, 18.0).clicked() {
-                    *value = !*value;
-                }
-            };
-            toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
-            toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
-            toggle(ui, "string-colors", "String colors", &mut state.string_colors);
-            crate::kit::sep(ui);
-            if crate::kit::ibtn_sized(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false, BUTTON, 18.0).clicked() {
-                events.push(TabViewEvent::ReinferRequested);
+    lane_tools(ui, lane, "Tab", |ui| {
+        let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
+            if crate::kit::ibtn(ui, icon, tip, *value).clicked() {
+                *value = !*value;
             }
-        });
-        if let Some(collapsed) = collapsed {
-            crate::kit::right_aligned(ui, "collapse_notation", |ui| {
-                crate::kit::group_frame_h(ui, BUTTON, |ui| {
-                    let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
-                    if crate::kit::ibtn_sized(ui, icon, tip, false, BUTTON, 18.0).clicked() {
-                        *collapsed = !*collapsed;
-                    }
-                });
-            });
+        };
+        toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
+        toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
+        toggle(ui, "string-colors", "String colors", &mut state.string_colors);
+        crate::kit::sep(ui);
+        if crate::kit::ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
+            events.push(TabViewEvent::ReinferRequested);
         }
     });
     events

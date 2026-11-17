@@ -11,6 +11,7 @@ use egui::{pos2, vec2, Align2, Color32, FontData, FontDefinitions, FontFamily, F
 use fretscribe_notation::staff::{Accidental, Base, GraceMark, StaffEvent, StaffLayout};
 
 use crate::spectro::white;
+use crate::note_grid::NoteGrid;
 use crate::view::TimelineView;
 
 pub const FONT_NAME: &str = "Bravura";
@@ -26,6 +27,11 @@ const MAX_BEAM_RISE: f32 = 1.25;
 const GRACE_SCALE: f32 = 0.62;
 /// Staff spaces above and below the five lines.
 const MARGIN: f32 = 5.0;
+
+/// Width, left of the timeline, of the block that holds the clef, key and time signature (and where the
+/// staff and tab lines start).
+pub const NOTATION_HEAD_W: f32 = 72.0;
+
 
 pub fn add_fonts(fonts: &mut FontDefinitions) {
     fonts.font_data.insert(FONT_NAME.to_owned(), Arc::new(FontData::from_static(FONT_BYTES)));
@@ -46,6 +52,8 @@ pub struct StaffStyle {
     pub selected: Color32,
     pub playhead: Color32,
     pub background: Color32,
+    /// Extra height above the staff (room for high notes, beams and the host's tools).
+    pub top_extra: f32,
 }
 
 impl Default for StaffStyle {
@@ -56,13 +64,14 @@ impl Default for StaffStyle {
             selected: Color32::from_rgb(110, 180, 255),
             playhead: Color32::from_rgb(255, 90, 80),
             background: crate::theme::WINDOW_BG,
+            top_extra: 0.0,
         }
     }
 }
 
 impl StaffStyle {
     pub fn height(&self) -> f32 {
-        (4.0 + 2.0 * MARGIN) * self.space
+        self.top_extra + (4.0 + 2.0 * MARGIN) * self.space
     }
 }
 
@@ -86,6 +95,7 @@ pub struct StaffView<'a> {
     pub selected: &'a [u64],
     pub playhead: Option<f64>,
     pub style: &'a StaffStyle,
+    pub grid: &'a NoteGrid,
     /// Width of the left column that holds the clef and key signature (the timeline starts at its
     /// right edge, like the lanes); notes never draw there. 0 overlays them on the timeline.
     pub timeline_offset: f32,
@@ -99,10 +109,17 @@ pub(crate) struct Paint<'a> {
     pub s: f32,
     pub view: &'a TimelineView,
     pub style: &'a StaffStyle,
+    pub grid: &'a NoteGrid,
 }
 
 impl Paint<'_> {
+    /// Where a note at `sec` is drawn.
     pub fn px(&self, sec: f64) -> f32 {
+        self.x + self.grid.x(self.view, sec)
+    }
+
+    /// The exact x of `sec`, for bars and the seek line.
+    pub fn tx(&self, sec: f64) -> f32 {
         self.x + self.view.sec_to_x(sec)
     }
 
@@ -423,14 +440,20 @@ impl Paint<'_> {
         let n = layout.key.0;
         let width = offset.max(self.key_end(layout));
         self.p.rect_filled(Rect::from_min_size(pos2(rect.left(), rect.top()), vec2(width, rect.height())), 0.0, self.style.background);
-        self.staff(Rect::from_min_size(rect.min, vec2(width, rect.height())));
+        let x0 = rect.left() + width - NOTATION_HEAD_W;
+        self.staff(Rect::from_min_max(pos2(x0, rect.top()), pos2(rect.left() + width, rect.bottom())));
         let clef = if layout.guitar_octave { "\u{E052}" } else { "\u{E050}" };
-        self.glyph(clef, pos2(rect.left() + 0.5 * self.s, self.py(2)), 1.0, self.style.ink, Align2::LEFT_CENTER);
+        self.glyph(clef, pos2(x0 + 0.5 * self.s, self.py(2)), 1.0, self.style.ink, Align2::LEFT_CENTER);
         // Steps of the sharps (F C G D A E B) and flats (B E A D G C F) on the treble staff.
         let steps: [i32; 7] = if n > 0 { [8, 5, 9, 6, 3, 7, 4] } else { [4, 7, 3, 6, 2, 5, 1] };
         let glyph = if n > 0 { "\u{E262}" } else { "\u{E260}" };
         for (k, &step) in steps.iter().take(usize::from(n.unsigned_abs()).min(7)).enumerate() {
-            self.glyph(glyph, pos2(rect.left() + (4.4 + k as f32) * self.s, self.py(step)), 1.0, self.style.ink, Align2::LEFT_CENTER);
+            self.glyph(glyph, pos2(x0 + (4.4 + k as f32) * self.s, self.py(step)), 1.0, self.style.ink, Align2::LEFT_CENTER);
+        }
+        // The time signature in force at the start of the timeline.
+        let t0 = self.view.x_to_sec(0.0);
+        if let Some(m) = layout.measures.iter().rev().find(|m| m.start_sec <= t0).or(layout.measures.first()) {
+            self.time_sig(m, x0 + self.key_end(layout) + 1.2 * self.s);
         }
     }
 
@@ -442,11 +465,15 @@ impl Paint<'_> {
     /// Time signatures sit just left of their barline (positions are time, so nothing is pushed aside).
     fn time_sigs(&self, layout: &StaffLayout) {
         for m in layout.measures.iter().filter(|m| m.show_time_sig) {
-            let (top, bottom) = (digits(u32::from(m.time_sig.numerator)), digits(u32::from(m.time_sig.denominator)));
-            let cx = self.px(m.start_sec) - 0.8 * self.s - 0.9 * self.s * top.chars().count().max(bottom.chars().count()) as f32;
-            self.glyph(&top, pos2(cx, self.py(6)), 1.0, self.style.ink, Align2::CENTER_CENTER);
-            self.glyph(&bottom, pos2(cx, self.py(2)), 1.0, self.style.ink, Align2::CENTER_CENTER);
+            let digits = digits(u32::from(m.time_sig.numerator)).chars().count().max(digits(u32::from(m.time_sig.denominator)).chars().count());
+            self.time_sig(m, self.tx(m.start_sec) - 0.8 * self.s - 0.9 * self.s * digits as f32);
         }
+    }
+
+    fn time_sig(&self, m: &fretscribe_notation::staff::MeasureLayout, cx: f32) {
+        let (top, bottom) = (digits(u32::from(m.time_sig.numerator)), digits(u32::from(m.time_sig.denominator)));
+        self.glyph(&top, pos2(cx, self.py(6)), 1.0, self.style.ink, Align2::CENTER_CENTER);
+        self.glyph(&bottom, pos2(cx, self.py(2)), 1.0, self.style.ink, Align2::CENTER_CENTER);
     }
 }
 
@@ -458,7 +485,7 @@ impl StaffView<'_> {
         full.rect_filled(rect, 0.0, self.style.background);
         let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
         let painter = ui.painter_at(body);
-        let mk = |p| Paint { p, x: body.left(), top: rect.top() + MARGIN * s, s, view, style: self.style };
+        let mk = |p| Paint { p, x: body.left(), top: rect.top() + (self.style.height() - 4.0 * s) / 2.0, s, view, style: self.style, grid: self.grid };
         let paint = mk(&painter);
         let layout = self.layout;
         paint.staff(rect);
@@ -478,11 +505,11 @@ impl StaffView<'_> {
             links::draw(&paint, layout, self.selected);
         }
         if let Some(sec) = self.playhead {
-            let x = paint.px(sec);
+            let x = paint.tx(sec);
             painter.vline(x, rect.y_range(), Stroke::new(1.0_f32, self.style.playhead));
         }
         mk(&full).header(rect, layout, self.timeline_offset);
-        let signs = ui.painter_at(Rect::from_min_max(pos2(rect.left() + paint.key_end(layout), rect.top()), rect.max));
+        let signs = ui.painter_at(body);
         mk(&signs).time_sigs(layout);
 
         let hit = |pos: Pos2| heads.iter().find(|h| h.rect.expand(2.0).contains(pos)).map(|h| h.id);
@@ -543,7 +570,7 @@ mod tests {
             let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 300.0))), ..Default::default() };
             let _ = ctx.run(input, |ctx| {
                 CentralPanel::default().show(ctx, |ui| {
-                    let out = StaffView { layout: &staff, selected: &[3], playhead: Some(0.5), style: &style, timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0));
+                    let out = StaffView { layout: &staff, selected: &[3], playhead: Some(0.5), style: &style, grid: &NoteGrid::default(), timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0));
                     assert!(out.events.is_empty());
                 });
             });

@@ -54,7 +54,7 @@ impl eframe::App for Demo {
         egui::CentralPanel::default().show(ctx, |ui| {
             let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
             let staff = layout(&self.project.notes, &self.project.measures, &StaffOptions::default());
-            let out = TabView { project: &self.project, times: &times, staff: Some(&staff), selected: &self.selected.ids, playhead: None, style: &self.style, opts: &self.opts, timeline_offset: 90.0 }.show(ui, &self.view, &mut self.state);
+            let out = TabView { project: &self.project, times: &times, staff: Some(&staff), selected: &self.selected.ids, playhead: None, style: &self.style, opts: &self.opts, grid: &Default::default(), timeline_offset: 90.0 }.show(ui, &self.view, &mut self.state);
             let now = ctx.input(|i| i.time);
             for e in out.events {
                 match e {

@@ -140,3 +140,19 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 - Fonts: `theme::add_fonts` keeps only Inter / Inter Medium / JetBrains Mono (plus egui's small symbol font as a fallback for its own menu arrows); `FontFamily::Monospace` is JetBrains Mono. The sheet keeps Bravura for music glyphs, which the tempo label also uses for its quarter-note sign.
 - Removed: the tab view's tuning dialog (`TuningDraft`, `TabViewEvent::TuningChanged`, `TabViewState::{tuning, open_tuning}`; the toolbar edits tuning and capo) and "High contrast" (`TabViewState::high_contrast`). The tempo label keeps its "♩" sign, drawn by egui's small symbol font (kept as a fallback; Inter and JetBrains Mono lack the glyph).
 - `tab_view::toolbar(ui, state, collapsed)` / `TOOLBAR_HEIGHT` / `TabView::show_body` (the strip alone; `show` = toolbar + body). The app's sheet+tab panel has a fixed height (sheet + tool row + a tab strip with room for stems) and `Session::notation_collapsed` collapses it to the tool row. `kit::group_frame_h`, `FieldOpts::tip`, `theme::dialog_frame`; group gaps equal their padding (4 px).
+
+## 2026-11-17 - ui/app/core: header tools, overview view toggles, Q factor
+
+- core: `UiState::spectro_q` (serde default 40, clamped to `Q_RANGE` 10..=120 by `sanitise`). Older files load with the default.
+- ui: `LANE_HEADER_WIDTH` 240 -> 288. `OverviewEvent::{NotesOnAllLanesToggled, OnsetsToggled}` and `OverviewTimeline::lane_toggles`; the overview group is captioned "View". `TrackEvent::NoteAction`, `TrackLanes::tools: Option<&HeaderTools>` (new field), `note_editor::{header_tools, HeaderTools}`, `ActionButton::icon`; the source track header shows the tool grid under its top strip when there is room. New icons: layers, onsets, settings, link, unlink, link-type, grace, legato, bridge, lock, unlock. `kit::text_field` shows its tooltip once.
+- app: `LoadJob::spawn` takes the Q; `LoadJob::requantise` and `Session::{q_changed, requant}` recompute spectrograms in the background. Ctrl+S saves; the keymap file `<settings dir>/keymap.json` is loaded when a session opens (errors toast).
+
+## 2026-11-17 - core: view state in the project file; ui: tab toolbar and track tools
+
+- core: `ViewState::{scroll_y, pitch}` and `UiState::{notation_collapsed, lane_options, tab_options, snap_on, overview_snap, lane_rows}`, all serde-defaulted, so older files load unchanged. `UiState::guitar_8vb` (default true) drives `StaffOptions::guitar_octave`.
+- ui: `tab_view::{collapse_row, sheet_tools, tab_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `sheet_tools`/`tab_tools` sit in the header column of their lanes); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
+- app: navigation runs at the start of the frame on the previous frame's regions (the sheet and tab no longer lag behind the lanes while scrolling); restoring a window that started maximised sends the remembered size.
+
+## 2026-11-18 - ui/app: shared note placement and grid thinning
+
+`NoteGrid` (ui) replaces the fixed note inset. Sheet and tab draw notes at `NoteGrid::x`, which keeps each note inside its grid cell and clear of the lines, identically in both views; `StaffView`/`TabView` take a `grid` field. Notation grid lines drop by halves as the zoom falls (measure lines stay). Drawn x is nudged only; playhead, bars and click-to-seek use the exact time. No core change.

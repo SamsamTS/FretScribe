@@ -167,6 +167,7 @@ impl Demo {
             TrackEvent::SetSource(id) => p.source_track = id,
             TrackEvent::RoleChanged { id, role } => p.tracks.iter_mut().filter(|t| t.id == id).for_each(|t| t.role = role),
             TrackEvent::UseForBeatsChanged { id, on } => p.tracks.iter_mut().filter(|t| t.id == id).for_each(|t| t.use_for_beats = on),
+            TrackEvent::NoteAction(_) | TrackEvent::RegionChanged(_) => {}
             TrackEvent::AddTrackRequested => {
                 let id = p.add_track(Track::new(0, "New track", TrackRole::Other));
                 let onsets = onsets_for(TrackRole::Other);
@@ -207,7 +208,7 @@ impl eframe::App for Demo {
             let pitch = PitchView::from(self.ctl.pitch.current);
 
             let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
-            let out = TrackLanes { project: &self.project, source: &self.audio, style: &self.style, times: &self.times, selected: &[], ghost: None, reference_track: self.reference, focus: None }
+            let out = TrackLanes { project: &self.project, source: &self.audio, style: &self.style, times: &self.times, selected: &[], ghost: None, reference_track: self.reference, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 0.0 }
                 .show(ui, lanes, &view, &pitch, self.ctl.offset_y(ctx.pixels_per_point()), &mut self.lanes);
             for event in out.events {
                 self.apply(event);

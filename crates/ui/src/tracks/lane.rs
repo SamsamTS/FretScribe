@@ -11,7 +11,12 @@ use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::nav::{notches, ViewTuning};
-use crate::spectro::{place_readout, HitZone, SpectroGeometry, white, GhostShape, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
+use crate::note_editor::HeaderTools;
+use crate::view::RegionSelection;
+use crate::spectro::{
+    place_readout, white, GhostShape, HitZone, Peak, SpectroCache, SpectroEvent, SpectroGeometry,
+    SpectroStyle, SpectrogramView, WaveformView,
+};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 const BORDER_COLOR: Color32 = Color32::from_gray(60);
@@ -70,6 +75,11 @@ pub struct LaneShared<'a> {
     pub reference_track: u64,
     pub focus: Option<(f32, f32, f32)>,
     pub audible: &'a HashSet<u64>,
+    pub tools: Option<&'a HeaderTools>,
+    pub region: Option<RegionSelection>,
+    pub region_snap: &'a [f64],
+    pub region_snapping: bool,
+    pub audio_len_sec: f64,
 }
 
 pub struct TrackLane<'a> {
@@ -150,6 +160,15 @@ impl TrackLane<'_> {
         let wave_rect = Rect::from_min_size(pos2(timeline_left, spec_rect.bottom()), vec2(spec_rect.width(), px(STRIP_PITCH_PX)));
         let mut events = Vec::new();
 
+        let mut areas = vec![wave_rect];
+        if !is_source && self.shown_rows > 0 {
+            areas.push(spec_rect);
+        }
+        let input = super::region::RegionInput { region: shared.region, audio_len_sec: shared.audio_len_sec, snap: shared.region_snap, snapping: shared.region_snapping };
+        if let Some(change) = super::region::drive(&ctx, ui.id().with(("region", id)), &areas, timeline_left, &view, &input) {
+            events.push(TrackEvent::RegionChanged(change));
+        }
+
         let move_notes = is_source && options.move_notes;
         let wave_response = ui.interact(wave_rect, ui.id().with(("wave", id)), Sense::click_and_drag());
         self.drive_drag(&ctx, &wave_response, move_notes, &mut events);
@@ -165,6 +184,7 @@ impl TrackLane<'_> {
                 audible: shared.audible.contains(&id),
                 can_remove: shared.project.tracks.len() > 1,
                 move_notes: &mut options.move_notes,
+                tools: shared.tools.filter(|_| is_source),
             },
         );
         events.extend(header.events);
@@ -189,6 +209,7 @@ impl TrackLane<'_> {
                         .audio_offset(offset)
                         .revision(shared.source.spectrogram_revision(id))
                         .focus(shared.focus)
+                        .region(shared.region.map(|r| (r.start_sec, r.end_sec)))
                         .height(height);
                     if notes_here {
                         widget = widget.notes(&shared.project.notes, shared.times, if is_source { shared.selected } else { &[] });
@@ -247,6 +268,9 @@ impl TrackLane<'_> {
         let wave = WaveformView::new(px(WAVE_H_PX)).palette(&palette).audio_offset(offset);
         wave.paint(ui, Rect::from_min_size(wave_rect.min, vec2(wave_rect.width(), px(WAVE_H_PX))), &view, |range, n| shared.source.peaks(id, range, n));
         let painter = ui.painter_at(wave_rect);
+        if let Some(r) = shared.region {
+            crate::spectro::paint_region(&painter, wave_rect, &view, r.start_sec, r.end_sec);
+        }
         painter.rect_filled(Rect::from_min_max(pos2(wave_rect.left(), wave_rect.bottom() - px(BORDER_PX)), wave_rect.max), 0.0, BORDER_COLOR);
         let x_of = |sec: f64| timeline_left + view.sec_to_x(sec);
         if self.shown_rows == 0 && is_source {

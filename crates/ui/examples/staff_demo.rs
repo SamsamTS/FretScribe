@@ -69,7 +69,7 @@ impl eframe::App for Demo {
         });
         egui::CentralPanel::default().show(ctx, |ui| {
             let staff = layout(&self.notes, &self.measures, &StaffOptions { key: KeySignature(self.opts.key.0), ..self.opts.clone() });
-            let out = StaffView { layout: &staff, selected: &self.selected, playhead: Some(self.playhead), style: &self.style, timeline_offset: 90.0 }.show(ui, &self.view);
+            let out = StaffView { layout: &staff, selected: &self.selected, playhead: Some(self.playhead), style: &self.style, grid: &Default::default(), timeline_offset: 90.0 }.show(ui, &self.view);
             for e in out.events {
                 self.log = format!("{e:?}");
                 match e {

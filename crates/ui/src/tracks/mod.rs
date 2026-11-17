@@ -8,6 +8,7 @@ mod icons;
 mod lane;
 mod lanes;
 mod offset;
+mod region;
 #[cfg(test)]
 mod tests;
 

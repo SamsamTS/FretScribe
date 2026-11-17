@@ -73,7 +73,7 @@ impl Harness {
         let _ = self.ctx.run(raw, |ctx| {
             CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
                 let lanes = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0));
-                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None }
+                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 0.0 }
                     .show(ui, lanes, &TimelineView::new(0.0, 100.0), &PitchView::default(), 0.0, &mut self.state);
                 out = o.events;
             });

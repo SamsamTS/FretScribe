@@ -9,6 +9,8 @@ use super::events::TrackEvent;
 use crate::nav::maths::smooth;
 use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
+use crate::note_editor::HeaderTools;
+use crate::view::RegionSelection;
 use crate::spectro::{white, GhostShape, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
@@ -84,6 +86,17 @@ impl TrackLanesState {
         }
     }
 
+    /// Rows set per track, sorted by id, for saving.
+    pub fn saved_rows(&self) -> Vec<(u64, u32)> {
+        let mut rows: Vec<_> = self.rows.iter().map(|(id, n)| (*id, *n)).collect();
+        rows.sort_unstable();
+        rows
+    }
+
+    pub fn restore_rows(&mut self, rows: &[(u64, u32)]) {
+        self.rows = rows.iter().map(|(id, n)| (*id, geometry::clamp_rows(i64::from(*n)))).collect();
+    }
+
     pub fn configured_rows(&self, track_id: u64) -> u32 {
         self.rows.get(&track_id).copied().unwrap_or(SPECTRO_ROWS)
     }
@@ -99,6 +112,13 @@ pub struct TrackLanes<'a> {
     pub reference_track: u64,
     /// Guitar focus range and strength, see `SpectrogramView::focus`.
     pub focus: Option<(f32, f32, f32)>,
+    /// The tool grid of the source track's header.
+    pub tools: Option<&'a HeaderTools>,
+    /// The region selection (drawn on every lane, edited by right-drag), its snap points and the audio length.
+    pub region: Option<RegionSelection>,
+    pub region_snap: &'a [f64],
+    pub region_snapping: bool,
+    pub audio_len_sec: f64,
 }
 
 pub struct TrackLanesOutput {
@@ -129,6 +149,11 @@ impl TrackLanes<'_> {
             pitch: *pitch,
             reference_track: self.reference_track,
             focus: self.focus,
+            tools: self.tools,
+            region: self.region,
+            region_snap: self.region_snap,
+            region_snapping: self.region_snapping,
+            audio_len_sec: self.audio_len_sec,
             audible: &audible,
         };
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));

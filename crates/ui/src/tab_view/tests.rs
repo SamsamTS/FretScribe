@@ -39,7 +39,7 @@ fn set(ids: &[u64], string: u8) -> TabEdit {
 
 #[test]
 fn geometry_maps_strings_and_time() {
-    let g = Geo { left: 100.0, top: 50.0, gap: 10.0, strings: 6 };
+    let g = Geo { grid: &NoteGrid::default(), left: 100.0, top: 50.0, gap: 10.0, strings: 6 };
     assert_eq!((g.y(5), g.y(0)), (50.0, 100.0));
     for s in 0..6 {
         assert_eq!(g.nearest_string(g.y(s) + 3.0), s);
@@ -205,7 +205,7 @@ impl Harness {
         let mut out = (Vec::new(), Rect::NOTHING);
         let _ = self.ctx.run(input, |ctx| {
             CentralPanel::default().show(ctx, |ui| {
-                let o = TabView { project: p, times: &times, staff: None, selected, playhead: Some(0.3), style: &style, opts: &opts, timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0), state);
+                let o = TabView { project: p, times: &times, staff: None, selected, playhead: Some(0.3), style: &style, opts: &opts, grid: &NoteGrid::default(), timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0), state);
                 out = (o.events, o.response.rect);
             });
         });
@@ -218,7 +218,7 @@ impl Harness {
 }
 
 fn position(rect: Rect, string: u8, sec: f64, strings: usize) -> Pos2 {
-    let g = Geo { left: rect.left() + 60.0, top: rect.top() + TabStyle::default().top_margin(), gap: TabStyle::default().gap, strings };
+    let g = Geo { grid: &NoteGrid::default(), left: rect.left() + 60.0, top: rect.top() + TabStyle::default().top_margin(), gap: TabStyle::default().gap, strings };
     pos2(g.x(&TimelineView::new(0.0, 200.0), sec), g.y(string))
 }
 
@@ -365,7 +365,7 @@ fn draws_every_technique_unassigned_notes_and_the_stems_without_panicking() {
         let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 400.0))), ..Default::default() };
         let _ = ctx.run(input, |ctx| {
             CentralPanel::default().show(ctx, |ui| {
-                TabView { project: &p, times: &times, staff: Some(&staff), selected: &[3], playhead: None, style: &style, opts: &opts, timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 150.0), &mut state);
+                TabView { project: &p, times: &times, staff: Some(&staff), selected: &[3], playhead: None, style: &style, opts: &opts, grid: &NoteGrid::default(), timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 150.0), &mut state);
             });
         });
     }

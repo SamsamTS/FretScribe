@@ -26,6 +26,10 @@ const MIGRATIONS: &[Migration] = &[];
 pub struct ViewState {
     pub scroll_sec: f64,
     pub pixels_per_sec: f64,
+    /// Vertical scroll of the track lanes, in points.
+    pub scroll_y: f64,
+    /// Visible pitch range `(low, high)` in MIDI; `None` keeps the default.
+    pub pitch: Option<(f64, f64)>,
 }
 
 impl Default for ViewState {
@@ -33,6 +37,8 @@ impl Default for ViewState {
         Self {
             scroll_sec: 0.0,
             pixels_per_sec: 100.0,
+            scroll_y: 0.0,
+            pitch: None,
         }
     }
 }
@@ -48,16 +54,30 @@ pub struct UiState {
     pub snap_grid: SnapGrid,
     /// Sheet: notes may only cross a main beat when they start on it.
     pub strict_beats: bool,
+    /// Sheet: guitar music is written an octave above its sound.
+    pub guitar_8vb: bool,
     pub focus_enabled: bool,
     pub focus_strength: f32,
     pub spectro_black: f32,
     pub spectro_white: f32,
     pub spectro_gamma: f32,
+    /// Constant-Q quality factor of the spectrograms.
+    pub spectro_q: f32,
     pub lut_name: String,
+    pub notation_collapsed: bool,
+    /// Track lane options `(notes on all lanes, onsets, move notes)`; `None` keeps the defaults.
+    pub lane_options: Option<(bool, bool, bool)>,
+    /// Tab options `(propagate backwards, stems, string colours)`; `None` keeps the defaults.
+    pub tab_options: Option<(bool, bool, bool)>,
+    pub snap_on: bool,
+    pub overview_snap: bool,
+    /// Spectrogram rows shown per track id (only those that differ from the default).
+    pub lane_rows: Vec<(u64, u32)>,
 }
 
 /// Same values as `analysis::{MIN_LEVELS_GAP, GAMMA_MIN, GAMMA_MAX}` (core cannot depend on analysis).
 pub const LEVELS_MIN_GAP: f32 = 0.02;
+pub const Q_RANGE: std::ops::RangeInclusive<f32> = 10.0..=120.0;
 pub const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.2..=5.0;
 
 fn finite_or(v: f32, default: f32) -> f32 {
@@ -84,6 +104,9 @@ impl UiState {
         self.spectro_white = white;
         self.spectro_gamma =
             finite_or(self.spectro_gamma, 1.0).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
+        self.view.scroll_y = if self.view.scroll_y.is_finite() { self.view.scroll_y.max(0.0) } else { 0.0 };
+        self.view.pitch = self.view.pitch.filter(|(lo, hi)| lo.is_finite() && hi.is_finite() && lo < hi);
+        self.spectro_q = finite_or(self.spectro_q, 40.0).clamp(*Q_RANGE.start(), *Q_RANGE.end());
     }
 }
 
@@ -97,11 +120,19 @@ impl Default for UiState {
             note_policy: NotePolicy::default(),
             snap_grid: SnapGrid::default(),
             strict_beats: true,
+            guitar_8vb: true,
             focus_enabled: false,
             focus_strength: 0.5,
             spectro_black: 0.0,
             spectro_white: 1.0,
             spectro_gamma: 1.0,
+            spectro_q: 40.0,
+            notation_collapsed: false,
+            lane_options: None,
+            tab_options: None,
+            snap_on: true,
+            overview_snap: true,
+            lane_rows: Vec::new(),
             lut_name: "Classic".to_owned(),
         }
     }
@@ -416,16 +447,19 @@ mod tests {
             ),
             (0.5, 0.0, 1.0, 1.0)
         );
-        assert_eq!(ui.lut_name, "Classic");
+        assert_eq!((ui.lut_name.as_str(), ui.spectro_q), ("Classic", 40.0));
     }
 
     #[test]
     fn out_of_range_focus_and_display_values_are_clamped() {
         let mut f = file(0.0);
-        (f.ui.focus_strength, f.ui.spectro_gamma) = (7.0, 99.0);
+        (f.ui.focus_strength, f.ui.spectro_gamma, f.ui.spectro_q) = (7.0, 99.0, 1e9);
         (f.ui.spectro_black, f.ui.spectro_white) = (0.6, 0.6);
         let ui = from_json(&to_json(&f).unwrap()).unwrap().ui;
-        assert_eq!((ui.focus_strength, ui.spectro_gamma), (1.0, 5.0));
+        assert_eq!(
+            (ui.focus_strength, ui.spectro_gamma, ui.spectro_q),
+            (1.0, 5.0, 120.0)
+        );
         assert!(
             ui.spectro_white - ui.spectro_black >= LEVELS_MIN_GAP - 1e-6 && ui.spectro_black == 0.6
         );
@@ -604,5 +638,21 @@ mod tests {
         f.history = stack.to_saved();
         save_autosave(&f, &path).unwrap();
         assert_eq!(load_autosave(&path).unwrap().unwrap(), f);
+    }
+
+    #[test]
+    fn view_layout_round_trips_and_older_files_load_with_defaults() {
+        let mut ui = UiState::default();
+        ui.view.scroll_y = 120.0;
+        ui.view.pitch = Some((40.0, 80.0));
+        (ui.notation_collapsed, ui.lane_options, ui.lane_rows) = (true, Some((true, false, true)), vec![(2, 7)]);
+        let back: UiState = serde_json::from_str(&serde_json::to_string(&ui).unwrap()).unwrap();
+        assert_eq!(back, ui);
+        let old: UiState = serde_json::from_str(r#"{"view":{"scroll_sec":3.0,"pixels_per_sec":50.0}}"#).unwrap();
+        assert!(old.view.pitch.is_none() && old.snap_on && old.lane_rows.is_empty() && old.view.scroll_sec == 3.0);
+        let mut bad = UiState::default();
+        (bad.view.scroll_y, bad.view.pitch) = (f64::NAN, Some((9.0, 3.0)));
+        bad.sanitise();
+        assert!(bad.view.scroll_y == 0.0 && bad.view.pitch.is_none());
     }
 }

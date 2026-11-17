@@ -6,6 +6,7 @@ use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{BeatKind, EditError, NoteTimes, Project, TempoMap, Track};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env};
 use fretscribe_ui::spectro::{paint_seek_line, show_time_ruler};
+use fretscribe_ui::NoteGrid;
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
@@ -26,6 +27,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let tempo = TempoMap::new(&s.project.measures);
     let audio_len = s.audio_len_sec.max(s.store.shared_audio_end(&s.project)).max(1.0);
 
+    // Navigation runs first, on last frame's regions, so the overview, lanes and notation all draw the same view.
+    if let Some(regions) = s.nav_regions {
+        let (_, content_px) = s.lanes.strips(ctx, &s.project);
+        s.ctl.run(ctx, &NavContext { regions, map: &tempo, audio_len_sec: audio_len, content_px, strip_pitch_px: STRIP_PITCH_PX });
+    }
+
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
     // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
@@ -43,6 +50,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             .playhead(s.ui.playhead_sec)
             .looping(s.ui.loop_enabled)
             .snapping(s.overview_snap)
+            .lane_toggles(s.lanes.options.show_notes_on_all, s.lanes.options.show_onsets)
             .show(ui, &mut s.region);
         overview_events = out.events;
     });
@@ -54,11 +62,13 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.recompute_staff();
     }
     let view = s.ctl.current.timeline();
+    let note_grid = NoteGrid::new(&tempo, &view, ctx.screen_rect().width());
     // Fixed height: the sheet, the tool row and a tab strip tall enough for the rhythm stems. A collapse
     // button in the tool row leaves only that row.
     let tab_style = TabStyle::default();
     let strings = s.project.tuning.open_strings.len().max(1);
-    let full_height = StaffStyle::default().height() + tab_view::TOOLBAR_HEIGHT + tab_style.height(strings, true);
+    let staff_style = StaffStyle { top_extra: tab_view::TOOLBAR_HEIGHT, ..StaffStyle::default() };
+    let full_height = staff_style.height() + tab_style.height(strings, true);
     let height = if s.notation_collapsed { tab_view::TOOLBAR_HEIGHT } else { full_height };
     let frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG);
     let panel = egui::TopBottomPanel::bottom("notation").resizable(false).exact_height(height).frame(frame).show(ctx, |ui| {
@@ -66,12 +76,16 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let selected = s.editor.selection.ids.clone();
         let playhead = None;
         let mut collapsed = s.notation_collapsed;
-        if !collapsed {
-            let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &StaffStyle::default(), timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
+        let octave = s.ui.guitar_8vb;
+        let width = ui.available_width();
+        let row = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_view::TOOLBAR_HEIGHT));
+        if collapsed {
+            ui.allocate_rect(row, egui::Sense::hover());
+        } else {
+            let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
+            let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, grid: &note_grid, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
-        }
-        tab_events = tab_view::toolbar(ui, &mut s.tab_state, Some(&mut collapsed));
-        if !collapsed {
+            let tab_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_style.height(strings, s.tab_state.show_stems)));
             let out = TabView {
                 project: &s.project,
                 times: &s.times,
@@ -80,14 +94,28 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
                 playhead,
                 style: &tab_style,
                 opts: &s.tab_opts,
+                grid: &note_grid,
                 timeline_offset: LANE_HEADER_WIDTH,
             }
-            .show_body(ui, &view, &mut s.tab_state);
-            tab_events.extend(out.events);
+            .show(ui, &view, &mut s.tab_state);
+            tab_events = out.events;
+            tab_events.extend(tab_view::tab_tools(ui, tab_lane, &mut s.tab_state));
+            tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb);
+            s.staff_dirty |= octave != s.ui.guitar_8vb;
         }
+        tab_view::collapse_button(ui, row, &mut collapsed);
         s.notation_collapsed = collapsed;
     });
     let notation_rect = panel.response.rect;
+    let lines = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_lines")));
+    let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
+    // Under the collapse button only the header column is cut; the sheet strip itself runs to the panel top.
+    let header = notation_rect.left()..=notation_rect.left() + LANE_HEADER_WIDTH;
+    lines.hline(header, (notation_rect.top() + tab_view::TOOLBAR_HEIGHT).round(), stroke);
+    let tab_top = (notation_rect.top() + staff_style.height()).round();
+    if tab_top < notation_rect.bottom() - 1.0 {
+        lines.hline(notation_rect.x_range(), tab_top, stroke);
+    }
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
     GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);
 
@@ -106,26 +134,25 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
         ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
-        let (_, content_px) = s.lanes.strips(ctx, &s.project);
-        let nav = NavContext {
-            // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
-            regions: NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes },
-            map: &tempo,
-            audio_len_sec: audio_len,
-            content_px,
-            strip_pitch_px: STRIP_PITCH_PX,
-        };
-        s.ctl.run(ctx, &nav);
+        // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
         spectro_events.extend(seek);
+        let measure_starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
+        let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap);
         let out = TrackLanes {
             project: &s.project,
             source: &s.store,
             style: &s.style,
             times: &s.times,
             selected: &s.editor.selection.ids,
+            tools: Some(&tools),
+            region: s.region,
+            region_snap: &measure_starts,
+            region_snapping: s.overview_snap,
+            audio_len_sec: audio_len,
             ghost: s.editor.ghost.as_ref(),
             reference_track: s.reference_track,
             focus: s.ui.focus_enabled.then(|| {
@@ -153,10 +180,16 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     notation_ui.show(ctx, |ui| {
         ui.set_clip_rect(notation_timeline);
         let view = s.ctl.current.timeline();
-        paint_grid_lines(ui, &tempo, &view, notation_timeline);
+        paint_grid_lines(ui, &note_grid, &view, notation_timeline);
     });
 
-    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y);
+    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y, seek_origin.x);
+    // Header column separator, down to the window bottom except beside the notation toolbar.
+    let sep = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("header_separator")));
+    let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
+    let x = seek_origin.x.round();
+    sep.vline(x, seek_origin.y..=ctx.screen_rect().bottom(), stroke);
+    sep.vline((x - fretscribe_ui::staff_view::NOTATION_HEAD_W).round(), notation_rect.top()..=ctx.screen_rect().bottom(), stroke);
 
     // ---- events -------------------------------------------------------------------------
     for e in overview_events {
@@ -186,17 +219,12 @@ fn track_mut(p: &mut Project, id: u64) -> Option<&mut Track> {
     p.tracks.iter_mut().find(|t| t.id == id)
 }
 
-fn paint_grid_lines(ui: &egui::Ui, tempo: &TempoMap, view: &fretscribe_ui::TimelineView, rect: Rect) {
+fn paint_grid_lines(ui: &egui::Ui, grid: &NoteGrid, view: &fretscribe_ui::TimelineView, rect: Rect) {
     let painter = ui.painter_at(rect);
-    for i in 0..tempo.len() {
-        for line in tempo.beat_lines(i) {
-            let x = rect.left() + view.sec_to_x(line.time_sec);
-            if x < rect.left() || x > rect.right() {
-                continue;
-            }
-            let alpha = if line.kind == BeatKind::Measure { 70 } else { 22 };
-            painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(alpha)));
-        }
+    for &(sec, kind) in grid.lines() {
+        let x = rect.left() + view.sec_to_x(sec);
+        let alpha = if kind == BeatKind::Measure { 70 } else { 22 };
+        painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(alpha)));
     }
 }
 
@@ -246,6 +274,8 @@ fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request
             s.ctl.set_target(v);
         }
         OverviewEvent::SnapToggled(on) => s.overview_snap = on,
+        OverviewEvent::NotesOnAllLanesToggled(on) => s.lanes.options.show_notes_on_all = on,
+        OverviewEvent::OnsetsToggled(on) => s.lanes.options.show_onsets = on,
     }
 }
 
@@ -277,6 +307,8 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
             s.dirty = true;
             s.player_resync(false);
         }
+        TrackEvent::NoteAction(a) => s.tool_actions.push(a),
+        TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r), requests),
         TrackEvent::CollapseToggled(id) => {
             if let Some(t) = track_mut(&mut s.project, id) {
                 t.spectrogram_collapsed = !t.spectrogram_collapsed;
@@ -353,6 +385,7 @@ fn handle_tab(s: &mut Session, e: TabViewEvent) {
 /// Feeds the source lane's pointer data to the note editor and applies its effects.
 fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, pointer: Option<fretscribe_ui::tracks::LanePointer>) {
     let Some(pointer) = pointer else {
+        s.tool_actions.clear();
         for e in events {
             if let SpectroEvent::SeekRequested(sec) = e {
                 s.seek(sec);
@@ -373,7 +406,8 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let px_per_sec = s.ctl.current.pixels_per_sec;
     let onset_list: Vec<f64> = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
     let grid = if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } };
-    for input in collected.inputs {
+    let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
+    for input in tool_inputs.chain(collected.inputs) {
         let mut effects = {
             let onsets = (!onset_list.is_empty()).then_some(onset_list.as_slice());
             let mut env = Env { project: &mut s.project, grid: &grid, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };

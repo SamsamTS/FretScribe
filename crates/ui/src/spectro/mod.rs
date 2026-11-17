@@ -114,6 +114,7 @@ pub struct SpectrogramView<'a> {
     note_opacity: f32,
     audio_offset_sec: f64,
     focus: Option<(f32, f32, f32)>,
+    region: Option<(f64, f64)>,
 }
 
 impl<'a> SpectrogramView<'a> {
@@ -134,10 +135,17 @@ impl<'a> SpectrogramView<'a> {
             note_opacity: 1.0,
             audio_offset_sec: 0.0,
             focus: None,
+            region: None,
         }
     }
 
     /// Guitar focus: `(low_midi, high_midi, strength)`; everything outside the range is dimmed.
+    /// Highlights a time range (start, end) over the spectrogram, below the guides and the notes.
+    pub fn region(mut self, region: Option<(f64, f64)>) -> Self {
+        self.region = region;
+        self
+    }
+
     pub fn focus(mut self, focus: Option<(f32, f32, f32)>) -> Self {
         self.focus = focus;
         self
@@ -227,7 +235,8 @@ impl<'a> SpectrogramView<'a> {
 
     /// One band per semitone (naturals and accidentals), alternating in brightness; the band under
     /// the cursor is highlighted.
-    fn draw_guides(&self, painter: &Painter, geo: &SpectroGeometry, cursor_midi: Option<i32>) {
+    /// The note labels go to `labels`, a layer above the grid and the seek line.
+    fn draw_guides(&self, painter: &Painter, labels: &Painter, geo: &SpectroGeometry, cursor_midi: Option<i32>) {
         let rect = geo.rect;
         let semitone_px = rect.height() / geo.pitch.span();
         let open = open_pitches(self.tuning, self.capo);
@@ -245,10 +254,10 @@ impl<'a> SpectrogramView<'a> {
             let labelled = is_open || midi.rem_euclid(12) == 0 || (is_natural(midi) && semitone_px >= SEMITONE_PX_FOR_ALL_LABELS) || semitone_px >= SEMITONE_PX_FOR_ALL_LABELS * 1.5;
             if labelled && (0..=127).contains(&midi) && geo.pitch.min_midi <= midi as f32 && midi as f32 <= geo.pitch.max_midi {
                 let color = if is_open { OPEN_STRING } else if cursor_midi == Some(midi) { Color32::WHITE } else { white(170) };
-                let galley = painter.layout_no_wrap(midi_to_name(midi as u8), FontId::monospace(10.0), color);
+                let galley = labels.layout_no_wrap(midi_to_name(midi as u8), FontId::monospace(10.0), color);
                 let at = pos2(rect.left() + 3.0, geo.midi_to_y(midi as f32) - galley.size().y / 2.0);
-                painter.rect_filled(Rect::from_min_size(at, galley.size()).expand(1.0), 2.0, label_bg);
-                painter.galley(at, galley, Color32::WHITE);
+                labels.rect_filled(Rect::from_min_size(at, galley.size()).expand(1.0), 2.0, label_bg);
+                labels.galley(at, galley, Color32::WHITE);
             }
         }
     }
@@ -280,6 +289,10 @@ impl<'a> SpectrogramView<'a> {
             painter.image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         }
 
+        if let Some((start, end)) = self.region {
+            paint_region(&painter, rect, view, start, end);
+        }
+
         let hover = response.hover_pos().filter(|p| rect.contains(*p)).map(|pos| HoverInfo { pos, time_sec: geo.x_to_sec(pos.x), midi_float: geo.y_to_midi(pos.y) });
         let hover_key = response.id.with("hovered_note");
         let previous: Option<u64> = ui.data(|d| d.get_temp(hover_key)).flatten();
@@ -298,7 +311,8 @@ impl<'a> SpectrogramView<'a> {
             painter.rect_filled(above, 0.0, shade);
             painter.rect_filled(below, 0.0, shade);
         }
-        self.draw_guides(&painter, &geo, cursor_midi);
+        let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
+        self.draw_guides(&painter, &labels, &geo, cursor_midi);
         notes::draw_notes(&painter, &geo, self.notes, times, self.selected, self.note_opacity, hovered_id);
         if let Some(ghost) = self.ghost {
             notes::draw_ghost(&painter, &geo, ghost);
@@ -317,3 +331,20 @@ impl<'a> SpectrogramView<'a> {
 
 #[cfg(test)]
 mod tests;
+
+const REGION_FILL: Color32 = Color32::from_rgba_premultiplied(40, 30, 11, 40);
+const REGION_EDGE: Color32 = Color32::from_rgb(255, 200, 90);
+
+/// The selected region over `rect` (whose left edge is x = 0 of `view`): a faint fill and two edge lines.
+pub fn paint_region(painter: &Painter, rect: Rect, view: &TimelineView, start: f64, end: f64) {
+    let x = |sec: f64| rect.left() + view.sec_to_x(sec);
+    let span = Rect::from_x_y_ranges(x(start)..=x(end), rect.y_range()).intersect(rect);
+    if span.width() > 0.0 {
+        painter.rect_filled(span, 0.0, REGION_FILL);
+    }
+    for edge in [x(start), x(end)] {
+        if edge >= rect.left() && edge <= rect.right() {
+            painter.vline(edge, rect.y_range(), Stroke::new(1.0_f32, REGION_EDGE));
+        }
+    }
+}
