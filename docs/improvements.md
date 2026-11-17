@@ -43,7 +43,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/core/src/tracks.rs` | 401 | todo | |
 | `crates/core/src/snap.rs` | 400 | todo | |
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
-| `crates/ui/src/spectro/glyphs.rs` | 395 | todo | |
+| `crates/ui/src/spectro/glyphs.rs` | 395 | partial | layout() read (I-024) |
 | `crates/analysis/src/pitchref.rs` | 394 | todo | |
 | `crates/audio/src/resample.rs` | 391 | todo | |
 | `crates/ui/src/nav/mod.rs` | 388 | todo | |
@@ -56,7 +56,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/ui/src/view.rs` | 352 | todo | |
 | `crates/audio/src/focus_tests.rs` | 347 | todo | |
 | `crates/audio/src/synth.rs` | 334 | todo | |
-| `crates/ui/src/spectro/mod.rs` | 319 | todo | |
+| `crates/ui/src/spectro/mod.rs` | 319 | reviewed | show/cache read (I-024) |
 | `crates/notation/src/staff/tests.rs` | 311 | todo | |
 | `crates/notation/src/tab/tests.rs` | 306 | todo | |
 | `crates/ui/src/note_editor/keymap.rs` | 303 | todo | |
@@ -88,7 +88,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 | `crates/ui/src/tracks/lanes.rs` | 195 | todo | |
 | `crates/app/src/store.rs` | 193 | partial | snap_candidates read (I-016) |
 | `crates/ui/src/note_editor/select.rs` | 192 | todo | |
-| `crates/ui/src/spectro/notes.rs` | 183 | todo | |
+| `crates/ui/src/spectro/notes.rs` | 183 | partial | draw/hit read (I-024) |
 | `crates/ui/src/grid/headless.rs` | 178 | todo | |
 | `crates/ui/examples/grid_demo.rs` | 178 | todo | |
 | `crates/analysis/src/display.rs` | 175 | todo | |
@@ -173,7 +173,7 @@ _Last updated: 2026-11-16 · branch commit 33bdde0_
 Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio left: `focus.rs` (rest), `resample.rs`, `synth.rs`, `decode.rs`; then `analysis` (`sync.rs`, `beatfit/`, `pitchref.rs`, `cqt.rs`), `notation` (`tab/solve.rs`, `staff/`), `ui` (`spectro/`, `grid/`, `overview/`, `note_editor/editor.rs`), `app` (`app.rs`, `session.rs`, `toolbar.rs`, `form*.rs`). Test files are read last (helper duplication already covered by I-005/I-006).
 
 ## Findings
-**Summary (interim, ~25 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui).** Top wins: I-023 (k full tab solves per k-note edit), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, clippy clean on the default set.
+**Summary (interim, ~25 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-004 (~17 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~480 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -369,4 +369,13 @@ Core left: `snap_note.rs`, `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `g
 2. Make `infer_affected` map ids to indices with one pass (`HashMap<u64, usize>` over `notes`) and call the new function once; keep `assign_tabs_range` as a one-element wrapper for the tab-view callers.
 3. Add a test: editing 3 notes in one call gives the same `string_fret`s as three sequential single calls on a fixture with no locked notes (and with one lock in the middle).
 **Risk:** medium (solver ordering): results of sequential calls can differ when windows overlap and later calls start from earlier results; define the new behaviour as "solve each merged window once" and verify with the existing solver tests plus the new one. Measure: time `infer_affected` on a 2000-note piece with 200 selected notes before and after (expected from seconds to milliseconds).
+
+### I-024 · The whole note scene is laid out 2-3 times per frame, for all notes, visible or not · impact: med-high · perf: O(all notes) allocation-heavy work per frame, multiplied by the number of hit tests · status: open
+**Where:** `crates/ui/src/spectro/glyphs.rs:271-380` `layout` (about 12 `Vec`s and 2 `HashMap`s per call); callers per frame: `spectro/notes.rs:90` `hit_test` (from `spectro/mod.rs:286` on every hover frame, and from `note_editor/input.rs:37` on every sampled pointer event), `notes.rs:174` `draw_notes`, `:181` `draw_ghost`, `glyphs.rs:387,391` `note_glyphs`/`link_points`.
+**Problem:** `hit_test` and `draw_notes` each call `layout(geo, &items(notes, times), &m)` from scratch, so while the pointer is over the spectrogram a frame does two full layouts (three with the editor's input sampling), and each layout covers every note of the project, including the ones far outside the visible window. Cost grows with the piece length even when zoomed in on one bar.
+**Instructions:**
+1. Build the `Scene` once per frame in `SpectrogramView::show` (after the geometry is known), pass `&scene` to `hit_test` (new `hit_test_scene`), `draw_notes` and the `pointer::events` closure; keep the old `hit_test(geo, notes, times, ..)` as a thin wrapper for `note_editor/input.rs` and tests, or let `SpectroOutput` expose the scene so the editor reuses it.
+2. Cull before layout: in `items(notes, times)` keep the notes whose `[start, end]` intersects the visible time range widened by a margin, plus every link or legato partner of a kept note (look up by id before filtering) so cross-edge links still draw.
+3. Cache the `Scene` in `SpectroCache` keyed by `(revision, view window, pitch window, size)`, as the texture already is, so a static view does zero layout work.
+**Risk:** medium (hit-testing and link drawing must stay identical); run `cargo test -p fretscribe-ui spectro` and compare screenshots with a few links at the window edge. Verify the gain with 5000 notes: time `layout` (expected: a few ms down to well under 1 ms when zoomed in).
 
