@@ -424,13 +424,15 @@ impl Paint<'_> {
         let width = offset.max(self.key_end(layout));
         self.p.rect_filled(Rect::from_min_size(pos2(rect.left(), rect.top()), vec2(width, rect.height())), 0.0, self.style.background);
         self.staff(Rect::from_min_size(rect.min, vec2(width, rect.height())));
+        // Clef and key signature hug the start of the timeline.
+        let x0 = rect.left() + width - self.key_end(layout);
         let clef = if layout.guitar_octave { "\u{E052}" } else { "\u{E050}" };
-        self.glyph(clef, pos2(rect.left() + 0.5 * self.s, self.py(2)), 1.0, self.style.ink, Align2::LEFT_CENTER);
+        self.glyph(clef, pos2(x0 + 0.5 * self.s, self.py(2)), 1.0, self.style.ink, Align2::LEFT_CENTER);
         // Steps of the sharps (F C G D A E B) and flats (B E A D G C F) on the treble staff.
         let steps: [i32; 7] = if n > 0 { [8, 5, 9, 6, 3, 7, 4] } else { [4, 7, 3, 6, 2, 5, 1] };
         let glyph = if n > 0 { "\u{E262}" } else { "\u{E260}" };
         for (k, &step) in steps.iter().take(usize::from(n.unsigned_abs()).min(7)).enumerate() {
-            self.glyph(glyph, pos2(rect.left() + (4.4 + k as f32) * self.s, self.py(step)), 1.0, self.style.ink, Align2::LEFT_CENTER);
+            self.glyph(glyph, pos2(x0 + (4.4 + k as f32) * self.s, self.py(step)), 1.0, self.style.ink, Align2::LEFT_CENTER);
         }
     }
 

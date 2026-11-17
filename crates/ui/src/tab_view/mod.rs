@@ -224,7 +224,7 @@ impl TabView<'_> {
         }
         for (i, ch) in "TAB".chars().enumerate() {
             let y = geo.top + (n as f32 - 1.0) * geo.gap / 2.0 + (i as f32 - 1.0) * st.font;
-            full.text(pos2(rect.left() + 12.0, y), egui::Align2::CENTER_CENTER, ch, egui::FontId::proportional(st.font), st.ink.gamma_multiply(0.7));
+            full.text(pos2(rect.left() + self.timeline_offset - 46.0, y), egui::Align2::CENTER_CENTER, ch, egui::FontId::proportional(st.font), st.ink.gamma_multiply(0.7));
         }
         let ruler = Rect::from_min_max(rect.min, pos2(rect.left() + self.timeline_offset, rect.bottom()));
 
