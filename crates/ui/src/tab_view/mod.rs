@@ -215,7 +215,7 @@ impl TabView<'_> {
         full.rect_filled(rect, 0.0, st.background);
         let colored = state.menu_open() || state.holding(now) || state.string_colors;
         for s in 0..n as u8 {
-            full.hline(rect.x_range(), geo.y(s).round(), self.line_style(&geo, state, s, now));
+            full.hline((rect.left() + self.timeline_offset - 62.0)..=rect.right(), geo.y(s).round(), self.line_style(&geo, state, s, now));
             let label = string_label_styled(&project.tuning, s, LabelStyle::Convention).unwrap_or_default();
             let color = if colored { string_color(usize::from(s), n) } else { st.ink.gamma_multiply(0.7) };
             let font = egui::FontId::proportional(st.font * 0.85);
@@ -358,17 +358,17 @@ impl TabView<'_> {
     }
 }
 
-/// Height of the row above the sheet that holds the collapse button.
+/// Height of the row at the top of the notation panel that holds the collapse button (the sheet's strip
+/// extends through it).
 pub const TOOLBAR_HEIGHT: f32 = 52.0;
 
 /// Left margin of the tools in the header column (the lane headers' own margin).
 const TOOLS_MARGIN: f32 = 16.0;
 
-/// The collapse button, in the header column of the row above the sheet.
-pub fn collapse_row(ui: &mut Ui, collapsed: &mut bool) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOLBAR_HEIGHT), Sense::hover());
+/// The collapse button, at the left of `row` (the header column's top).
+pub fn collapse_button(ui: &mut Ui, row: Rect, collapsed: &mut bool) {
     let (icon, tip) = if *collapsed { ("chevron-up", "Show the sheet and tab") } else { ("chevron-down", "Hide the sheet and tab") };
-    let at = Rect::from_min_size(pos2(rect.left() + TOOLS_MARGIN, rect.top() + (TOOLBAR_HEIGHT - crate::kit::BUTTON) / 2.0), vec2(crate::kit::BUTTON, crate::kit::BUTTON));
+    let at = Rect::from_min_size(pos2(row.left() + TOOLS_MARGIN, row.top() + (row.height() - crate::kit::BUTTON) / 2.0), vec2(crate::kit::BUTTON, crate::kit::BUTTON));
     ui.scope_builder(egui::UiBuilder::new().max_rect(at), |ui| {
         if crate::kit::ibtn(ui, icon, tip, false).clicked() {
             *collapsed = !*collapsed;
@@ -378,7 +378,7 @@ pub fn collapse_row(ui: &mut Ui, collapsed: &mut bool) {
 
 /// A captioned tool group at the top left of a lane's header column (`lane` is the lane's full rect).
 fn lane_tools(ui: &mut Ui, lane: Rect, caption: &str, add: impl FnOnce(&mut Ui)) {
-    let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 4.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - TOOLS_MARGIN, lane.bottom()));
+    let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 10.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - TOOLS_MARGIN, lane.bottom()));
     ui.scope_builder(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
         ui.set_clip_rect(ui.clip_rect().intersect(lane));
         crate::kit::group_at(ui, caption, true, add);

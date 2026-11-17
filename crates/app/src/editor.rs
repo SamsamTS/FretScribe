@@ -65,7 +65,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     // button in the tool row leaves only that row.
     let tab_style = TabStyle::default();
     let strings = s.project.tuning.open_strings.len().max(1);
-    let full_height = StaffStyle::default().height() + tab_view::TOOLBAR_HEIGHT + tab_style.height(strings, true);
+    let staff_style = StaffStyle { top_extra: tab_view::TOOLBAR_HEIGHT, ..StaffStyle::default() };
+    let full_height = staff_style.height() + tab_style.height(strings, true);
     let height = if s.notation_collapsed { tab_view::TOOLBAR_HEIGHT } else { full_height };
     let frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG);
     let panel = egui::TopBottomPanel::bottom("notation").resizable(false).exact_height(height).frame(frame).show(ctx, |ui| {
@@ -74,11 +75,13 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let playhead = None;
         let mut collapsed = s.notation_collapsed;
         let octave = s.ui.guitar_8vb;
-        tab_view::collapse_row(ui, &mut collapsed);
-        if !collapsed {
-            let width = ui.available_width();
-            let sheet_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, StaffStyle::default().height()));
-            let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &StaffStyle::default(), timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
+        let width = ui.available_width();
+        let row = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_view::TOOLBAR_HEIGHT));
+        if collapsed {
+            ui.allocate_rect(row, egui::Sense::hover());
+        } else {
+            let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
+            let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
             let tab_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_style.height(strings, s.tab_state.show_stems)));
             let out = TabView {
@@ -97,15 +100,18 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb);
             s.staff_dirty |= octave != s.ui.guitar_8vb;
         }
+        tab_view::collapse_button(ui, row, &mut collapsed);
         s.notation_collapsed = collapsed;
     });
     let notation_rect = panel.response.rect;
     let lines = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_lines")));
     let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
-    for y in [notation_rect.top() + tab_view::TOOLBAR_HEIGHT, notation_rect.top() + tab_view::TOOLBAR_HEIGHT + StaffStyle::default().height()] {
-        if y < notation_rect.bottom() - 1.0 {
-            lines.hline(notation_rect.x_range(), y.round(), stroke);
-        }
+    // Under the collapse button only the header column is cut; the sheet strip itself runs to the panel top.
+    let header = notation_rect.left()..=notation_rect.left() + LANE_HEADER_WIDTH;
+    lines.hline(header, (notation_rect.top() + tab_view::TOOLBAR_HEIGHT).round(), stroke);
+    let tab_top = (notation_rect.top() + staff_style.height()).round();
+    if tab_top < notation_rect.bottom() - 1.0 {
+        lines.hline(notation_rect.x_range(), tab_top, stroke);
     }
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
     GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);

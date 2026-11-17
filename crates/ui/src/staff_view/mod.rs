@@ -46,6 +46,8 @@ pub struct StaffStyle {
     pub selected: Color32,
     pub playhead: Color32,
     pub background: Color32,
+    /// Extra height above the staff (room for high notes, beams and the host's tools).
+    pub top_extra: f32,
 }
 
 impl Default for StaffStyle {
@@ -56,13 +58,14 @@ impl Default for StaffStyle {
             selected: Color32::from_rgb(110, 180, 255),
             playhead: Color32::from_rgb(255, 90, 80),
             background: crate::theme::WINDOW_BG,
+            top_extra: 0.0,
         }
     }
 }
 
 impl StaffStyle {
     pub fn height(&self) -> f32 {
-        (4.0 + 2.0 * MARGIN) * self.space
+        self.top_extra + (4.0 + 2.0 * MARGIN) * self.space
     }
 }
 
@@ -423,9 +426,9 @@ impl Paint<'_> {
         let n = layout.key.0;
         let width = offset.max(self.key_end(layout));
         self.p.rect_filled(Rect::from_min_size(pos2(rect.left(), rect.top()), vec2(width, rect.height())), 0.0, self.style.background);
-        self.staff(Rect::from_min_size(rect.min, vec2(width, rect.height())));
-        // Clef and key signature hug the start of the timeline.
+        // Clef and key signature hug the start of the timeline, and so do the staff lines.
         let x0 = rect.left() + width - self.key_end(layout);
+        self.staff(Rect::from_min_max(pos2(x0 - self.s, rect.top()), pos2(rect.left() + width, rect.bottom())));
         let clef = if layout.guitar_octave { "\u{E052}" } else { "\u{E050}" };
         self.glyph(clef, pos2(x0 + 0.5 * self.s, self.py(2)), 1.0, self.style.ink, Align2::LEFT_CENTER);
         // Steps of the sharps (F C G D A E B) and flats (B E A D G C F) on the treble staff.
@@ -460,7 +463,7 @@ impl StaffView<'_> {
         full.rect_filled(rect, 0.0, self.style.background);
         let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
         let painter = ui.painter_at(body);
-        let mk = |p| Paint { p, x: body.left(), top: rect.top() + MARGIN * s, s, view, style: self.style };
+        let mk = |p| Paint { p, x: body.left(), top: rect.top() + self.style.top_extra + MARGIN * s, s, view, style: self.style };
         let paint = mk(&painter);
         let layout = self.layout;
         paint.staff(rect);
