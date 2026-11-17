@@ -204,7 +204,7 @@ impl TabView<'_> {
         let project = self.project;
         let n = project.tuning.open_strings.len().max(1);
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), st.height(n, state.show_stems)), Sense::click_and_drag());
-        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
+        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset + crate::staff_view::NOTE_INSET, rect.top()), rect.max);
         let geo = Geo { left: body.left(), top: rect.top() + st.top_margin(), gap: st.gap, strings: n };
         let now = ui.input(|i| i.time);
         state.flashes.retain(|f| f.1 > now);

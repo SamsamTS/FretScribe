@@ -31,6 +31,9 @@ const MARGIN: f32 = 5.0;
 /// staff and tab lines start).
 pub const NOTATION_HEAD_W: f32 = 72.0;
 
+/// Notes sit this far right of their time position's grid line, so the line does not cut through them.
+pub const NOTE_INSET: f32 = 7.0;
+
 pub fn add_fonts(fonts: &mut FontDefinitions) {
     fonts.font_data.insert(FONT_NAME.to_owned(), Arc::new(FontData::from_static(FONT_BYTES)));
     fonts.families.insert(FontFamily::Name(FONT_NAME.into()), vec![FONT_NAME.to_owned()]);
@@ -473,7 +476,7 @@ impl StaffView<'_> {
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.style.height()), Sense::click());
         let full = ui.painter_at(rect);
         full.rect_filled(rect, 0.0, self.style.background);
-        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
+        let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset + NOTE_INSET, rect.top()), rect.max);
         let painter = ui.painter_at(body);
         let mk = |p| Paint { p, x: body.left(), top: rect.top() + (self.style.height() - 4.0 * s) / 2.0, s, view, style: self.style };
         let paint = mk(&painter);

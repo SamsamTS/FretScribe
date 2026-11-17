@@ -218,7 +218,7 @@ impl Harness {
 }
 
 fn position(rect: Rect, string: u8, sec: f64, strings: usize) -> Pos2 {
-    let g = Geo { left: rect.left() + 60.0, top: rect.top() + TabStyle::default().top_margin(), gap: TabStyle::default().gap, strings };
+    let g = Geo { left: rect.left() + 60.0 + crate::staff_view::NOTE_INSET, top: rect.top() + TabStyle::default().top_margin(), gap: TabStyle::default().gap, strings };
     pos2(g.x(&TimelineView::new(0.0, 200.0), sec), g.y(string))
 }
 

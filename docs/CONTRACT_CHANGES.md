@@ -152,3 +152,7 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 - core: `ViewState::{scroll_y, pitch}` and `UiState::{notation_collapsed, lane_options, tab_options, snap_on, overview_snap, lane_rows}`, all serde-defaulted, so older files load unchanged. `UiState::guitar_8vb` (default true) drives `StaffOptions::guitar_octave`.
 - ui: `tab_view::{collapse_row, sheet_tools, tab_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `sheet_tools`/`tab_tools` sit in the header column of their lanes); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
 - app: navigation runs at the start of the frame on the previous frame's regions (the sheet and tab no longer lag behind the lanes while scrolling); restoring a window that started maximised sends the remembered size.
+
+## 2026-11-17 - ui: notation note inset
+
+Sheet and tab notes are drawn `NOTE_INSET` (7 px) right of their time position so grid, measure and seek lines no longer cut through them. No contract change.
