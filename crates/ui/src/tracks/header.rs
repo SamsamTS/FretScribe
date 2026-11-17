@@ -8,6 +8,7 @@ use super::events::TrackEvent;
 use super::geometry::STRIP_PITCH_PX;
 use super::icons;
 use super::offset::{clamp_offset, format_offset, nudged, parse_offset};
+use crate::note_editor::{HeaderTools, NoteAction};
 use crate::view::LANE_HEADER_WIDTH;
 use crate::{kit, theme};
 
@@ -27,6 +28,7 @@ pub struct HeaderParams<'a> {
     pub can_remove: bool,
     /// UI preference of the source track's menu; not part of the project.
     pub move_notes: &'a mut bool,
+    pub tools: Option<&'a HeaderTools>,
 }
 
 pub struct HeaderOutput {
@@ -84,8 +86,21 @@ impl TrackHeader {
     /// `rect` is the whole header column of the lane; the controls sit in its top strip, one strip
     /// pitch tall, so they stay visible when the spectrogram is collapsed.
     pub fn show(ui: &mut Ui, rect: Rect, params: HeaderParams) -> HeaderOutput {
-        let HeaderParams { track, offset_sec, is_source, is_reference, audible, can_remove, move_notes } = params;
-        let ui = &mut ui.new_child(UiBuilder::new().id_salt(("track-header", track.id)).max_rect(rect));
+        let HeaderParams {
+            track,
+            offset_sec,
+            is_source,
+            is_reference,
+            audible,
+            can_remove,
+            move_notes,
+            tools,
+        } = params;
+        let ui = &mut ui.new_child(
+            UiBuilder::new()
+                .id_salt(("track-header", track.id))
+                .max_rect(rect),
+        );
         let ppp = ui.ctx().pixels_per_point();
         let [r, g, b] = track.color;
         let background = if is_source {
@@ -215,14 +230,101 @@ impl TrackHeader {
         if text_button(ui, row_rect(content, 2, 110.0, 62.0), "auto", "Auto sync", !is_reference).on_hover_text("Estimate the offset against the reference track").clicked() {
             events.push(TrackEvent::SyncRequested(id));
         }
-        if icon_button(ui, row_rect(content, 2, 176.0, 22.0), "reset", "reset-offset", false).on_hover_text("Reset the offset to 0").clicked() {
-            events.push(TrackEvent::OffsetChanged { id, offset_sec: 0.0, move_notes: is_source && *move_notes });
+        if icon_button(
+            ui,
+            row_rect(content, 2, 176.0, 22.0),
+            "reset",
+            "reset-offset",
+            false,
+        )
+        .on_hover_text("Reset the offset to 0")
+        .clicked()
+        {
+            events.push(TrackEvent::OffsetChanged {
+                id,
+                offset_sec: 0.0,
+                move_notes: is_source && *move_notes,
+            });
         }
-        HeaderOutput { events, grip, offset_handle }
+        if let Some(tools) = tools {
+            let free = Rect::from_min_max(
+                pos2(content.left(), content.bottom() + 4.0),
+                pos2(content.right(), rect.bottom() - 4.0),
+            );
+            if free.height() >= kit::BUTTON {
+                tool_grid(ui, free, id, tools, &mut events);
+            }
+        }
+        HeaderOutput {
+            events,
+            grip,
+            offset_handle,
+        }
     }
 }
 
-fn offset_field(ui: &mut Ui, rect: Rect, id: u64, offset_sec: f64, move_notes: bool, events: &mut Vec<TrackEvent>) {
+fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut Vec<TrackEvent>) {
+    let mut row = ui.new_child(
+        UiBuilder::new()
+            .id_salt(("tools", id))
+            .max_rect(Rect::from_min_size(
+                area.min,
+                vec2(area.width(), kit::BUTTON),
+            ))
+            .layout(egui::Layout::left_to_right(Align::Center)),
+    );
+    row.spacing_mut().item_spacing.x = 4.0;
+    let mut lock = None;
+    for b in &tools.buttons {
+        if b.label == "String" {
+            lock = Some(b);
+        } else if row
+            .add_enabled_ui(b.enabled, |ui| {
+                kit::ibtn_sized(ui, b.icon, &b.tooltip, false, 30.0, 18.0)
+            })
+            .inner
+            .clicked()
+        {
+            events.push(TrackEvent::NoteAction(b.action));
+        }
+    }
+    let items: Vec<String> = (1..=tools.strings.min(9))
+        .map(|n| format!("String {n}"))
+        .collect();
+    let text = tools
+        .locked
+        .map_or("Auto string".to_owned(), |n| format!("String {n}"));
+    let (field, picked) = kit::Field::new(&text, &tools.string_tip)
+        .icon(if tools.locked.is_some() {
+            "lock"
+        } else {
+            "unlock"
+        })
+        .dropdown(
+            &mut row,
+            &format!("tool-string-{id}"),
+            &items,
+            tools.locked.map(|n| n - 1).filter(|n| *n < items.len()),
+        );
+    if let Some(n) = picked {
+        events.push(TrackEvent::NoteAction(NoteAction::SetStringFromTop(
+            n as u8 + 1,
+        )));
+    } else if let (true, Some(b)) = (field.secondary_clicked(), lock) {
+        if b.enabled {
+            events.push(TrackEvent::NoteAction(b.action));
+        }
+    }
+}
+
+fn offset_field(
+    ui: &mut Ui,
+    rect: Rect,
+    id: u64,
+    offset_sec: f64,
+    move_notes: bool,
+    events: &mut Vec<TrackEvent>,
+) {
     let state_id = ui.id().with(("offset-text", id));
     let edit_id = state_id.with("edit");
     let editing = ui.memory(|m| m.has_focus(edit_id));

@@ -17,6 +17,8 @@ pub enum TrackEvent {
     RoleChanged { id: u64, role: TrackRole },
     UseForBeatsChanged { id: u64, on: bool },
     AddTrackRequested,
+    /// A command of the source track's tool grid, for the note editor.
+    NoteAction(crate::note_editor::NoteAction),
     /// Bracket the `OffsetChanged` events of one drag so the app can make it a single undo step.
     OffsetDragBegan(u64),
     OffsetDragEnded(u64),

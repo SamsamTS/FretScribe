@@ -61,6 +61,7 @@ impl OverviewDemo {
             }
             OverviewEvent::SnapToggled(on) => self.snapping = on,
             OverviewEvent::Zoom(step) => self.status = format!("Zoom {step:?}"),
+            OverviewEvent::NotesOnAllLanesToggled(_) | OverviewEvent::OnsetsToggled(_) => {}
         }
     }
 }

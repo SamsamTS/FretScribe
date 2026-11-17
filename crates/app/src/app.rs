@@ -238,7 +238,18 @@ impl App {
         let mut ids = vec![(1, v.main_path.clone())];
         ids.extend(v.extra.iter().enumerate().map(|(i, (p, _))| (i as u64 + 2, p.clone())));
         let rate = Player::new().map_or(48_000, |p| p.output_rate());
-        self.screen = Screen::Creating(Box::new(Creating { job: LoadJob::spawn(ids.clone(), rate), store: AudioStore::default(), form: v, main_role, ids, progress: (0.0, "Reading audio".into()) }));
+        self.screen = Screen::Creating(Box::new(Creating {
+            job: LoadJob::spawn(
+                ids.clone(),
+                rate,
+                fretscribe_core::UiState::default().spectro_q,
+            ),
+            store: AudioStore::default(),
+            form: v,
+            main_role,
+            ids,
+            progress: (0.0, "Reading audio".into()),
+        }));
     }
 
     fn poll_creating(&mut self, ctx: &Context) {
@@ -465,8 +476,9 @@ impl App {
         let playing = s.poll_player();
         let loading = s.poll_loads();
         let jobs = s.poll_jobs();
-        keyboard(ctx, s);
-        let requests = editor::show(ctx, s);
+        let save = keyboard(ctx, s);
+        let mut requests = editor::show(ctx, s);
+        requests.extend(save);
         editor::dialogs(ctx, s);
         missing_audio_dialog(ctx, s);
         if s.ctl.update(ctx.input(|i| i.stable_dt) as f64) || playing || loading || jobs {
@@ -578,9 +590,12 @@ fn reveal(path: &Path) {
     let _ = dir;
 }
 
-fn keyboard(ctx: &Context, s: &mut Session) {
+fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
+    let save = ctx
+        .input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
+        .then_some(Request::Save);
     if ctx.wants_keyboard_input() {
-        return;
+        return save;
     }
     let (space, undo, redo) = ctx.input(|i| {
         let cmd = i.modifiers.command;
@@ -598,6 +613,7 @@ fn keyboard(ctx: &Context, s: &mut Session) {
     } else if redo {
         s.undo_redo(true);
     }
+    save
 }
 
 /// "Locate audio file..." for every track whose file cannot be found.

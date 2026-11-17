@@ -71,6 +71,7 @@ impl Harness {
                 };
                 let mut widget = OverviewTimeline::new(LEN, &view, MAIN_W, peaks)
                     .measure_starts(&measures)
+                    .gutter(265.0)
                     .snapping(snapping)
                     .playhead(playhead);
                 if let Some(palette) = palette.clone() {

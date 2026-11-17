@@ -61,6 +61,8 @@ pub struct Session {
     pub revision: u64,
     pub editor: NoteEditor,
     pub keymap: Keymap,
+    /// Commands of the header tool grid, applied by the note editor next frame.
+    pub tool_actions: Vec<fretscribe_ui::note_editor::NoteAction>,
     pub tab_state: TabViewState,
     /// The sheet and tab panel is hidden, leaving only its tool row.
     pub notation_collapsed: bool,
@@ -86,6 +88,10 @@ pub struct Session {
     pub autosave: AutosavePolicy,
     pub keep_history: bool,
     pub loads: Vec<LoadJob>,
+    /// Spectrogram recomputation after a Q change; a newer change replaces (cancels) it.
+    pub requant: Option<LoadJob>,
+    /// The Q the spectrograms were last (re)computed with.
+    pub q_applied: f32,
     pub load_progress: Option<(f32, String)>,
     pub jobs: Jobs,
     pub sync_on_ready: Vec<u64>,
@@ -128,6 +134,10 @@ impl Session {
         let nav = ViewState { scroll_sec: ui.view.scroll_sec, scroll_y: 0.0, pixels_per_sec: ui.view.pixels_per_sec };
         let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
         let audio_len_sec = project.measures.last().map_or(0.0, |m| m.start_sec);
+        let (keymap, keymap_error) = crate::settings::settings_dir().map_or_else(
+            || (Keymap::default(), None),
+            |d| Keymap::load_or_default(&d.join("keymap.json")),
+        );
         let mut s = Self {
             reference_track: project.source_track,
             style: style_of(&ui, &luts),
@@ -142,7 +152,8 @@ impl Session {
             times,
             revision: 1,
             editor: NoteEditor::default(),
-            keymap: Keymap::default(),
+            keymap,
+            tool_actions: Vec::new(),
             tab_state: TabViewState::default(),
             notation_collapsed: false,
             tab_opts: TabOptions::default(),
@@ -163,6 +174,8 @@ impl Session {
             autosave: AutosavePolicy { enabled: settings.autosave_enabled, interval_secs: settings.autosave_secs, every_edits: settings.autosave_every_edits },
             keep_history: settings.keep_history_in_file,
             loads: Vec::new(),
+            requant: None,
+            q_applied: ui.spectro_q,
             load_progress: None,
             jobs: Jobs::default(),
             sync_on_ready: Vec::new(),
@@ -183,6 +196,9 @@ impl Session {
             project,
         };
         s.recompute_staff();
+        if let Some(e) = keymap_error {
+            s.toast(e, true);
+        }
         s
     }
 
@@ -212,7 +228,11 @@ impl Session {
     /// Starts loading the audio of the given tracks (ids already in the project).
     pub fn load_tracks(&mut self, tracks: Vec<(u64, PathBuf)>) {
         if !tracks.is_empty() {
-            self.loads.push(LoadJob::spawn(tracks, self.output_rate()));
+            self.loads.push(LoadJob::spawn(
+                tracks,
+                self.output_rate(),
+                self.ui.spectro_q,
+            ));
         }
     }
 
@@ -235,10 +255,11 @@ impl Session {
     /// Applies loader events; returns true while something is still loading.
     pub fn poll_loads(&mut self) -> bool {
         let mut events = Vec::new();
-        for job in &mut self.loads {
+        for job in self.loads.iter_mut().chain(self.requant.as_mut()) {
             events.extend(job.poll(&mut self.store));
         }
         self.loads.retain(|j| !j.is_finished());
+        self.requant.take_if(|j| j.is_finished());
         let (mut ready, mut spectro) = (false, false);
         for e in events {
             match e {
@@ -261,10 +282,11 @@ impl Session {
         if spectro {
             self.revision += 1;
         }
-        if self.loads.is_empty() {
+        let busy = !self.loads.is_empty() || self.requant.is_some();
+        if !busy {
             self.load_progress = None;
         }
-        !self.loads.is_empty()
+        busy
     }
 
     // ---- model edits ---------------------------------------------------------------------
@@ -570,6 +592,22 @@ impl Session {
 
     pub fn set_undo_policy(&mut self, policy: UndoPolicy) {
         self.undo.set_policy(policy);
+    }
+
+    /// Recomputes the loaded spectrograms with the Q in `ui`, in the background.
+    pub fn q_changed(&mut self) {
+        self.q_applied = self.ui.spectro_q;
+        let tracks: Vec<_> = self
+            .store
+            .tracks
+            .iter_mut()
+            .filter(|(_, t)| t.spectrogram_ready)
+            .map(|(id, t)| {
+                t.spectrogram_ready = false;
+                (*id, t.mono.clone(), t.sample_rate)
+            })
+            .collect();
+        self.requant = Some(LoadJob::requantise(tracks, self.ui.spectro_q));
     }
 
     pub fn display_changed(&mut self) {

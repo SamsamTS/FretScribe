@@ -53,11 +53,14 @@ pub struct UiState {
     pub spectro_black: f32,
     pub spectro_white: f32,
     pub spectro_gamma: f32,
+    /// Constant-Q quality factor of the spectrograms.
+    pub spectro_q: f32,
     pub lut_name: String,
 }
 
 /// Same values as `analysis::{MIN_LEVELS_GAP, GAMMA_MIN, GAMMA_MAX}` (core cannot depend on analysis).
 pub const LEVELS_MIN_GAP: f32 = 0.02;
+pub const Q_RANGE: std::ops::RangeInclusive<f32> = 10.0..=120.0;
 pub const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.2..=5.0;
 
 fn finite_or(v: f32, default: f32) -> f32 {
@@ -84,6 +87,7 @@ impl UiState {
         self.spectro_white = white;
         self.spectro_gamma =
             finite_or(self.spectro_gamma, 1.0).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
+        self.spectro_q = finite_or(self.spectro_q, 40.0).clamp(*Q_RANGE.start(), *Q_RANGE.end());
     }
 }
 
@@ -102,6 +106,7 @@ impl Default for UiState {
             spectro_black: 0.0,
             spectro_white: 1.0,
             spectro_gamma: 1.0,
+            spectro_q: 40.0,
             lut_name: "Classic".to_owned(),
         }
     }
@@ -416,16 +421,19 @@ mod tests {
             ),
             (0.5, 0.0, 1.0, 1.0)
         );
-        assert_eq!(ui.lut_name, "Classic");
+        assert_eq!((ui.lut_name.as_str(), ui.spectro_q), ("Classic", 40.0));
     }
 
     #[test]
     fn out_of_range_focus_and_display_values_are_clamped() {
         let mut f = file(0.0);
-        (f.ui.focus_strength, f.ui.spectro_gamma) = (7.0, 99.0);
+        (f.ui.focus_strength, f.ui.spectro_gamma, f.ui.spectro_q) = (7.0, 99.0, 1e9);
         (f.ui.spectro_black, f.ui.spectro_white) = (0.6, 0.6);
         let ui = from_json(&to_json(&f).unwrap()).unwrap().ui;
-        assert_eq!((ui.focus_strength, ui.spectro_gamma), (1.0, 5.0));
+        assert_eq!(
+            (ui.focus_strength, ui.spectro_gamma, ui.spectro_q),
+            (1.0, 5.0, 120.0)
+        );
         assert!(
             ui.spectro_white - ui.spectro_black >= LEVELS_MIN_GAP - 1e-6 && ui.spectro_black == 0.6
         );

@@ -35,7 +35,7 @@ pub use overlap::MIN_PIECE_BEATS;
 pub use persist::{
     discard_autosave, from_json, load_autosave, load_project, save_autosave, save_project, to_json,
     write_atomic, ProjectFile, UiState, ViewState, AUTOSAVE_GENERATIONS, CURRENT_VERSION,
-    GAMMA_RANGE, LEVELS_MIN_GAP,
+    GAMMA_RANGE, LEVELS_MIN_GAP, Q_RANGE,
 };
 pub use pitch::{
     cents_of, cents_off, freq_to_midi_float, midi_to_freq, midi_to_name, ref_from_cents, PitchRef,

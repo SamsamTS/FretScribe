@@ -43,6 +43,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             .playhead(s.ui.playhead_sec)
             .looping(s.ui.loop_enabled)
             .snapping(s.overview_snap)
+            .lane_toggles(s.lanes.options.show_notes_on_all, s.lanes.options.show_onsets)
             .show(ui, &mut s.region);
         overview_events = out.events;
     });
@@ -120,12 +121,14 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
         spectro_events.extend(seek);
+        let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap);
         let out = TrackLanes {
             project: &s.project,
             source: &s.store,
             style: &s.style,
             times: &s.times,
             selected: &s.editor.selection.ids,
+            tools: Some(&tools),
             ghost: s.editor.ghost.as_ref(),
             reference_track: s.reference_track,
             focus: s.ui.focus_enabled.then(|| {
@@ -246,6 +249,8 @@ fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request
             s.ctl.set_target(v);
         }
         OverviewEvent::SnapToggled(on) => s.overview_snap = on,
+        OverviewEvent::NotesOnAllLanesToggled(on) => s.lanes.options.show_notes_on_all = on,
+        OverviewEvent::OnsetsToggled(on) => s.lanes.options.show_onsets = on,
     }
 }
 
@@ -277,6 +282,7 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
             s.dirty = true;
             s.player_resync(false);
         }
+        TrackEvent::NoteAction(a) => s.tool_actions.push(a),
         TrackEvent::CollapseToggled(id) => {
             if let Some(t) = track_mut(&mut s.project, id) {
                 t.spectrogram_collapsed = !t.spectrogram_collapsed;
@@ -353,6 +359,7 @@ fn handle_tab(s: &mut Session, e: TabViewEvent) {
 /// Feeds the source lane's pointer data to the note editor and applies its effects.
 fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, pointer: Option<fretscribe_ui::tracks::LanePointer>) {
     let Some(pointer) = pointer else {
+        s.tool_actions.clear();
         for e in events {
             if let SpectroEvent::SeekRequested(sec) = e {
                 s.seek(sec);
@@ -373,7 +380,8 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let px_per_sec = s.ctl.current.pixels_per_sec;
     let onset_list: Vec<f64> = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
     let grid = if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } };
-    for input in collected.inputs {
+    let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
+    for input in tool_inputs.chain(collected.inputs) {
         let mut effects = {
             let onsets = (!onset_list.is_empty()).then_some(onset_list.as_slice());
             let mut env = Env { project: &mut s.project, grid: &grid, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };

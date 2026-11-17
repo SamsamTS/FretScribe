@@ -53,14 +53,14 @@ pub struct LoadJob {
 
 impl LoadJob {
     /// One worker per track; `output_rate` is the player's `output_rate()`.
-    pub fn spawn(tracks: Vec<(u64, PathBuf)>, output_rate: u32) -> LoadJob {
+    pub fn spawn(tracks: Vec<(u64, PathBuf)>, output_rate: u32, q: f32) -> LoadJob {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let total = tracks.len();
         for (id, path) in tracks {
             let (tx, cancel) = (tx.clone(), cancel.clone());
             thread::spawn(move || {
-                let msg = match load_track(&path, output_rate, &cancel) {
+                let msg = match load_track(&path, output_rate, q, &cancel) {
                     Ok(Some((data, stream))) => Msg::Ready(id, Box::new(data), stream),
                     Ok(None) => return,
                     Err(error) => Msg::Failed(id, error),
@@ -69,6 +69,40 @@ impl LoadJob {
             });
         }
         LoadJob { rx, cancel, total, waiting: total, finished_tracks: 0, streams: Vec::new(), last_fraction: -1.0, finished: false }
+    }
+
+    /// Recomputes the spectrograms of `tracks` (id, audio, rate) with another Q, streaming into the stored ones.
+    pub fn requantise(tracks: Vec<(u64, Arc<[f32]>, u32)>, q: f32) -> LoadJob {
+        let streams = tracks
+            .into_iter()
+            .map(|(id, mono, rate)| {
+                let s = compute_spectrogram_streaming(
+                    mono,
+                    rate,
+                    &SpectrogramParams {
+                        q,
+                        ..SpectrogramParams::default()
+                    },
+                );
+                Streaming {
+                    id,
+                    chunks: s.chunks,
+                    frames: s.info.n_frames.max(1),
+                    done: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+        let (_, rx) = mpsc::channel();
+        LoadJob {
+            rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+            total: streams.len(),
+            waiting: 0,
+            finished_tracks: 0,
+            streams,
+            last_fraction: -1.0,
+            finished: false,
+        }
     }
 
     pub fn is_finished(&self) -> bool {
@@ -171,13 +205,25 @@ impl Drop for LoadJob {
 }
 
 /// `Ok(None)` when cancelled. The returned data has a placeholder spectrogram, replaced by the poll.
-fn load_track(path: &PathBuf, rate: u32, cancel: &AtomicBool) -> Result<Option<(TrackData, SpectrogramStream)>, String> {
+fn load_track(
+    path: &PathBuf,
+    rate: u32,
+    q: f32,
+    cancel: &AtomicBool,
+) -> Result<Option<(TrackData, SpectrogramStream)>, String> {
     let decoded = decode_file(path).map_err(|e| e.to_string())?;
     if cancel.load(Ordering::Relaxed) {
         return Ok(None);
     }
     let mono: Arc<[f32]> = Arc::from(decoded.mono.as_slice());
-    let stream = compute_spectrogram_streaming(mono.clone(), decoded.sample_rate, &SpectrogramParams::default());
+    let stream = compute_spectrogram_streaming(
+        mono.clone(),
+        decoded.sample_rate,
+        &SpectrogramParams {
+            q,
+            ..SpectrogramParams::default()
+        },
+    );
     let (prepared, (pyramid, envelope)) = thread::scope(|s| {
         let prepared = s.spawn(|| PreparedAudio::new(&decoded, rate));
         let analysis = (WaveformPyramid::build(&mono, decoded.sample_rate), onset_envelope(&mono, decoded.sample_rate));
@@ -248,7 +294,11 @@ pub(crate) mod tests {
         write_wav(&a, 22_050, &clicks(22_050, 3.0, 0.5));
         write_wav(&b, 16_000, &clicks(16_000, 2.0, 0.5));
         let mut store = AudioStore::default();
-        let mut job = LoadJob::spawn(vec![(1, a), (2, b), (3, dir.path().join("missing.wav"))], 48_000);
+        let mut job = LoadJob::spawn(
+            vec![(1, a), (2, b), (3, dir.path().join("missing.wav"))],
+            48_000,
+            40.0,
+        );
         let events = run(&mut job, &mut store);
         assert!(job.is_finished() && events.last() == Some(&LoadEvent::Finished));
         assert!(events.iter().any(|e| matches!(e, LoadEvent::TrackFailed { id: 3, .. })));
@@ -268,7 +318,7 @@ pub(crate) mod tests {
 
     #[test]
     fn empty_job_finishes() {
-        let mut job = LoadJob::spawn(vec![], 48_000);
+        let mut job = LoadJob::spawn(vec![], 48_000, 40.0);
         let events = job.poll(&mut AudioStore::default());
         assert_eq!(events.last(), Some(&LoadEvent::Finished));
     }

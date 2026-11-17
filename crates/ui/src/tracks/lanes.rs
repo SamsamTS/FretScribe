@@ -9,6 +9,7 @@ use super::events::TrackEvent;
 use crate::nav::maths::smooth;
 use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
+use crate::note_editor::HeaderTools;
 use crate::spectro::{white, GhostShape, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
@@ -99,6 +100,8 @@ pub struct TrackLanes<'a> {
     pub reference_track: u64,
     /// Guitar focus range and strength, see `SpectrogramView::focus`.
     pub focus: Option<(f32, f32, f32)>,
+    /// The tool grid of the source track's header.
+    pub tools: Option<&'a HeaderTools>,
 }
 
 pub struct TrackLanesOutput {
@@ -129,6 +132,7 @@ impl TrackLanes<'_> {
             pitch: *pitch,
             reference_track: self.reference_track,
             focus: self.focus,
+            tools: self.tools,
             audible: &audible,
         };
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));

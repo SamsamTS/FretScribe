@@ -11,7 +11,11 @@ use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::nav::{notches, ViewTuning};
-use crate::spectro::{place_readout, HitZone, SpectroGeometry, white, GhostShape, Peak, SpectroCache, SpectroEvent, SpectroStyle, SpectrogramView, WaveformView};
+use crate::note_editor::HeaderTools;
+use crate::spectro::{
+    place_readout, white, GhostShape, HitZone, Peak, SpectroCache, SpectroEvent, SpectroGeometry,
+    SpectroStyle, SpectrogramView, WaveformView,
+};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 const BORDER_COLOR: Color32 = Color32::from_gray(60);
@@ -70,6 +74,7 @@ pub struct LaneShared<'a> {
     pub reference_track: u64,
     pub focus: Option<(f32, f32, f32)>,
     pub audible: &'a HashSet<u64>,
+    pub tools: Option<&'a HeaderTools>,
 }
 
 pub struct TrackLane<'a> {
@@ -165,6 +170,7 @@ impl TrackLane<'_> {
                 audible: shared.audible.contains(&id),
                 can_remove: shared.project.tracks.len() > 1,
                 move_notes: &mut options.move_notes,
+                tools: shared.tools.filter(|_| is_source),
             },
         );
         events.extend(header.events);

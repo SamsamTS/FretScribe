@@ -60,6 +60,8 @@ pub enum OverviewEvent {
     ViewportChanged { scroll_sec: f64, pixels_per_sec: f64 },
     Zoom(ZoomStep),
     SnapToggled(bool),
+    NotesOnAllLanesToggled(bool),
+    OnsetsToggled(bool),
 }
 
 pub struct OverviewOutput {
@@ -117,6 +119,7 @@ where
     measure_starts: &'a [f64],
     snap_points: Option<&'a [f64]>,
     snapping: bool,
+    lane_toggles: (bool, bool),
     looping: bool,
     gutter: f32,
     waveform_height: f32,
@@ -139,6 +142,7 @@ where
             measure_starts: &[],
             snap_points: None,
             snapping: true,
+            lane_toggles: (false, false),
             looping: false,
             gutter: 0.0,
             waveform_height: DEFAULT_WAVEFORM_HEIGHT,
@@ -167,6 +171,12 @@ where
     /// Current state of the magnet button (default: on).
     pub fn snapping(mut self, on: bool) -> Self {
         self.snapping = on;
+        self
+    }
+
+    /// Current state of the "notes on all lanes" and "onsets" buttons.
+    pub fn lane_toggles(mut self, notes_on_all: bool, onsets: bool) -> Self {
+        self.lane_toggles = (notes_on_all, onsets);
         self
     }
 
@@ -222,17 +232,48 @@ where
 
     /// The zoom group (with the snap magnet) left of the strip, bottom-aligned with it.
     fn buttons(&self, ui: &mut Ui, events: &mut Vec<OverviewEvent>) {
-        crate::kit::group_at(ui, "Zoom", true, |ui| {
-            for (icon, tip, step) in [("zoom-in", "Zoom in", ZoomStep::In), ("zoom-out", "Zoom out", ZoomStep::Out), ("zoom-fit", "Zoom to fit", ZoomStep::Fit)] {
-                if crate::kit::ibtn(ui, icon, tip, false).clicked() {
-                    events.push(OverviewEvent::Zoom(step));
-                }
-            }
-            crate::kit::sep(ui);
-            if crate::kit::ibtn(ui, "snap", "Snap the seek point and the selection (hold Alt to invert)", self.snapping).clicked() {
-                events.push(OverviewEvent::SnapToggled(!self.snapping));
-            }
-        });
+        let key = ui.id().with("buttons_width");
+        let width: f32 = ui.data(|d| d.get_temp(key)).unwrap_or(0.0);
+        let margin = ((self.gutter - width) / 2.0 - 8.0).max(0.0);
+        let used = ui
+            .horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.add_space(margin);
+                crate::kit::group_at(ui, "View", true, |ui| {
+                    for (icon, tip, step) in [
+                        ("zoom-in", "Zoom in", ZoomStep::In),
+                        ("zoom-out", "Zoom out", ZoomStep::Out),
+                        ("zoom-fit", "Zoom to fit", ZoomStep::Fit),
+                    ] {
+                        if crate::kit::ibtn(ui, icon, tip, false).clicked() {
+                            events.push(OverviewEvent::Zoom(step));
+                        }
+                    }
+                    crate::kit::sep(ui);
+                    if crate::kit::ibtn(
+                        ui,
+                        "snap",
+                        "Snap the seek point and the selection (hold Alt to invert)",
+                        self.snapping,
+                    )
+                    .clicked()
+                    {
+                        events.push(OverviewEvent::SnapToggled(!self.snapping));
+                    }
+                    crate::kit::sep(ui);
+                    let (notes, onsets) = self.lane_toggles;
+                    if crate::kit::ibtn(ui, "layers", "Show notes on all lanes", notes).clicked() {
+                        events.push(OverviewEvent::NotesOnAllLanesToggled(!notes));
+                    }
+                    if crate::kit::ibtn(ui, "onsets", "Show onsets", onsets).clicked() {
+                        events.push(OverviewEvent::OnsetsToggled(!onsets));
+                    }
+                });
+            })
+            .response
+            .rect
+            .width();
+        ui.data_mut(|d| d.insert_temp(key, used - margin));
     }
 
     fn interact(
