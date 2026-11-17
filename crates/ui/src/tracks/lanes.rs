@@ -10,6 +10,7 @@ use crate::nav::maths::smooth;
 use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
 use crate::note_editor::HeaderTools;
+use crate::view::RegionSelection;
 use crate::spectro::{white, GhostShape, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
@@ -113,6 +114,11 @@ pub struct TrackLanes<'a> {
     pub focus: Option<(f32, f32, f32)>,
     /// The tool grid of the source track's header.
     pub tools: Option<&'a HeaderTools>,
+    /// The region selection (drawn on every lane, edited by right-drag), its snap points and the audio length.
+    pub region: Option<RegionSelection>,
+    pub region_snap: &'a [f64],
+    pub region_snapping: bool,
+    pub audio_len_sec: f64,
 }
 
 pub struct TrackLanesOutput {
@@ -144,6 +150,10 @@ impl TrackLanes<'_> {
             reference_track: self.reference_track,
             focus: self.focus,
             tools: self.tools,
+            region: self.region,
+            region_snap: self.region_snap,
+            region_snapping: self.region_snapping,
+            audio_len_sec: self.audio_len_sec,
             audible: &audible,
         };
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));

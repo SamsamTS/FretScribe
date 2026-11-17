@@ -14,7 +14,7 @@
 //! - the ruler band on top only seeks and starts regions; the boxes never cover it
 //! - odd measures have a slightly lighter background than even ones
 
-mod logic;
+pub(crate) mod logic;
 mod ruler;
 mod waveform;
 

@@ -639,4 +639,20 @@ mod tests {
         save_autosave(&f, &path).unwrap();
         assert_eq!(load_autosave(&path).unwrap().unwrap(), f);
     }
+
+    #[test]
+    fn view_layout_round_trips_and_older_files_load_with_defaults() {
+        let mut ui = UiState::default();
+        ui.view.scroll_y = 120.0;
+        ui.view.pitch = Some((40.0, 80.0));
+        (ui.notation_collapsed, ui.lane_options, ui.lane_rows) = (true, Some((true, false, true)), vec![(2, 7)]);
+        let back: UiState = serde_json::from_str(&serde_json::to_string(&ui).unwrap()).unwrap();
+        assert_eq!(back, ui);
+        let old: UiState = serde_json::from_str(r#"{"view":{"scroll_sec":3.0,"pixels_per_sec":50.0}}"#).unwrap();
+        assert!(old.view.pitch.is_none() && old.snap_on && old.lane_rows.is_empty() && old.view.scroll_sec == 3.0);
+        let mut bad = UiState::default();
+        (bad.view.scroll_y, bad.view.pitch) = (f64::NAN, Some((9.0, 3.0)));
+        bad.sanitise();
+        assert!(bad.view.scroll_y == 0.0 && bad.view.pitch.is_none());
+    }
 }

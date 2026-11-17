@@ -19,6 +19,8 @@ pub enum TrackEvent {
     AddTrackRequested,
     /// A command of the source track's tool grid, for the note editor.
     NoteAction(crate::note_editor::NoteAction),
+    /// Right-drag on a lane created, moved or resized the region (`None`: cleared).
+    RegionChanged(Option<crate::view::RegionSelection>),
     /// Bracket the `OffsetChanged` events of one drag so the app can make it a single undo step.
     OffsetDragBegan(u64),
     OffsetDragEnded(u64),

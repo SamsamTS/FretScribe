@@ -126,6 +126,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
         spectro_events.extend(seek);
+        let measure_starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
         let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap);
         let out = TrackLanes {
             project: &s.project,
@@ -134,6 +135,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             times: &s.times,
             selected: &s.editor.selection.ids,
             tools: Some(&tools),
+            region: s.region,
+            region_snap: &measure_starts,
+            region_snapping: s.overview_snap,
+            audio_len_sec: audio_len,
             ghost: s.editor.ghost.as_ref(),
             reference_track: s.reference_track,
             focus: s.ui.focus_enabled.then(|| {
@@ -295,6 +300,7 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
             s.player_resync(false);
         }
         TrackEvent::NoteAction(a) => s.tool_actions.push(a),
+        TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r), requests),
         TrackEvent::CollapseToggled(id) => {
             if let Some(t) = track_mut(&mut s.project, id) {
                 t.spectrogram_collapsed = !t.spectrogram_collapsed;
