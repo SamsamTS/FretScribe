@@ -20,7 +20,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/session.rs` | 583 | partial | lines 1-460 read (I-019, I-020) |
 | `crates/app/src/form_ui.rs` | 581 | todo | |
 | `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
-| `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
+| `crates/ui/src/staff_view/mod.rs` | 552 | reviewed | I-044 |
 | `crates/core/src/undo.rs` | 552 | reviewed | prod part read; ok |
 | `crates/audio/src/focus.rs` | 516 | partial | top 140 lines + offline fn read (I-015) |
 | `crates/core/src/tempo.rs` | 512 | reviewed | prod part read (I-026) |
@@ -124,7 +124,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/notation/src/tab/label.rs` | 86 | reviewed | read (I-036) |
 | `crates/app/src/luts.rs` | 85 | reviewed | I-022 |
 | `crates/audio/src/metadata.rs` | 80 | todo | |
-| `crates/ui/src/staff_view/links.rs` | 74 | todo | |
+| `crates/ui/src/staff_view/links.rs` | 74 | reviewed | I-044 |
 | `crates/ui/src/spectro/ruler.rs` | 73 | todo | |
 | `crates/ui/src/spectro/pointer.rs` | 73 | todo | |
 | `crates/notation/src/tab/mod.rs` | 72 | reviewed | read (I-036) |
@@ -172,10 +172,10 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tracks/region.rs` | 68 | reviewed | new on main; clean |
 
 ## Next
-Not yet read: ui `nav/`, `staff_view/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
+Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 72 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 43 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 75 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 44 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -543,3 +543,9 @@ Not yet read: ui `nav/`, `staff_view/`, `tracks/{lanes,header,offset,geometry,ic
 4. Convert `selected: &[u64]` to a `HashSet` once per frame at the call site (also benefits lane/staff views), and keep `flashes` sorted so a miss costs O(1) when empty (it is empty almost always: check `flashes.is_empty()` first).
 5. In `stems`, skip beams whose first/last event are both outside `view.x_to_sec(-20.0 .. width + 20.0)` before the level loop.
 **Risk:** low-med; step 2 needs a correct invalidation key. Steps 1, 4, 5 are local. `cargo test -p fretscribe-ui tab_view` (tests render rects and links with the same `Ctx`).
+
+### I-044 (low) · Staff view: duplicated beam/bezier/head code, unculled links · impact: low · saves ~30 lines, small perf · status: open
+**Where:** `ui/src/staff_view/mod.rs` (`BeamLine::y_at` vs the `at` closure in `beam_line`; `arc` vs the bezier built inline in `links.rs` Bend; `Paint::fill`/`snap` helpers), `links.rs` (`draw` loops every link in the layout, no culling; private `Head` struct shadows `mod.rs`'s `Head`; `head()` called 4x per link), `mod.rs` `ties` (forward `find` per tie).
+**Problem:** same line interpolation and quadratic-bezier construction written twice; links are drawn for the whole song each frame; two unrelated `Head` types in one module tree.
+**Instructions:** (1) build the `BeamLine` first and use `line.y_at` for the shift computation; (2) make `Paint::arc` take an optional control point (or add `bezier(a, ctrl, b, w, color)`) and use it in Bend; (3) rename links' `Head` to `Anchor`; resolve `from`/`to` anchors once per link; (4) skip links whose x-range is outside the visible range (reuse `first..last` event indices via `note_ref`).
+**Risk:** low; visual regression check on bends and slurs.
