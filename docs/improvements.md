@@ -91,7 +91,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/spectro/notes.rs` | 183 | reviewed | I-024, I-046 |
 | `crates/ui/src/grid/headless.rs` | 178 | reviewed | read; ok |
 | `crates/ui/examples/grid_demo.rs` | 178 | todo | |
-| `crates/analysis/src/display.rs` | 175 | todo | |
+| `crates/analysis/src/display.rs` | 175 | reviewed | read; ok |
 | `crates/ui/examples/overview_demo.rs` | 173 | todo | |
 | `crates/analysis/tests/export_waveform_png.rs` | 173 | todo | |
 | `crates/ui/src/note_editor/exact.rs` | 170 | reviewed | I-049 |
@@ -100,8 +100,8 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/examples/nav_demo.rs` | 166 | todo | |
 | `crates/ui/src/tracks/tests.rs` | 165 | todo | |
 | `crates/analysis/src/beatfit/fit.rs` | 161 | reviewed | read; ok |
-| `crates/analysis/src/notes.rs` | 156 | todo | |
-| `crates/analysis/src/render.rs` | 155 | todo | |
+| `crates/analysis/src/notes.rs` | 156 | reviewed | read; ok |
+| `crates/analysis/src/render.rs` | 155 | reviewed | I-050 |
 | `crates/ui/src/tracks/offset.rs` | 151 | reviewed | I-045 |
 | `crates/ui/src/grid/event.rs` | 150 | reviewed | read; ok |
 | `crates/notation/src/staff/value.rs` | 149 | reviewed | read (I-036) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 99 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 49 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 102 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 50 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -579,4 +579,10 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 ### I-049 (low) · note_editor: pitch parser misplaced, triple event arm, label-matched icons · impact: low · saves ~20 lines · status: open
 **Where:** `ui/src/note_editor/exact.rs:58` `parse_pitch` (inverse of `core::midi_to_name`, lives in ui); `input.rs:71-77` three identical `DrawBegan/Moved/Ended` arms that only differ by variant; `input.rs:35-38` `sample` runs `hit_test` (full layout, I-046) for every press/move/release; `buttons.rs:42-50` icon chosen by matching the label string (`"Link"`, `"H/P"`, ...) instead of passing the icon; `exact.rs` `bar_beat` builds a `TempoMap` per field.
 **Instructions:** (1) move `parse_pitch` to `core/src/pitch.rs` beside `midi_to_name` (the same note-name table, I-033); (2) add `SpectroEvent::map_pitch(&self, f)` (or make the three variants share a `DrawPoint` struct) so `collect` is one arm; (3) pass the editor's `Scene` (built once per frame) into `sample` instead of `hit_test`; (4) give `button(..)` an `icon` argument and drop the label match; (5) build the `TempoMap` once in `fields_for`.
+**Risk:** low.
+
+### I-050 (low) · `render_rgba` takes 8 arguments; spectrogram cache key allocates a `String` per frame · impact: low · saves ~10 lines · status: open
+**Where:** `analysis/src/render.rs:95-106` (`#[allow(clippy::too_many_arguments)]`), `ui/src/spectro/mod.rs` `cache_key` (`lut: self.style.lut.name.clone()` built per lane per frame just to compare).
+**Problem:** `levels`, `gamma`, `lut` always travel together (they are `SpectroStyle`'s fields); the key clones the LUT name every frame.
+**Instructions:** move `SpectroStyle` (levels, gamma, lut) to `analysis` (or add `analysis::RenderStyle`) and pass it as one parameter, dropping the `allow`; key the cache on `Arc::as_ptr(&lut) as usize` (or a LUT id) instead of the name `String`.
 **Risk:** low.
