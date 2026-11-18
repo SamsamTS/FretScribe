@@ -1,6 +1,7 @@
 //! Home screen: a wrapping grid of project tiles (New Project first, then the recents).
 
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::epaint::StrokeKind;
@@ -195,7 +196,7 @@ fn banner(ui: &mut Ui) {
     }
 }
 
-pub fn show_home(ui: &mut Ui, settings: &Settings, status: &dyn Fn(&Path) -> TileStatus, now_unix: u64) -> Option<HomeAction> {
+pub fn show_home(ui: &mut Ui, settings: &Settings, status: Option<&HashMap<PathBuf, TileStatus>>, now_unix: u64) -> Option<HomeAction> {
     let mut action = None;
     let mut recents: Vec<&RecentProject> = settings.recent.iter().collect();
     recents.sort_by_key(|r| std::cmp::Reverse(r.last_opened_unix));
@@ -217,7 +218,7 @@ pub fn show_home(ui: &mut Ui, settings: &Settings, status: &dyn Fn(&Path) -> Til
                         0 | 1 => {}
                         _ => {
                             let recent = recents[i - FIXED_TILES];
-                            let resp = recent_tile(ui, recent, status(&recent.path), now_unix);
+                            let resp = recent_tile(ui, recent, status.and_then(|m| m.get(&recent.path)).copied().unwrap_or(TileStatus::Ok), now_unix);
                             if resp.clicked() {
                                 action = Some(HomeAction::Open(recent.path.clone()));
                             }

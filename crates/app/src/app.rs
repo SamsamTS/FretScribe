@@ -1,6 +1,7 @@
 //! The eframe application: screen state machine (home, new project form, creating, editor), file
 //! dialogs, settings, autosave and recovery.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -80,6 +81,7 @@ pub struct App {
     allow_close: bool,
     last_size: Option<(f32, f32)>,
     window_mode: WindowMode,
+    home_status: Option<(Instant, HashMap<PathBuf, TileStatus>)>,
 }
 
 impl App {
@@ -113,6 +115,7 @@ impl App {
             allow_close: false,
             last_size: None,
             window_mode: WindowMode::default(),
+            home_status: None,
         };
         (app.last_size, app.window_mode) = (app.settings.window_size, app.settings.window_mode);
         if app.luts.builtin_fallback {
@@ -462,10 +465,15 @@ impl App {
 
     fn home_frame(&mut self, ctx: &Context) {
         let mut action = None;
+        let fresh = self.home_status.as_ref().is_some_and(|(at, map)| home_status_fresh(at.elapsed(), map, &self.settings));
+        if !fresh {
+            let map = self.settings.recent.iter().map(|r| (r.path.clone(), tile_status(&r.path))).collect();
+            self.home_status = Some((Instant::now(), map));
+        }
+        let status = self.home_status.as_ref().map(|(_, m)| m);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::WINDOW_BG)).show(ctx, |ui| {
-            let status = |p: &Path| tile_status(p);
-            action = show_home(ui, &self.settings, &status, now);
+            action = show_home(ui, &self.settings, status, now);
         });
         match action {
             Some(HomeAction::NewProject) => self.start_form(None),
@@ -579,7 +587,16 @@ impl App {
     }
 }
 
+const HOME_STATUS_TTL: Duration = Duration::from_secs(3);
+
+fn home_status_fresh(age: Duration, map: &HashMap<PathBuf, TileStatus>, settings: &Settings) -> bool {
+    age < HOME_STATUS_TTL && map.len() == settings.recent.len() && settings.recent.iter().all(|r| map.contains_key(&r.path))
+}
+
 fn tile_status(path: &Path) -> TileStatus {
+    if !path.exists() {
+        return TileStatus::MissingProject;
+    }
     match load_project(path) {
         Err(_) => TileStatus::MissingProject,
         Ok(f) => {
@@ -697,5 +714,29 @@ impl eframe::App for App {
         self.settings.window_mode = self.window_mode;
         self.save_settings();
         let _ = autosave::mark_clean_exit(&self.settings_dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_status_cache_expires_on_age_or_list_change() {
+        let mut settings = Settings::default();
+        let entry = |p: &str| RecentProject { path: p.into(), name: p.into(), ..Default::default() };
+        settings.recent = vec![entry("a.fretscribe")];
+        let map = HashMap::from([(PathBuf::from("a.fretscribe"), TileStatus::Ok)]);
+        assert!(home_status_fresh(Duration::from_secs(1), &map, &settings));
+        assert!(!home_status_fresh(HOME_STATUS_TTL, &map, &settings));
+        settings.recent.push(entry("b.fretscribe"));
+        assert!(!home_status_fresh(Duration::ZERO, &map, &settings));
+        settings.recent = vec![entry("c.fretscribe")];
+        assert!(!home_status_fresh(Duration::ZERO, &map, &settings));
+    }
+
+    #[test]
+    fn missing_project_file_is_reported_without_parsing() {
+        assert_eq!(tile_status(Path::new("/nonexistent/x.fretscribe")), TileStatus::MissingProject);
     }
 }

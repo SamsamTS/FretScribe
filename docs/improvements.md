@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -459,7 +459,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** in `core/src/pitch.rs` add `pub fn pitch_class_name(midi: u8) -> &'static str { NOTE_NAMES[usize::from(midi % 12)] }` (reuse it in `midi_to_name`) and `pub const A4_RANGE_HZ` (re-export from `lib.rs`); in `form.rs` call them, delete `NAMES`, and build the message with `format!("... {} to {} Hz", start, end)`; `parse_ranged` can take the `RangeInclusive`.
 **Risk:** none; `cargo test -p fretscribe form`.
 
-### I-034 (high) · Home screen parses every recent project file on every frame · impact: high on the start screen · perf: up to 12 full file reads + JSON parses (including saved undo history) + audio path checks per frame · status: open
+### I-034 (high) · Home screen parses every recent project file on every frame · impact: high on the start screen · perf: up to 12 full file reads + JSON parses (including saved undo history) + audio path checks per frame · status: done (statuses cached in `App`, refreshed every 3 s or when the recent list changes; steps 1-3, step 4 skipped: sorting 12 entries is trivial)
 **Where:** `crates/app/src/app.rs:463-469` (`home_frame`), `:582-589` (`tile_status`); `crates/app/src/home.rs:219-220` (calls `status(&recent.path)` for each tile each frame); `crates/core/src/persist.rs:245` (`load_project` = `read_to_string` + `from_json`).
 **Problem:** `show_home` is called from `home_frame` on every repaint (any mouse move over the window repaints), and for each recent entry `tile_status` loads and deserialises the whole project file just to learn whether it exists and whether its audio resolves (`paths::resolve_audio` also stats the files). With `keep_history_in_file` on, files embed the undo stack, so this can be megabytes per tile.
 **Instructions:**
