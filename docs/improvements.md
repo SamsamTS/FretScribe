@@ -168,6 +168,8 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/examples/legato_demo.rs` | 9 | todo | |
 | `crates/notation/Cargo.toml` | 8 | reviewed | deps audited (I-001..I-003) |
 | `crates/notation/src/lib.rs` | 4 | todo | |
+| `crates/ui/src/note_grid.rs` | 109 | reviewed | new on main; clean |
+| `crates/ui/src/tracks/region.rs` | 68 | reviewed | new on main; clean |
 
 ## Next
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
