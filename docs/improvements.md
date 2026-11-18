@@ -14,7 +14,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/app.rs` | 676 | reviewed | I-021, I-034, I-054 |
 | `crates/analysis/src/waveform.rs` | 656 | reviewed | I-057 |
 | `crates/ui/src/note_editor/draw.rs` | 637 | reviewed | prod part read (I-010, I-011) |
-| `crates/analysis/src/sync.rs` | 632 | partial | lines 1-470 read (I-030) |
+| `crates/analysis/src/sync.rs` | 632 | reviewed | I-030 |
 | `crates/core/src/snap_note.rs` | 630 | reviewed | prod part read (I-028) |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
 | `crates/app/src/session.rs` | 583 | reviewed | I-019, I-020, I-053 |
@@ -22,10 +22,10 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/editor.rs` | 557 | reviewed | I-008, I-054, I-055 |
 | `crates/ui/src/staff_view/mod.rs` | 552 | reviewed | I-044 |
 | `crates/core/src/undo.rs` | 552 | reviewed | prod part read; ok |
-| `crates/audio/src/focus.rs` | 516 | partial | top 140 lines + offline fn read (I-015) |
+| `crates/audio/src/focus.rs` | 516 | reviewed | I-015 |
 | `crates/core/src/tempo.rs` | 512 | reviewed | prod part read (I-026) |
 | `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
-| `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
+| `crates/ui/src/note_editor/action.rs` | 507 | reviewed | I-007 |
 | `crates/ui/src/grid/mod.rs` | 503 | reviewed | prod part read (I-038) |
 | `crates/notation/src/tab/solve.rs` | 492 | partial | run() and entry points read (I-023) |
 | `crates/ui/src/overview/logic.rs` | 485 | reviewed | read; ok |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 121 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 57 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 123 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 57 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -231,6 +231,7 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 ### I-007 · `note_editor::action::apply` is a 187-line match with repeated patterns · impact: med · saves ~35 lines · status: open
 **Where:** `crates/ui/src/note_editor/action.rs:109-295` (`apply`); `:132` `ctx_grid`; `:211` shadowed `tempo`; `:294` last arm.
 **Problem:** (a) `let ctx_grid = grid;` is a pointless alias; (b) `ForceLegato` rebuilds `TempoMap` that already exists as `tempo` in scope (`:211`); (c) the final arm returns `Ok(Applied::default())` for variants already handled by the early `return`s (`:294`); (d) the pattern `project.notes.iter(_mut)().filter(|n| set.contains(&n.id))` appears 6 times (`:154,159,181,191,273,278`), each an O(notes x selected) scan over a `Vec`; (e) `Transpose`, `Resize`, `SetString`, `Delete`, `Duplicate` bodies are inlined instead of named functions.
+(d) `moved.contains`/`ids.contains` (linear `Vec` scans) inside `project.notes.iter().filter(..)` at `:154,159,191,273,278` make Transpose/Resize/SetString O(notes × selection); build a `HashSet<u64>` once after `with_graces`. (e) `ForceLegato` re-sorts `ids`, which `:129` already produced in time order.
 **Instructions:**
 1. Delete `ctx_grid` and use `grid`; delete the inner `tempo` at `:211`.
 2. Replace the last arm with `unreachable!()`-free restructuring: move the four early-return variants into a separate `fn apply_selection_action(...) -> Option<Applied>` called first, and make the main `match` exhaustive without the catch-all.
