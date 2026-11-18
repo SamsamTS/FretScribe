@@ -60,7 +60,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/notation/src/staff/tests.rs` | 311 | todo | |
 | `crates/notation/src/tab/tests.rs` | 306 | todo | |
 | `crates/ui/src/note_editor/keymap.rs` | 303 | reviewed | I-048 |
-| `crates/app/src/jobs.rs` | 303 | partial | Job abstraction read; ok |
+| `crates/app/src/jobs.rs` | 303 | reviewed | I-056 |
 | `crates/ui/src/overview/waveform.rs` | 296 | reviewed | read; ok (palette per lane: I-045) |
 | `crates/app/src/home.rs` | 288 | reviewed | read (I-034) |
 | `crates/ui/src/note_editor/grace_entry.rs` | 285 | reviewed | I-048 |
@@ -69,7 +69,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
 | `crates/ui/src/tracks/header.rs` | 280 | reviewed | read (I-042) |
 | `crates/ui/src/tab_view/draw.rs` | 277 | reviewed | read (I-043, I-025) |
-| `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
+| `crates/app/src/loader.rs` | 275 | reviewed | I-056 |
 | `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
 | `crates/analysis/src/beatfit/mod.rs` | 263 | reviewed | prod part read; ok |
 | `crates/ui/src/nav/input.rs` | 261 | reviewed | read; ok (I-040 for tuning) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 118 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 55 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 120 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 56 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -614,3 +614,8 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Where:** `editor.rs:407-408` `onset_targets` (`flat_map` + sort of every track's onsets) and `snap_grid.clone()` run every frame while snapping is on, even with no input; `:143` `measure_starts` and `:144` `header_tools` rebuilt per frame; `click_note` (231-251) and `handle_tab` `Marquee` (372-380) re-implement `ui::note_editor::Selection::click`/`marquee`; `handle_overview(.., requests)` takes an unused `requests` (`let _ = requests`); `handle_track_event` repeats `if let Some(t) = track_mut(..) {..}; s.dirty = true; s.player_resync(false)` three times and `track_mut(..).map(..).ok_or(UnknownTrack)` three times.
 **Instructions:** (1) cache `onset_list` in `Session` keyed on `store.revision` + track offsets/`use_for_beats` (recompute in `shift_track`/load), and only clone the grid when `collected.inputs` is non-empty; (2) call `s.editor.selection.click(id, ctrl, shift, &order)` / `.marquee(ids, add)` (needs the cached time order from I-043) instead of the local copies; (3) add `Session::edit_track(id, label, |t| ..)` and `Session::mix_changed(|t| ..)` (sets dirty + resync) to collapse the Volume/Mute/Solo/Collapse/Role/UseForBeats arms; (4) drop the `requests` parameter from `handle_overview`.
 **Risk:** low; cache invalidation of onsets is the only subtle part.
+
+### I-056 (low) · `app/jobs.rs` + `loader.rs`: third resampler, thumbnail peaks copy, three thread/channel patterns · impact: low · saves ~50 lines · status: open
+**Where:** `jobs.rs:80` `resample_linear` (plain linear interpolation, no low-pass, used only by the `sync` job) beside `audio/resample.rs` (rubato) and the analysis resamplers; `jobs.rs:112` `mono_peaks_thumbnail` (re-derives min/max peaks that `WaveformPyramid` already holds, used once in `app.rs:324`); `Job<T>`, `FormEstimates` (`jobs.rs:138`) and `LoadJob` (`loader.rs`) each hand-roll spawn + channel + cancel flag + `Drop` that sets the flag; `loader.rs` builds `SpectrogramParams { q, ..default() }` and `Streaming { .. }` in three places (`spawn`/`load_track`, `requantise`, `poll`); `load_track` copies `decoded.mono` into a new `Arc<[f32]>` (see I-029).
+**Instructions:** (1) let `analysis::sync::estimate_offset` take the two rates (or resample inside `analysis` with the shared resampler) and delete `resample_linear`; (2) build the thumbnail from `pyramid.peaks((0, dur), n)` and delete `mono_peaks_thumbnail`; (3) add a `Cancelled` guard (`struct CancelOnDrop(Arc<AtomicBool>)`) and `Streaming::new(id, &SpectrogramStream)`, plus `fn params(q) -> SpectrogramParams`; (4) make `DecodedAudio::mono` an `Arc<[f32]>` so no copy is needed (I-029).
+**Risk:** low; sync accuracy tests (`sync_tests`) cover the resample change.
