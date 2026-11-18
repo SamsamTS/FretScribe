@@ -94,9 +94,9 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/display.rs` | 175 | todo | |
 | `crates/ui/examples/overview_demo.rs` | 173 | todo | |
 | `crates/analysis/tests/export_waveform_png.rs` | 173 | todo | |
-| `crates/ui/src/note_editor/exact.rs` | 170 | todo | |
+| `crates/ui/src/note_editor/exact.rs` | 170 | reviewed | I-049 |
 | `crates/app/src/player_sync.rs` | 167 | reviewed | prod part read; ok (I-020) |
-| `crates/ui/src/note_editor/clip.rs` | 166 | todo | |
+| `crates/ui/src/note_editor/clip.rs` | 166 | reviewed | read; ok |
 | `crates/ui/examples/nav_demo.rs` | 166 | todo | |
 | `crates/ui/src/tracks/tests.rs` | 165 | todo | |
 | `crates/analysis/src/beatfit/fit.rs` | 161 | reviewed | read; ok |
@@ -110,8 +110,8 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/examples/staff_demo.rs` | 123 | todo | |
 | `crates/ui/src/grid/drag.rs` | 122 | reviewed | read; ok |
 | `crates/ui/src/grid/draw.rs` | 113 | reviewed | read; ok |
-| `crates/ui/src/note_editor/input.rs` | 112 | todo | |
-| `crates/ui/src/note_editor/buttons.rs` | 112 | todo | |
+| `crates/ui/src/note_editor/input.rs` | 112 | reviewed | I-049, I-046 |
+| `crates/ui/src/note_editor/buttons.rs` | 112 | reviewed | I-049 |
 | `crates/ui/src/tracks/geometry.rs` | 110 | reviewed | ok |
 | `crates/app/src/paths.rs` | 109 | reviewed | read; ok |
 | `crates/analysis/examples/spectrogram_png.rs` | 109 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, ~100 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 48 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 93 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 49 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -573,4 +573,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Where:** `ui/src/note_editor/grace_entry.rs` `preview` (130, full `Project` clone per pointer move) and `key`/`CycleLink` (70) and `pointer` (105, `TempoMap::new` per move); `keymap.rs:109-117` nine near-identical `string_N` rows; `select.rs` `Selection::add`/`contains` (linear `Vec` scans; `marquee`/`shift`-click is O(n·m)).
 **Problem:** same whole-project clone + tempo rebuild pattern as I-010/I-037, here on every mouse move during grace entry; `string_1..9` rows are data written out by hand; selection uses a `Vec` for membership.
 **Instructions:** (1) have `place` work on a cloned `notes` + measures slice only (or add `Project::preview_edit` returning the resulting notes without cloning tuning/tracks) and reuse the editor's cached `TempoMap`; (2) generate the string rows with a `const` macro or loop (`SetStringFromTop(n)`, id `string_{n}`) when building `DEFAULTS` rows at startup; (3) keep a `HashSet<u64>` beside `ids` (or use `IndexSet`) if selections reach thousands of notes.
+**Risk:** low.
+
+### I-049 (low) · note_editor: pitch parser misplaced, triple event arm, label-matched icons · impact: low · saves ~20 lines · status: open
+**Where:** `ui/src/note_editor/exact.rs:58` `parse_pitch` (inverse of `core::midi_to_name`, lives in ui); `input.rs:71-77` three identical `DrawBegan/Moved/Ended` arms that only differ by variant; `input.rs:35-38` `sample` runs `hit_test` (full layout, I-046) for every press/move/release; `buttons.rs:42-50` icon chosen by matching the label string (`"Link"`, `"H/P"`, ...) instead of passing the icon; `exact.rs` `bar_beat` builds a `TempoMap` per field.
+**Instructions:** (1) move `parse_pitch` to `core/src/pitch.rs` beside `midi_to_name` (the same note-name table, I-033); (2) add `SpectroEvent::map_pitch(&self, f)` (or make the three variants share a `DrawPoint` struct) so `collect` is one arm; (3) pass the editor's `Scene` (built once per frame) into `sample` instead of `hit_test`; (4) give `button(..)` an `icon` argument and drop the label match; (5) build the `TempoMap` once in `fields_for`.
 **Risk:** low.
