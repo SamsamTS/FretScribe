@@ -6,9 +6,9 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 |---|---|---|---|
 | `crates/core/src/edit.rs` | 1186 | reviewed | prod part read (I-009, I-011) |
 | `crates/core/src/links.rs` | 969 | reviewed | prod part read (I-010) |
-| `crates/audio/src/mixer_tests.rs` | 814 | todo | |
+| `crates/audio/src/mixer_tests.rs` | 814 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/audio/src/engine.rs` | 795 | reviewed | read except `focus`/`synth` interplay (I-013) |
-| `crates/ui/src/note_editor/editor_tests.rs` | 790 | todo | |
+| `crates/ui/src/note_editor/editor_tests.rs` | 790 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/note_editor/editor.rs` | 717 | reviewed | prod part read (I-037) |
 | `crates/audio/src/player.rs` | 700 | reviewed | prod part read (I-014, I-013) |
 | `crates/app/src/app.rs` | 676 | reviewed | I-021, I-034, I-054 |
@@ -31,8 +31,8 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/overview/logic.rs` | 485 | reviewed | read; ok |
 | `crates/ui/src/kit.rs` | 479 | reviewed | prod part read (I-039) |
 | `crates/ui/src/overview/headless.rs` | 476 | reviewed | read; ok |
-| `crates/audio/examples/play.rs` | 464 | todo | |
-| `crates/core/src/grace/tests.rs` | 444 | todo | |
+| `crates/audio/examples/play.rs` | 464 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/core/src/grace/tests.rs` | 444 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/app/src/form.rs` | 428 | reviewed | prod part read (I-033) |
 | `crates/core/src/measures.rs` | 419 | reviewed | prod part read (I-026) |
 | `crates/ui/src/overview/mod.rs` | 415 | reviewed | read; ok |
@@ -42,23 +42,23 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/nav/maths.rs` | 404 | reviewed | read; ok (I-040 for tuning) |
 | `crates/core/src/tracks.rs` | 401 | reviewed | read (I-004) |
 | `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
-| `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
+| `crates/ui/examples/note_editor_demo.rs` | 396 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/spectro/glyphs.rs` | 395 | reviewed | I-024, I-046 |
 | `crates/analysis/src/pitchref.rs` | 394 | reviewed | prod part read (I-030) |
 | `crates/audio/src/resample.rs` | 391 | reviewed | prod part read (I-029) |
 | `crates/ui/src/nav/mod.rs` | 388 | reviewed | read (I-040, I-004) |
 | `crates/notation/src/staff/mod.rs` | 382 | reviewed | read (I-035, I-025) |
-| `crates/analysis/src/spectrogram_tests.rs` | 378 | todo | |
+| `crates/analysis/src/spectrogram_tests.rs` | 378 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/core/src/grace.rs` | 375 | reviewed | prod part read (I-020) |
-| `crates/ui/src/tab_view/tests.rs` | 372 | todo | |
+| `crates/ui/src/tab_view/tests.rs` | 372 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/core/src/model.rs` | 365 | reviewed | I-025, I-027 |
-| `crates/ui/src/spectro/glyphs/tests.rs` | 355 | todo | |
+| `crates/ui/src/spectro/glyphs/tests.rs` | 355 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/view.rs` | 352 | reviewed | read (I-040, I-004) |
-| `crates/audio/src/focus_tests.rs` | 347 | todo | |
+| `crates/audio/src/focus_tests.rs` | 347 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/audio/src/synth.rs` | 334 | reviewed | prod part read; ok (render_offline in I-004) |
 | `crates/ui/src/spectro/mod.rs` | 319 | reviewed | show/cache read (I-024) |
-| `crates/notation/src/staff/tests.rs` | 311 | todo | |
-| `crates/notation/src/tab/tests.rs` | 306 | todo | |
+| `crates/notation/src/staff/tests.rs` | 311 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/notation/src/tab/tests.rs` | 306 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/note_editor/keymap.rs` | 303 | reviewed | I-048 |
 | `crates/app/src/jobs.rs` | 303 | reviewed | I-056 |
 | `crates/ui/src/overview/waveform.rs` | 296 | reviewed | read; ok (palette per lane: I-045) |
@@ -66,7 +66,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/grace_entry.rs` | 285 | reviewed | I-048 |
 | `crates/ui/src/tracks/lane.rs` | 284 | reviewed | I-016, I-045 |
 | `crates/ui/src/grid/popup.rs` | 282 | reviewed | read; ok |
-| `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
+| `crates/analysis/tests/export_spectrogram_png.rs` | 281 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/tracks/header.rs` | 280 | reviewed | read (I-042) |
 | `crates/ui/src/tab_view/draw.rs` | 277 | reviewed | read (I-043, I-025) |
 | `crates/app/src/loader.rs` | 275 | reviewed | I-056 |
@@ -75,13 +75,13 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/nav/input.rs` | 261 | reviewed | read; ok (I-040 for tuning) |
 | `crates/ui/src/tab_view/edit.rs` | 241 | reviewed | lines 190-241 read; ok (`auto_string` clones Project once per right-click, fine) |
 | `crates/analysis/src/cqt.rs` | 236 | reviewed | read; ok |
-| `crates/ui/examples/tracks_demo.rs` | 235 | todo | |
+| `crates/ui/examples/tracks_demo.rs` | 235 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/analysis/src/spectrogram.rs` | 224 | reviewed | prod part read (I-004, I-031) |
 | `crates/app/src/autosave.rs` | 217 | reviewed | lines 1-25 read; ok |
 | `crates/analysis/src/lut.rs` | 210 | reviewed | read; ok |
 | `crates/core/src/pitch.rs` | 206 | reviewed | read; ok |
 | `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
-| `crates/ui/src/spectro/tests.rs` | 199 | todo | |
+| `crates/ui/src/spectro/tests.rs` | 199 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/app/src/settings.rs` | 198 | reviewed | read (I-019) |
 | `crates/ui/src/grid/lines.rs` | 197 | reviewed | prod part read (I-038) |
 | `crates/ui/src/theme.rs` | 196 | reviewed | I-047 |
@@ -90,36 +90,36 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/select.rs` | 192 | reviewed | I-048 |
 | `crates/ui/src/spectro/notes.rs` | 183 | reviewed | I-024, I-046 |
 | `crates/ui/src/grid/headless.rs` | 178 | reviewed | read; ok |
-| `crates/ui/examples/grid_demo.rs` | 178 | todo | |
+| `crates/ui/examples/grid_demo.rs` | 178 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/analysis/src/display.rs` | 175 | reviewed | read; ok |
-| `crates/ui/examples/overview_demo.rs` | 173 | todo | |
-| `crates/analysis/tests/export_waveform_png.rs` | 173 | todo | |
+| `crates/ui/examples/overview_demo.rs` | 173 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/analysis/tests/export_waveform_png.rs` | 173 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/note_editor/exact.rs` | 170 | reviewed | I-049 |
 | `crates/app/src/player_sync.rs` | 167 | reviewed | prod part read; ok (I-020) |
 | `crates/ui/src/note_editor/clip.rs` | 166 | reviewed | read; ok |
-| `crates/ui/examples/nav_demo.rs` | 166 | todo | |
-| `crates/ui/src/tracks/tests.rs` | 165 | todo | |
+| `crates/ui/examples/nav_demo.rs` | 166 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/ui/src/tracks/tests.rs` | 165 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/analysis/src/beatfit/fit.rs` | 161 | reviewed | read; ok |
 | `crates/analysis/src/notes.rs` | 156 | reviewed | read; ok |
 | `crates/analysis/src/render.rs` | 155 | reviewed | I-050 |
 | `crates/ui/src/tracks/offset.rs` | 151 | reviewed | I-045 |
 | `crates/ui/src/grid/event.rs` | 150 | reviewed | read; ok |
 | `crates/notation/src/staff/value.rs` | 149 | reviewed | read (I-036) |
-| `crates/analysis/src/beatfit/tests.rs` | 132 | todo | |
+| `crates/analysis/src/beatfit/tests.rs` | 132 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/notation/src/staff/quant.rs` | 127 | reviewed | read; ok |
-| `crates/ui/examples/staff_demo.rs` | 123 | todo | |
+| `crates/ui/examples/staff_demo.rs` | 123 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/grid/drag.rs` | 122 | reviewed | read; ok |
 | `crates/ui/src/grid/draw.rs` | 113 | reviewed | read; ok |
 | `crates/ui/src/note_editor/input.rs` | 112 | reviewed | I-049, I-046 |
 | `crates/ui/src/note_editor/buttons.rs` | 112 | reviewed | I-049 |
 | `crates/ui/src/tracks/geometry.rs` | 110 | reviewed | ok |
 | `crates/app/src/paths.rs` | 109 | reviewed | read; ok |
-| `crates/analysis/examples/spectrogram_png.rs` | 109 | todo | |
+| `crates/analysis/examples/spectrogram_png.rs` | 109 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/analysis/src/beatfit/synth.rs` | 104 | reviewed | read (I-032) |
 | `crates/ui/src/overview/ruler.rs` | 103 | reviewed | I-038 |
-| `crates/ui/examples/tab_demo.rs` | 100 | todo | |
+| `crates/ui/examples/tab_demo.rs` | 100 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/tab_view/menu.rs` | 96 | reviewed | read; ok |
-| `crates/audio/src/testutil.rs` | 91 | todo | |
+| `crates/audio/src/testutil.rs` | 91 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/spectro/readout.rs` | 88 | reviewed | ok |
 | `crates/notation/src/tab/label.rs` | 86 | reviewed | read (I-036) |
 | `crates/app/src/luts.rs` | 85 | reviewed | I-022 |
@@ -129,15 +129,15 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/spectro/pointer.rs` | 73 | reviewed | ok |
 | `crates/notation/src/tab/mod.rs` | 72 | reviewed | read (I-036) |
 | `crates/notation/src/staff/spell.rs` | 71 | reviewed | read; ok |
-| `crates/analysis/examples/waveform_peaks.rs` | 71 | todo | |
-| `crates/app/examples/ui_preview.rs` | 67 | todo | |
-| `crates/app/examples/demo_project.rs` | 65 | todo | |
+| `crates/analysis/examples/waveform_peaks.rs` | 71 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/app/examples/ui_preview.rs` | 67 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/app/examples/demo_project.rs` | 65 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/tab_view/colors.rs` | 64 | reviewed | read; ok |
 | `crates/ui/src/spectro/waveform.rs` | 63 | reviewed | I-047 |
-| `crates/analysis/examples/sync_offset.rs` | 62 | todo | |
+| `crates/analysis/examples/sync_offset.rs` | 62 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/core/src/error.rs` | 59 | reviewed | I-033 |
 | `crates/ui/src/note_editor/mod.rs` | 56 | reviewed | read; ok |
-| `crates/app/tests/pipeline.rs` | 56 | todo | |
+| `crates/app/tests/pipeline.rs` | 56 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/ui/src/tracks/icons.rs` | 55 | reviewed | ok |
 | `crates/ui/src/nav/tuning.rs` | 53 | reviewed | read; ok (I-040 for tuning) |
 | `crates/ui/src/note_editor/overlay.rs` | 51 | reviewed | read; ok |
@@ -145,9 +145,9 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/audio/src/parallel.rs` | 50 | reviewed | I-014 |
 | `Cargo.toml` | 47 | reviewed | deps audited (I-001..I-003) |
 | `crates/audio/src/ramp.rs` | 46 | reviewed | read; ok |
-| `crates/analysis/examples/pitchref.rs` | 38 | todo | |
-| `crates/ui/src/note_editor/testkit.rs` | 36 | todo | |
-| `crates/analysis/examples/beatfit_bench.rs` | 35 | todo | |
+| `crates/analysis/examples/pitchref.rs` | 38 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/ui/src/note_editor/testkit.rs` | 36 | reviewed | scanned for duplicated helpers only (I-059) |
+| `crates/analysis/examples/beatfit_bench.rs` | 35 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/app/Cargo.toml` | 34 | reviewed | deps audited (I-001..I-003) |
 | `crates/ui/src/grid/style.rs` | 31 | reviewed | read; ok |
 | `crates/audio/src/stretch.rs` | 31 | reviewed | read; ok |
@@ -156,7 +156,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/audio/src/error.rs` | 27 | reviewed | read; ok |
 | `crates/app/src/main.rs` | 27 | reviewed | read; ok |
 | `crates/app/src/lib.rs` | 27 | reviewed | read; ok |
-| `crates/analysis/examples/make_luts.rs` | 26 | todo | |
+| `crates/analysis/examples/make_luts.rs` | 26 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/analysis/Cargo.toml` | 25 | reviewed | deps audited (I-001..I-003) |
 | `crates/ui/src/tracks/events.rs` | 23 | reviewed | ok |
 | `crates/ui/src/lib.rs` | 22 | reviewed | read; ok |
@@ -165,17 +165,17 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/audio/Cargo.toml` | 17 | reviewed | deps audited (I-001..I-003) |
 | `crates/core/Cargo.toml` | 15 | reviewed | deps audited (I-001..I-003) |
 | `crates/analysis/src/error.rs` | 11 | reviewed | read; ok |
-| `crates/ui/examples/legato_demo.rs` | 9 | todo | |
+| `crates/ui/examples/legato_demo.rs` | 9 | reviewed | scanned for duplicated helpers only (I-059) |
 | `crates/notation/Cargo.toml` | 8 | reviewed | deps audited (I-001..I-003) |
 | `crates/notation/src/lib.rs` | 4 | reviewed | read; ok |
 | `crates/ui/src/note_grid.rs` | 109 | reviewed | new on main; clean |
 | `crates/ui/src/tracks/region.rs` | 68 | reviewed | new on main; clean |
 
 ## Next
-Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
+First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`audio` where ALSA is available (I-004); (2) read the 35 test/example files line by line once the production findings land; (3) if main moves, `git fetch`, re-run the I-004 symbol check and the line-reference refresh before anything else.
 
 ## Findings
-**Summary (interim, 125 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 58 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (all 165 files covered: 130 production/test-support files read in full or part, 35 test/example files scanned for duplicated helpers only; compiler lints run on core/notation/analysis/ui; 59 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-046 (spectro layout 3x per frame), I-057 (waveform colouring implemented twice), I-004 (~19 dead pub functions), I-005/I-006/I-059 (duplicated WAV/sine/assert/project test helpers). Estimated ~1,300 lines removable; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -632,3 +632,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** one function owns six concerns, so the drag/marquee state machines can't be tested without egui; small avoidable allocations in the paint path.
 **Instructions:** split into `paint_staff`, `drive_drag`, `drive_marquee`, `drive_menu`, `drive_keys` (each taking `&mut TabViewState` + `&mut events`); make `chosen` a `fn(&[u8] or impl Iterator<Item=u8>, string) -> bool` (no collect); show the menu through `if let Some(model) = &state.menu` with the model's `Rc`/borrow instead of cloning; cache string labels in `TabStyle` or compute them once per tuning change.
 **Risk:** low; `tab_view` tests exercise `apply`/`menu_model`, not `show`, so check drag and menu by hand.
+
+### I-059 (low-med) · Test/example scaffolding duplicated across crates (~600 lines) · impact: low · saves ~600 lines · status: open
+**Where:** ~15 hand-written `fn project() -> Project` builders (`core/{edit,grace/tests,tracks,links,overlap,delta}.rs`, `ui/{note_editor/testkit,tracks/tests,tab_view/tests,grid/{mod,drag,event}}.rs`, `app/{paths,player_sync,store}.rs`, `ui/examples/tab_demo.rs`) all doing `Project::new(Track::new(1, ..), secs, bpm, COMMON)` + a few notes; `grey_lut` three times (`analysis/waveform.rs:293`, `spectrogram_tests.rs:257`, `tests/export_spectrogram_png.rs:117`); hand-rolled CLI `parse_args` three times (`audio/examples/play.rs`, `analysis/tests/export_{waveform,spectrogram}_png.rs`); a `LaneSource` stub implemented in `ui/src/tracks/tests.rs` and again in `ui/examples/tracks_demo.rs`; eight `ui/examples/*_demo.rs` (1,382 lines) each with its own `eframe::run_native`, window options, `install_fonts` and undo/redo `KeyboardShortcut`s; `app/src/loader.rs` tests define `write_wav`/`clicks` that `audio/src/testutil.rs` and `analysis` tests also need.
+**Problem:** test fixtures drift apart (different default bpm/tuning per builder) and every new fixture field must be added in 15 places; examples are mostly boilerplate.
+**Instructions:** (1) add a `test-support` cargo feature (or `fretscribe-testkit` dev crate) exposing `project(measures)`, `with_notes(..)`, `write_wav`, `clicks`, `grey_lut`, and use it from all crates' tests; (2) add `ui/examples/common/mod.rs` with `run(title, impl App)` + the shortcuts, or fold the eight demos into one `demo` example selecting the widget by argument; (3) use `pico-args`/`std::env::args` helper once for the three CLIs (or drop the PNG export tests that overlap `examples/spectrogram_png.rs`); (4) the `analysis/tests/export_*_png.rs` files duplicate `examples/{spectrogram_png,waveform_peaks}.rs`; keep one of each pair.
+**Risk:** low; behaviour-neutral; do it last so the earlier findings' tests keep compiling in between.
