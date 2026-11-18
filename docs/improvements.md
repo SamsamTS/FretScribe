@@ -62,7 +62,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/keymap.rs` | 303 | todo | |
 | `crates/app/src/jobs.rs` | 303 | partial | Job abstraction read; ok |
 | `crates/ui/src/overview/waveform.rs` | 296 | todo | |
-| `crates/app/src/home.rs` | 288 | todo | |
+| `crates/app/src/home.rs` | 288 | reviewed | read (I-034) |
 | `crates/ui/src/note_editor/grace_entry.rs` | 285 | todo | |
 | `crates/ui/src/tracks/lane.rs` | 284 | partial | show() read (I-016) |
 | `crates/ui/src/grid/popup.rs` | 282 | todo | |
@@ -77,7 +77,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/cqt.rs` | 236 | reviewed | read; ok |
 | `crates/ui/examples/tracks_demo.rs` | 235 | todo | |
 | `crates/analysis/src/spectrogram.rs` | 224 | reviewed | prod part read (I-004, I-031) |
-| `crates/app/src/autosave.rs` | 217 | todo | |
+| `crates/app/src/autosave.rs` | 217 | reviewed | lines 1-25 read; ok |
 | `crates/analysis/src/lut.rs` | 210 | reviewed | read; ok |
 | `crates/core/src/pitch.rs` | 206 | reviewed | read; ok |
 | `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
@@ -95,7 +95,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/examples/overview_demo.rs` | 173 | todo | |
 | `crates/analysis/tests/export_waveform_png.rs` | 173 | todo | |
 | `crates/ui/src/note_editor/exact.rs` | 170 | todo | |
-| `crates/app/src/player_sync.rs` | 167 | todo | |
+| `crates/app/src/player_sync.rs` | 167 | reviewed | prod part read; ok (I-020) |
 | `crates/ui/src/note_editor/clip.rs` | 166 | todo | |
 | `crates/ui/examples/nav_demo.rs` | 166 | todo | |
 | `crates/ui/src/tracks/tests.rs` | 165 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 33 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 34 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -456,3 +456,13 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Problem:** the 12 pitch-class names and the allowed A4 range are written twice; if core changes the range (or adds flats), the form silently disagrees.
 **Instructions:** in `core/src/pitch.rs` add `pub fn pitch_class_name(midi: u8) -> &'static str { NOTE_NAMES[usize::from(midi % 12)] }` (reuse it in `midi_to_name`) and `pub const A4_RANGE_HZ` (re-export from `lib.rs`); in `form.rs` call them, delete `NAMES`, and build the message with `format!("... {} to {} Hz", start, end)`; `parse_ranged` can take the `RangeInclusive`.
 **Risk:** none; `cargo test -p fretscribe form`.
+
+### I-034 (high) · Home screen parses every recent project file on every frame · impact: high on the start screen · perf: up to 12 full file reads + JSON parses (including saved undo history) + audio path checks per frame · status: open
+**Where:** `crates/app/src/app.rs:463-469` (`home_frame`), `:582-589` (`tile_status`); `crates/app/src/home.rs:219-220` (calls `status(&recent.path)` for each tile each frame); `crates/core/src/persist.rs:245` (`load_project` = `read_to_string` + `from_json`).
+**Problem:** `show_home` is called from `home_frame` on every repaint (any mouse move over the window repaints), and for each recent entry `tile_status` loads and deserialises the whole project file just to learn whether it exists and whether its audio resolves (`paths::resolve_audio` also stats the files). With `keep_history_in_file` on, files embed the undo stack, so this can be megabytes per tile.
+**Instructions:**
+1. Add `home_status: HashMap<PathBuf, TileStatus>` and `home_checked: Option<Instant>` to `App`; in `home_frame` rebuild it when it is empty, when `settings.recent` changed (compare the list of paths) or when more than ~3 s passed since `home_checked`, never inside the paint closure.
+2. Pass `&self.home_status` to `show_home` (`status: &HashMap<..>` with `TileStatus::Ok` as the default) instead of a closure, so `home.rs` stays pure drawing.
+3. Optionally make the check cheap: `Path::exists()` for the project file first (`MissingProject`), and only then load/parse; or store `audio_paths` in `RecentProject` at save time so no parse is needed at all.
+4. In `show_home` also drop the per-frame `recents.sort_by_key` by keeping `settings.recent` sorted in `push_recent` (it already inserts at index 0).
+**Risk:** low; behaviour change is only staleness of the warning badge for up to 3 s. `cargo test -p fretscribe` (home tests use `TileStatus` directly).
