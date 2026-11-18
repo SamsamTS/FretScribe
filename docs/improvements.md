@@ -71,7 +71,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tab_view/draw.rs` | 277 | todo | |
 | `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
 | `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
-| `crates/analysis/src/beatfit/mod.rs` | 263 | todo | |
+| `crates/analysis/src/beatfit/mod.rs` | 263 | reviewed | prod part read; ok |
 | `crates/ui/src/nav/input.rs` | 261 | todo | |
 | `crates/ui/src/tab_view/edit.rs` | 241 | todo | |
 | `crates/analysis/src/cqt.rs` | 236 | reviewed | read; ok |
@@ -99,7 +99,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/clip.rs` | 166 | todo | |
 | `crates/ui/examples/nav_demo.rs` | 166 | todo | |
 | `crates/ui/src/tracks/tests.rs` | 165 | todo | |
-| `crates/analysis/src/beatfit/fit.rs` | 161 | todo | |
+| `crates/analysis/src/beatfit/fit.rs` | 161 | reviewed | read; ok |
 | `crates/analysis/src/notes.rs` | 156 | todo | |
 | `crates/analysis/src/render.rs` | 155 | todo | |
 | `crates/ui/src/tracks/offset.rs` | 151 | todo | |
@@ -115,7 +115,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tracks/geometry.rs` | 110 | todo | |
 | `crates/app/src/paths.rs` | 109 | todo | |
 | `crates/analysis/examples/spectrogram_png.rs` | 109 | todo | |
-| `crates/analysis/src/beatfit/synth.rs` | 104 | todo | |
+| `crates/analysis/src/beatfit/synth.rs` | 104 | reviewed | read (I-032) |
 | `crates/ui/src/overview/ruler.rs` | 103 | todo | |
 | `crates/ui/examples/tab_demo.rs` | 100 | todo | |
 | `crates/ui/src/tab_view/menu.rs` | 96 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 31 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 32 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -444,3 +444,9 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 1. Delete `WindowKind`, the `window` field, its default and the re-export.
 2. Change `Spectrogram` to `{ pub info: SpectrogramInfo, pub data: Vec<f32> }` and read `s.info.n_rows` etc. (accessor-free, mechanical rename; `Deref<Target = SpectrogramInfo>` on `Spectrogram` keeps `s.n_rows` working and makes it a 0-call-site change). `empty` becomes `Self { data: vec![0.0; i.n_rows * i.n_frames], info: i.clone() }`.
 **Risk:** low; compile-driven. Step 2 with `Deref` is the minimal variant.
+
+### I-032 · Test fixtures compiled into the release `analysis` crate · impact: low · saves nothing in source, ~104 lines of binary-irrelevant code · status: open
+**Where:** `crates/analysis/src/beatfit/mod.rs:17-18` (`#[doc(hidden)] pub mod synth;`), `beatfit/synth.rs` (104 lines: `Lcg`, `drifting_beats`, `render_hits`, `drum_hits`, `noisy_guitar_envelope`, `rough_grid`, `grid_beats`, `mean_beat_error`). Consumers: `analysis/examples/beatfit_bench.rs:7`, `analysis/src/beatfit/tests.rs`, and one `#[cfg(test)]` use in `app/src/jobs.rs:275` (`rough_grid`).
+**Problem:** no production code uses it; it is `pub` only so an example and the app's tests can reach it. `rough_grid` is a one-line wrapper over `generate_measures`.
+**Instructions:** either (a) gate it behind a cargo feature (`[features] test-support = []`, `#[cfg(any(test, feature = "test-support"))] pub mod synth;`, and enable it in `app`'s `[dev-dependencies]` and for the example with `required-features`), or (b) keep as is but delete `rough_grid` and call `generate_measures(0.0, len, bpm, TimeSignature::COMMON, &mut 1)` at the 2-3 call sites. Take (a) only if more crates start sharing fixtures (see I-006: one shared test-support module per crate would also host the `close` helpers).
+**Risk:** none for (b); (a) touches `Cargo.toml` of two crates.
