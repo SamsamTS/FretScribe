@@ -47,7 +47,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/pitchref.rs` | 394 | reviewed | prod part read (I-030) |
 | `crates/audio/src/resample.rs` | 391 | reviewed | prod part read (I-029) |
 | `crates/ui/src/nav/mod.rs` | 388 | todo | |
-| `crates/notation/src/staff/mod.rs` | 382 | todo | |
+| `crates/notation/src/staff/mod.rs` | 382 | reviewed | read (I-035, I-025) |
 | `crates/analysis/src/spectrogram_tests.rs` | 378 | todo | |
 | `crates/core/src/grace.rs` | 375 | reviewed | prod part read (I-020) |
 | `crates/ui/src/tab_view/tests.rs` | 372 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 34 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 35 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -466,3 +466,9 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 3. Optionally make the check cheap: `Path::exists()` for the project file first (`MissingProject`), and only then load/parse; or store `audio_paths` in `RecentProject` at save time so no parse is needed at all.
 4. In `show_home` also drop the per-frame `recents.sort_by_key` by keeping `settings.recent` sorted in `push_recent` (it already inserts at index 0).
 **Risk:** low; behaviour change is only staleness of the warning badge for up to 3 s. `cargo test -p fretscribe` (home tests use `TileStatus` directly).
+
+### I-035 · `staff::layout` scans every note for every time cut (O(cuts x notes)) on each refresh · impact: low-med · perf: ~5 M comparisons per refresh for a 1500-note song · status: open
+**Where:** `crates/notation/src/staff/mod.rs:183-186` (`let active: Vec<_> = q.notes.iter().filter(|n| n.s <= a && n.e >= b).collect();` inside `for pair in cuts.windows(2)`); caller `crates/app/src/session.rs:350` (every edit); also `:368` `links` (see I-025).
+**Problem:** `cuts` holds every note start/end plus bar lines (about 2 per note), and each window re-filters all notes, so the cost grows quadratically with song length, on the UI thread after each edit.
+**Instructions:** sort `q.notes` by `s` once (`quantise` can return them sorted), keep a running `Vec<&QNote>` of notes whose `s <= a`, drop those with `e < b` as the window advances (`active.retain(|n| n.e >= b)` after pushing newly started ones with an index pointer). Keep output order identical (by `q.notes` order: sort by `(s, original index)` and re-sort `active` by original index, or keep `active` as a `BTreeMap<usize, &QNote>` keyed by original index).
+**Risk:** low; `cargo test -p fretscribe-notation staff` has dense layout tests; compare `StaffLayout` equality on the existing fixtures.
