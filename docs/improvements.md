@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -256,7 +256,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. Merge the two `1e-9` constants (see I-011).
 **Risk:** none; `cargo test -p fretscribe-core`.
 
-### I-010 · O(n²) re-tying and full-`Project` clone on every note edit and drag frame · impact: high · perf: edit and drag cost grows with notes² · status: open
+### I-010 · O(n²) re-tying and full-`Project` clone on every note edit and drag frame · impact: high · perf: edit and drag cost grows with notes² · status: done (steps 1-3: one-pass `tie_links` with id index; preview clones notes+grid only via `Project::notes_scratch`. Step 4 and the other per-interaction clones left open: `notes` is only guaranteed id-sorted after load, and those clones are one O(n) copy per interaction. Test: 20k linked notes, old code 3.3 s, new < 1 s)
 **Where:** `crates/core/src/links.rs:310-350` `tie_links`; `crates/core/src/overlap.rs:24` (`resolve_overlaps` calls it on every edit); `crates/ui/src/note_editor/modify.rs:149-157` `preview_changes` (called per pointer move at `editor.rs:322`); `crates/core/src/model.rs:308` `Project::note` (linear scan); other per-interaction `project.clone()`: `ui/src/note_editor/modify.rs:69`, `draw.rs:248,268`, `grace_entry.rs:70,130`, `tab_view/edit.rs:231`, `core/src/links.rs:421` `valid_links`.
 **Problem:** `tie_links` builds its link list with `self.outgoing(n.id)` for every note; each call does `note(id)` (O(n)) plus a scan for a legato target (O(n)), so one call is O(n²) even when `touched` has a single note. It is reached from every `resolve_overlaps` (transpose, resize, move, paste) and from `preview_changes`, which also clones the whole `Project` on each pointer move while dragging. With ~3000 notes that is ~18M note comparisons plus a deep clone per drag frame.
 **Instructions:**

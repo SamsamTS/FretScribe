@@ -5,7 +5,7 @@
 //! keeps it so after edits); on-the-beat grace notes keep their own length. A grace note that has no
 //! other link is joined to the note it leads into by the implicit `Dashed` link.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use thiserror::Error;
 
@@ -317,20 +317,27 @@ impl Project {
     pub fn tie_links(&mut self, touched: &[u64]) -> Vec<u64> {
         let tempo = TempoMap::new(&self.measures);
         let at = |p| tempo.pos_to_beats(p).unwrap_or(0.0);
+        let touched: HashSet<u64> = touched.iter().copied().collect();
+        let index: HashMap<u64, usize> = self.notes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        let mut legato_target: HashMap<u64, u64> = HashMap::new();
+        for n in &self.notes {
+            if let Some(l) = n.legato {
+                legato_target.entry(l.from).or_insert(n.id);
+            }
+        }
         let links: Vec<(u64, u64)> = self
             .notes
             .iter()
-            .filter_map(|n| self.outgoing(n.id).map(|(to, _)| (n.id, to)))
+            .filter_map(|n| n.link_to.or_else(|| legato_target.get(&n.id).copied()).map(|to| (n.id, to)))
+            .filter(|(from, to)| touched.contains(from) || touched.contains(to))
             .collect();
         let mut moved = Vec::new();
         for (from, to) in links {
-            let (Some(a), Some(b)) = (self.note(from).cloned(), self.note(to).cloned()) else {
+            let (Some(&fi), Some(&ti)) = (index.get(&from), index.get(&to)) else {
                 continue;
             };
-            if !ties_end(&a)
-                || !(touched.contains(&from) || touched.contains(&to))
-                || (at(a.end) - at(b.start)).abs() < SAME_SEC
-            {
+            let (a, b) = (self.notes[fi].clone(), self.notes[ti].clone());
+            if !ties_end(&a) || (at(a.end) - at(b.start)).abs() < SAME_SEC {
                 continue;
             }
             let end_follows = touched.contains(&to);
@@ -343,13 +350,11 @@ impl Project {
                 self.unlink(from);
                 continue;
             }
-            let id = if end_follows { from } else { to };
-            if let Some(n) = self.notes.iter_mut().find(|n| n.id == id) {
-                if end_follows {
-                    n.end = b.start;
-                } else {
-                    n.start = a.end;
-                }
+            let (id, i) = if end_follows { (from, fi) } else { (to, ti) };
+            if end_follows {
+                self.notes[i].end = b.start;
+            } else {
+                self.notes[i].start = a.end;
             }
             moved.push(id);
         }

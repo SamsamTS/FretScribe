@@ -147,7 +147,7 @@ pub fn is_noop(project: &Project, changes: &[NoteChange]) -> bool {
 /// The changes plus what they do to the same-pitch notes they land on (see
 /// `Project::resolve_overlaps`), for the preview. Removed notes are not listed.
 pub fn preview_changes(project: &Project, changes: &[NoteChange]) -> Vec<NoteChange> {
-    let mut after = project.clone();
+    let mut after = project.notes_scratch();
     let own: Vec<u64> = changes.iter().map(|c| c.id).collect();
     let mut ids = own.clone();
     ids.extend(set_times(&mut after, changes));

@@ -203,4 +203,21 @@ mod tests {
         assert_eq!(p.outgoing(a), None);
         assert!(p.note(b).is_some());
     }
+
+    #[test]
+    fn resolving_one_note_of_a_huge_linked_project_stays_linear() {
+        let mut p = project();
+        let n = 20_000;
+        for i in 0..n {
+            let id = add(&mut p, 30 + (i % 60) as u8, i as f64, i as f64 + 0.5);
+            if i + 1 < n {
+                let note = p.notes.last_mut().unwrap();
+                (note.link_to, note.technique) = (Some(id + 1), Some(Technique::Slide));
+            }
+        }
+        let start = std::time::Instant::now();
+        p.resolve_overlaps(&[1]);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1), "{:?}", start.elapsed());
+        assert_eq!(p.note(2).unwrap().start, p.note(1).unwrap().end);
+    }
 }
