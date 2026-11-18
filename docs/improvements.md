@@ -104,9 +104,9 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/render.rs` | 155 | todo | |
 | `crates/ui/src/tracks/offset.rs` | 151 | todo | |
 | `crates/ui/src/grid/event.rs` | 150 | todo | |
-| `crates/notation/src/staff/value.rs` | 149 | todo | |
+| `crates/notation/src/staff/value.rs` | 149 | reviewed | read (I-036) |
 | `crates/analysis/src/beatfit/tests.rs` | 132 | todo | |
-| `crates/notation/src/staff/quant.rs` | 127 | todo | |
+| `crates/notation/src/staff/quant.rs` | 127 | reviewed | read; ok |
 | `crates/ui/examples/staff_demo.rs` | 123 | todo | |
 | `crates/ui/src/grid/drag.rs` | 122 | todo | |
 | `crates/ui/src/grid/draw.rs` | 113 | todo | |
@@ -121,14 +121,14 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tab_view/menu.rs` | 96 | todo | |
 | `crates/audio/src/testutil.rs` | 91 | todo | |
 | `crates/ui/src/spectro/readout.rs` | 88 | todo | |
-| `crates/notation/src/tab/label.rs` | 86 | todo | |
+| `crates/notation/src/tab/label.rs` | 86 | reviewed | read (I-036) |
 | `crates/app/src/luts.rs` | 85 | reviewed | I-022 |
 | `crates/audio/src/metadata.rs` | 80 | todo | |
 | `crates/ui/src/staff_view/links.rs` | 74 | todo | |
 | `crates/ui/src/spectro/ruler.rs` | 73 | todo | |
 | `crates/ui/src/spectro/pointer.rs` | 73 | todo | |
-| `crates/notation/src/tab/mod.rs` | 72 | todo | |
-| `crates/notation/src/staff/spell.rs` | 71 | todo | |
+| `crates/notation/src/tab/mod.rs` | 72 | reviewed | read (I-036) |
+| `crates/notation/src/staff/spell.rs` | 71 | reviewed | read; ok |
 | `crates/analysis/examples/waveform_peaks.rs` | 71 | todo | |
 | `crates/app/examples/ui_preview.rs` | 67 | todo | |
 | `crates/app/examples/demo_project.rs` | 65 | todo | |
@@ -167,7 +167,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/error.rs` | 11 | todo | |
 | `crates/ui/examples/legato_demo.rs` | 9 | todo | |
 | `crates/notation/Cargo.toml` | 8 | reviewed | deps audited (I-001..I-003) |
-| `crates/notation/src/lib.rs` | 4 | todo | |
+| `crates/notation/src/lib.rs` | 4 | reviewed | read; ok |
 | `crates/ui/src/note_grid.rs` | 109 | reviewed | new on main; clean |
 | `crates/ui/src/tracks/region.rs` | 68 | reviewed | new on main; clean |
 
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 35 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 36 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -472,3 +472,9 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Problem:** `cuts` holds every note start/end plus bar lines (about 2 per note), and each window re-filters all notes, so the cost grows quadratically with song length, on the UI thread after each edit.
 **Instructions:** sort `q.notes` by `s` once (`quantise` can return them sorted), keep a running `Vec<&QNote>` of notes whose `s <= a`, drop those with `e < b` as the window advances (`active.retain(|n| n.e >= b)` after pushing newly started ones with an index pointer). Keep output order identical (by `q.notes` order: sort by `(s, original index)` and re-sort `active` by original index, or keep `active` as a `BTreeMap<usize, &QNote>` keyed by original index).
 **Risk:** low; `cargo test -p fretscribe-notation staff` has dense layout tests; compare `StaffLayout` equality on the existing fixtures.
+
+### I-036 · `notation` leftovers: pass-through label wrappers, magic `192`, re-derived note names · impact: low · saves ~12 lines · status: open
+**Where:** `crates/notation/src/tab/label.rs:13-19,46-56`; `crates/notation/src/staff/value.rs:30` (`192 >> self as u32`); `crates/notation/src/tab/mod.rs:13` (`MAX_FRET`, see I-015).
+**Problem:** (a) `string_label` and `candidate_label` only call their `_styled` twin with `LabelStyle::Convention` (the `_styled` pair is the real API; callers: `ui/src/tab_view/menu.rs:44`, `note_editor/draw.rs:350`, `grace_entry.rs:142`, `spectro/readout.rs`); (b) `pitch_class` strips the octave off `midi_to_name`'s string and `octave` recomputes it, i.e. two ways to split one name (a `core::pitch_class_name` from I-033 plus `midi/12 - 1` replaces both); (c) `192` is `4 * TICKS_PER_BEAT` written as a literal, so it breaks silently if the tick resolution changes.
+**Instructions:** (a) give `LabelStyle` a `Default` use: make the single functions `string_label(tuning, string, style)` and `candidate_label(tuning, string, fret, style)` and pass `LabelStyle::default()` at the 5 call sites (or keep only the short names and make `style` an `Option`); (b) after I-033, `convention` uses `pitch_class_name(strings[i])` and `strings[i] / 12 - 1`; (c) `const WHOLE_TICKS: i64 = 4 * TICKS_PER_BEAT;` and `WHOLE_TICKS >> self as u32`.
+**Risk:** none; compile-driven plus `cargo test -p fretscribe-notation`.
