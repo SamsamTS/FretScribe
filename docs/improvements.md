@@ -67,7 +67,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tracks/lane.rs` | 284 | partial | show() read (I-016) |
 | `crates/ui/src/grid/popup.rs` | 282 | todo | |
 | `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
-| `crates/ui/src/tracks/header.rs` | 280 | todo | |
+| `crates/ui/src/tracks/header.rs` | 280 | reviewed | read (I-042) |
 | `crates/ui/src/tab_view/draw.rs` | 277 | todo | |
 | `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
 | `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `staff_view/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 72 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 41 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 72 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 42 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -521,3 +521,14 @@ Not yet read: ui `nav/`, `staff_view/`, `tracks/{lanes,header,offset,geometry,ic
 1. Make `TrackLanes` hold `pub shared: LaneShared<'a>` minus the four fields `show` fills itself (`view`, `pitch`, `audible`: pass them to `show`, or give `LaneShared` a `with_view(view, pitch, &audible)` constructor), so the 13-field literal at `:141-158` disappears.
 2. Move the add-track button into `fn add_track_button(area: &mut Ui, lanes: Rect, plus: Rect) -> bool`.
 **Risk:** low; compile-driven; `cargo test -p fretscribe-ui tracks`.
+
+### I-042 · `tracks/header.rs`: 175-line `show`, stringly-typed tool lookup, repeated event pushes · impact: low · saves ~30 lines · status: open
+**Where:** `crates/ui/src/tracks/header.rs:88-263` (`TrackHeader::show`, already in I-017), `:281` (`b.label == "String"`), `:291-299` (per-frame `Vec<String>` and `format!` ids), `:162-168,205-213` (button + event pairs), `:83` (unit struct `TrackHeader` with one associated fn).
+**Problem:** (a) row 0, row 1 and row 2 are inline blocks with hard-coded x offsets (`0, 16, 30, 48, cw - 54..`); (b) the string-lock button is found by comparing the human label `"String"`; renaming the label silently breaks the lock gesture; (c) "button then `if clicked { events.push(..) }`" is spelled about 12 times; (d) `items` and the popup id are rebuilt every frame; (e) `TrackHeader` has no state.
+**Instructions:**
+1. Split `show` into `row_title`, `row_mixer`, `row_offset` (each takes `content`, `track`, `&mut events`; about 45 lines each) and keep `show` as the frame + the three calls + `tool_grid`.
+2. Add `fn click(r: Response, tip: &str, events: &mut Vec<TrackEvent>, ev: impl FnOnce() -> TrackEvent)` (`if r.on_hover_text(tip).clicked() { events.push(ev()) }`) and use it for star, chevron, mute, solo, auto-sync, reset.
+3. Match the lock button by `b.action == NoteAction::ToggleStringLock` (or whatever variant it carries) instead of the label.
+4. Build `items` once (`const STRING_ITEMS: [&str; 9]` and slice `..tools.strings.min(9)`), which also lets `menu_rows` take `&[&str]`; replace the format-built id with `("tool-string", id)`.
+5. Turn `TrackHeader::show` into a free `pub fn show_header(..)` (re-export name unchanged for callers).
+**Risk:** low; `cargo test -p fretscribe-ui tracks` (header tests cover `volume_text`, `opacity_for`; layout is visual, so check once in `tracks_demo`).
