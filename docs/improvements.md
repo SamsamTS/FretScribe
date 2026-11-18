@@ -73,7 +73,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
 | `crates/analysis/src/beatfit/mod.rs` | 263 | reviewed | prod part read; ok |
 | `crates/ui/src/nav/input.rs` | 261 | todo | |
-| `crates/ui/src/tab_view/edit.rs` | 241 | todo | |
+| `crates/ui/src/tab_view/edit.rs` | 241 | reviewed | lines 190-241 read; ok (`auto_string` clones Project once per right-click, fine) |
 | `crates/analysis/src/cqt.rs` | 236 | reviewed | read; ok |
 | `crates/ui/examples/tracks_demo.rs` | 235 | todo | |
 | `crates/analysis/src/spectrogram.rs` | 224 | reviewed | prod part read (I-004, I-031) |
@@ -118,7 +118,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/beatfit/synth.rs` | 104 | reviewed | read (I-032) |
 | `crates/ui/src/overview/ruler.rs` | 103 | todo | |
 | `crates/ui/examples/tab_demo.rs` | 100 | todo | |
-| `crates/ui/src/tab_view/menu.rs` | 96 | todo | |
+| `crates/ui/src/tab_view/menu.rs` | 96 | reviewed | read; ok |
 | `crates/audio/src/testutil.rs` | 91 | todo | |
 | `crates/ui/src/spectro/readout.rs` | 88 | todo | |
 | `crates/notation/src/tab/label.rs` | 86 | reviewed | read (I-036) |
@@ -132,7 +132,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/examples/waveform_peaks.rs` | 71 | todo | |
 | `crates/app/examples/ui_preview.rs` | 67 | todo | |
 | `crates/app/examples/demo_project.rs` | 65 | todo | |
-| `crates/ui/src/tab_view/colors.rs` | 64 | todo | |
+| `crates/ui/src/tab_view/colors.rs` | 64 | reviewed | read; ok |
 | `crates/ui/src/spectro/waveform.rs` | 63 | todo | |
 | `crates/analysis/examples/sync_offset.rs` | 62 | todo | |
 | `crates/core/src/error.rs` | 59 | todo | |
