@@ -23,7 +23,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/staff_view/mod.rs` | 552 | todo | |
 | `crates/core/src/undo.rs` | 552 | reviewed | prod part read; ok |
 | `crates/audio/src/focus.rs` | 516 | partial | top 140 lines + offline fn read (I-015) |
-| `crates/core/src/tempo.rs` | 512 | todo | |
+| `crates/core/src/tempo.rs` | 512 | reviewed | prod part read (I-026) |
 | `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
 | `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
 | `crates/ui/src/grid/mod.rs` | 503 | todo | |
@@ -34,14 +34,14 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/audio/examples/play.rs` | 464 | todo | |
 | `crates/core/src/grace/tests.rs` | 444 | todo | |
 | `crates/app/src/form.rs` | 428 | todo | |
-| `crates/core/src/measures.rs` | 419 | todo | |
+| `crates/core/src/measures.rs` | 419 | reviewed | prod part read (I-026) |
 | `crates/ui/src/overview/mod.rs` | 415 | todo | |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
 | `crates/app/src/toolbar.rs` | 409 | partial | lines 1-360 read (I-022) |
 | `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
 | `crates/ui/src/nav/maths.rs` | 404 | todo | |
 | `crates/core/src/tracks.rs` | 401 | todo | |
-| `crates/core/src/snap.rs` | 400 | todo | |
+| `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
 | `crates/ui/src/spectro/glyphs.rs` | 395 | partial | layout() read (I-024) |
 | `crates/analysis/src/pitchref.rs` | 394 | todo | |
@@ -391,3 +391,12 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 3. If lookups remain hot after I-010, add the id index discussed there; do not add it first.
 **Risk:** none; `cargo test -p fretscribe-ui -p fretscribe-notation`.
 
+### I-026 · Small `core` simplifications: tempo prefix sums, scoped setters, snap aliases · impact: low-med · saves ~30 lines · status: open
+**Where:** `crates/core/src/tempo.rs:146,153` (`pos_to_beats`, `pos_to_ticks`); `crates/core/src/measures.rs:115-158` (`set_tempo_scoped`, `set_time_sig_scoped`); `crates/core/src/snap.rs:16,31,142-165`.
+**Problem:** (a) `pos_to_beats`/`pos_to_ticks` re-sum `self.beats[..i]`/`self.ticks[..i]` on every call (O(measures)); they are called per note in loops (`ui/note_editor/action.rs:173,187,214`, `clip.rs:29`, `modify.rs:18,163,177`, `notation/staff/quant.rs:53`), so a drag over a long song is O(notes x measures). (b) The two `_scoped` setters are the same function with a different field (range computation, filter, assign, `recompute_starts`). (c) `division_name` (`snap.rs:31`) only forwards to private `division_label`; `UNITS_PER_BEAT` (`:16`) is `TICKS_PER_BEAT` re-cast to `u32`. (d) `snap_to_pos` scans every multiple of every division (`0..=limit/step`) when the nearest one is `round(at/step)*step`.
+**Instructions:**
+1. In `TempoMap::new` also build `beat_starts: Vec<f64>` and `tick_starts: Vec<i64>` (running sums, same length as `measures`); `pos_to_beats`/`pos_to_ticks` become `self.beat_starts[i] + normal.beat()` / `self.tick_starts[i] + normal.tick` (O(1)).
+2. Factor one `fn set_scoped(measures, index, propagation, change: impl Fn(&mut Measure) -> bool) -> Result<Range<usize>, EditError>` (does `check_index`, range, apply-if-changed with `anchored = false`, `recompute_starts`); each setter validates then calls it (about 15 lines saved).
+3. Rename `division_label` to `division_name` (drop the wrapper); use `TICKS_PER_BEAT as u32` locally in `snap_note.rs` or make `UNITS_PER_BEAT` the single constant and delete the cast in `model.rs` users.
+4. Optional: in `snap_to_pos` replace the `(0..=limit/step).for_each` loop by `consider(((at / step as f64).round() as i64).clamp(0, limit / step) * step)`; keep `consider(0)`/`consider(len)`.
+**Risk:** low; existing `tempo.rs`/`snap.rs`/`measures.rs` tests cover 1-4 (`cargo test -p fretscribe-core`). Item 4 changes tie-breaking only if two candidates are equidistant: keep the test `snap_to_grid` ties.
