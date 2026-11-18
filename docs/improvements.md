@@ -120,20 +120,20 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/examples/tab_demo.rs` | 100 | todo | |
 | `crates/ui/src/tab_view/menu.rs` | 96 | reviewed | read; ok |
 | `crates/audio/src/testutil.rs` | 91 | todo | |
-| `crates/ui/src/spectro/readout.rs` | 88 | todo | |
+| `crates/ui/src/spectro/readout.rs` | 88 | reviewed | ok |
 | `crates/notation/src/tab/label.rs` | 86 | reviewed | read (I-036) |
 | `crates/app/src/luts.rs` | 85 | reviewed | I-022 |
 | `crates/audio/src/metadata.rs` | 80 | todo | |
 | `crates/ui/src/staff_view/links.rs` | 74 | reviewed | I-044 |
-| `crates/ui/src/spectro/ruler.rs` | 73 | todo | |
-| `crates/ui/src/spectro/pointer.rs` | 73 | todo | |
+| `crates/ui/src/spectro/ruler.rs` | 73 | reviewed | I-038 (`ruler_step`/`format_time`) + I-047 |
+| `crates/ui/src/spectro/pointer.rs` | 73 | reviewed | ok |
 | `crates/notation/src/tab/mod.rs` | 72 | reviewed | read (I-036) |
 | `crates/notation/src/staff/spell.rs` | 71 | reviewed | read; ok |
 | `crates/analysis/examples/waveform_peaks.rs` | 71 | todo | |
 | `crates/app/examples/ui_preview.rs` | 67 | todo | |
 | `crates/app/examples/demo_project.rs` | 65 | todo | |
 | `crates/ui/src/tab_view/colors.rs` | 64 | reviewed | read; ok |
-| `crates/ui/src/spectro/waveform.rs` | 63 | todo | |
+| `crates/ui/src/spectro/waveform.rs` | 63 | reviewed | I-047 |
 | `crates/analysis/examples/sync_offset.rs` | 62 | todo | |
 | `crates/core/src/error.rs` | 59 | todo | |
 | `crates/ui/src/note_editor/mod.rs` | 56 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 82 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 46 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 86 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 47 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -561,3 +561,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** every frame the full note list is turned into glyph items and laid out two to three times (and once per lane with `show_notes_on_all`), with O(n²) lookups, no culling to the visible time/pitch window.
 **Instructions:** (1) build `items` once per frame in `show` (or cache by project revision + times) with `HashSet`/`HashMap` indexes (`legato_sources`, `tie_of`) and keep only notes intersecting the view; (2) compute `layout` once into a `Scene` and pass it to `draw_notes`, hover `hit` and the pointer closure (`Scene::hit` already exists); (3) carry `grace` in the `Glyph::Note` data instead of searching `items`. Pairs with I-037/I-043.
 **Risk:** med; hit-test must still see off-screen link endpoints, so cull with a margin or keep linked partners.
+
+### I-047 (low) · Playhead colour `(255, 90, 80)` hard-coded in 5 places · impact: low · saves ~5 lines · status: open
+**Where:** `ui/src/staff_view/mod.rs:65`, `tab_view/mod.rs:55`, `spectro/mod.rs:39` (`PLAYHEAD`), `spectro/ruler.rs:30` (`paint_seek_line`), `spectro/waveform.rs:60`; related region colours (`REGION_EDGE` = `OPEN_STRING` = (255, 200, 90) in `spectro/mod.rs`).
+**Problem:** one theme colour copied as literals, so a retheme misses spots.
+**Instructions:** add `theme::PLAYHEAD` (and `theme::ACCENT_AMBER`) and use it in all five places; `WaveformView::playhead` and `SpectrogramView::playhead` are then the only painters of the line.
+**Risk:** none.
