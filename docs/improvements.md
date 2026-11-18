@@ -28,14 +28,14 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
 | `crates/ui/src/grid/mod.rs` | 503 | reviewed | prod part read (I-038) |
 | `crates/notation/src/tab/solve.rs` | 492 | partial | run() and entry points read (I-023) |
-| `crates/ui/src/overview/logic.rs` | 485 | todo | |
+| `crates/ui/src/overview/logic.rs` | 485 | reviewed | read; ok |
 | `crates/ui/src/kit.rs` | 479 | reviewed | prod part read (I-039) |
-| `crates/ui/src/overview/headless.rs` | 476 | todo | |
+| `crates/ui/src/overview/headless.rs` | 476 | reviewed | read; ok |
 | `crates/audio/examples/play.rs` | 464 | todo | |
 | `crates/core/src/grace/tests.rs` | 444 | todo | |
 | `crates/app/src/form.rs` | 428 | reviewed | prod part read (I-033) |
 | `crates/core/src/measures.rs` | 419 | reviewed | prod part read (I-026) |
-| `crates/ui/src/overview/mod.rs` | 415 | todo | |
+| `crates/ui/src/overview/mod.rs` | 415 | reviewed | read; ok |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
 | `crates/app/src/toolbar.rs` | 409 | partial | lines 1-360 read (I-022) |
 | `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
@@ -43,7 +43,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/tracks.rs` | 401 | reviewed | read (I-004) |
 | `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
-| `crates/ui/src/spectro/glyphs.rs` | 395 | partial | layout() read (I-024) |
+| `crates/ui/src/spectro/glyphs.rs` | 395 | reviewed | I-024, I-046 |
 | `crates/analysis/src/pitchref.rs` | 394 | reviewed | prod part read (I-030) |
 | `crates/audio/src/resample.rs` | 391 | reviewed | prod part read (I-029) |
 | `crates/ui/src/nav/mod.rs` | 388 | reviewed | read (I-040, I-004) |
@@ -51,7 +51,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/spectrogram_tests.rs` | 378 | todo | |
 | `crates/core/src/grace.rs` | 375 | reviewed | prod part read (I-020) |
 | `crates/ui/src/tab_view/tests.rs` | 372 | todo | |
-| `crates/core/src/model.rs` | 365 | partial | note lookup read (I-025) |
+| `crates/core/src/model.rs` | 365 | reviewed | I-025, I-027 |
 | `crates/ui/src/spectro/glyphs/tests.rs` | 355 | todo | |
 | `crates/ui/src/view.rs` | 352 | reviewed | read (I-040, I-004) |
 | `crates/audio/src/focus_tests.rs` | 347 | todo | |
@@ -59,13 +59,13 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/spectro/mod.rs` | 319 | reviewed | show/cache read (I-024) |
 | `crates/notation/src/staff/tests.rs` | 311 | todo | |
 | `crates/notation/src/tab/tests.rs` | 306 | todo | |
-| `crates/ui/src/note_editor/keymap.rs` | 303 | todo | |
+| `crates/ui/src/note_editor/keymap.rs` | 303 | reviewed | I-048 |
 | `crates/app/src/jobs.rs` | 303 | partial | Job abstraction read; ok |
 | `crates/ui/src/overview/waveform.rs` | 296 | todo | |
 | `crates/app/src/home.rs` | 288 | reviewed | read (I-034) |
-| `crates/ui/src/note_editor/grace_entry.rs` | 285 | todo | |
-| `crates/ui/src/tracks/lane.rs` | 284 | partial | show() read (I-016) |
-| `crates/ui/src/grid/popup.rs` | 282 | todo | |
+| `crates/ui/src/note_editor/grace_entry.rs` | 285 | reviewed | I-048 |
+| `crates/ui/src/tracks/lane.rs` | 284 | reviewed | I-016, I-045 |
+| `crates/ui/src/grid/popup.rs` | 282 | reviewed | read; ok |
 | `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
 | `crates/ui/src/tracks/header.rs` | 280 | reviewed | read (I-042) |
 | `crates/ui/src/tab_view/draw.rs` | 277 | reviewed | read (I-043, I-025) |
@@ -87,9 +87,9 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/theme.rs` | 196 | todo | |
 | `crates/ui/src/tracks/lanes.rs` | 195 | reviewed | read (I-041) |
 | `crates/app/src/store.rs` | 193 | partial | snap_candidates read (I-016) |
-| `crates/ui/src/note_editor/select.rs` | 192 | todo | |
-| `crates/ui/src/spectro/notes.rs` | 183 | partial | draw/hit read (I-024) |
-| `crates/ui/src/grid/headless.rs` | 178 | todo | |
+| `crates/ui/src/note_editor/select.rs` | 192 | reviewed | I-048 |
+| `crates/ui/src/spectro/notes.rs` | 183 | reviewed | I-024, I-046 |
+| `crates/ui/src/grid/headless.rs` | 178 | reviewed | read; ok |
 | `crates/ui/examples/grid_demo.rs` | 178 | todo | |
 | `crates/analysis/src/display.rs` | 175 | todo | |
 | `crates/ui/examples/overview_demo.rs` | 173 | todo | |
@@ -103,13 +103,13 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/notes.rs` | 156 | todo | |
 | `crates/analysis/src/render.rs` | 155 | todo | |
 | `crates/ui/src/tracks/offset.rs` | 151 | reviewed | I-045 |
-| `crates/ui/src/grid/event.rs` | 150 | todo | |
+| `crates/ui/src/grid/event.rs` | 150 | reviewed | read; ok |
 | `crates/notation/src/staff/value.rs` | 149 | reviewed | read (I-036) |
 | `crates/analysis/src/beatfit/tests.rs` | 132 | todo | |
 | `crates/notation/src/staff/quant.rs` | 127 | reviewed | read; ok |
 | `crates/ui/examples/staff_demo.rs` | 123 | todo | |
-| `crates/ui/src/grid/drag.rs` | 122 | todo | |
-| `crates/ui/src/grid/draw.rs` | 113 | todo | |
+| `crates/ui/src/grid/drag.rs` | 122 | reviewed | read; ok |
+| `crates/ui/src/grid/draw.rs` | 113 | reviewed | read; ok |
 | `crates/ui/src/note_editor/input.rs` | 112 | todo | |
 | `crates/ui/src/note_editor/buttons.rs` | 112 | todo | |
 | `crates/ui/src/tracks/geometry.rs` | 110 | reviewed | ok |
@@ -149,7 +149,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/testkit.rs` | 36 | todo | |
 | `crates/analysis/examples/beatfit_bench.rs` | 35 | todo | |
 | `crates/app/Cargo.toml` | 34 | reviewed | deps audited (I-001..I-003) |
-| `crates/ui/src/grid/style.rs` | 31 | todo | |
+| `crates/ui/src/grid/style.rs` | 31 | reviewed | read; ok |
 | `crates/audio/src/stretch.rs` | 31 | todo | |
 | `crates/audio/src/lib.rs` | 28 | todo | |
 | `crates/analysis/src/lib.rs` | 28 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 87 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 47 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~100 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 48 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -568,3 +568,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** one theme colour copied as literals, so a retheme misses spots.
 **Instructions:** add `theme::PLAYHEAD` (and `theme::ACCENT_AMBER`) and use it in all five places; `WaveformView::playhead` and `SpectrogramView::playhead` are then the only painters of the line.
 **Risk:** none.
+
+### I-048 (low) · note_editor: grace preview clones the project, keymap string rows, quadratic selection · impact: low · saves ~15 lines · status: open
+**Where:** `ui/src/note_editor/grace_entry.rs` `preview` (130, full `Project` clone per pointer move) and `key`/`CycleLink` (70) and `pointer` (105, `TempoMap::new` per move); `keymap.rs:109-117` nine near-identical `string_N` rows; `select.rs` `Selection::add`/`contains` (linear `Vec` scans; `marquee`/`shift`-click is O(n·m)).
+**Problem:** same whole-project clone + tempo rebuild pattern as I-010/I-037, here on every mouse move during grace entry; `string_1..9` rows are data written out by hand; selection uses a `Vec` for membership.
+**Instructions:** (1) have `place` work on a cloned `notes` + measures slice only (or add `Project::preview_edit` returning the resulting notes without cloning tuning/tracks) and reuse the editor's cached `TempoMap`; (2) generate the string rows with a `const` macro or loop (`SetStringFromTop(n)`, id `string_{n}`) when building `DEFAULTS` rows at startup; (3) keep a `HashSet<u64>` beside `ids` (or use `IndexSet`) if selections reach thousands of notes.
+**Risk:** low.
