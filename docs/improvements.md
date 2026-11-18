@@ -40,7 +40,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/toolbar.rs` | 409 | partial | lines 1-360 read (I-022) |
 | `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
 | `crates/ui/src/nav/maths.rs` | 404 | todo | |
-| `crates/core/src/tracks.rs` | 401 | todo | |
+| `crates/core/src/tracks.rs` | 401 | reviewed | read (I-004) |
 | `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
 | `crates/ui/src/spectro/glyphs.rs` | 395 | partial | layout() read (I-024) |
@@ -49,7 +49,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/nav/mod.rs` | 388 | todo | |
 | `crates/notation/src/staff/mod.rs` | 382 | todo | |
 | `crates/analysis/src/spectrogram_tests.rs` | 378 | todo | |
-| `crates/core/src/grace.rs` | 375 | todo | |
+| `crates/core/src/grace.rs` | 375 | reviewed | prod part read (I-020) |
 | `crates/ui/src/tab_view/tests.rs` | 372 | todo | |
 | `crates/core/src/model.rs` | 365 | partial | note lookup read (I-025) |
 | `crates/ui/src/spectro/glyphs/tests.rs` | 355 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 25 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 27 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -203,7 +203,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none.
 
 ### I-004 · Dead production API (only called from tests) · impact: med · saves ~90 lines incl. their tests · status: open
-**Where:** `crates/ui/src/tracks/geometry.rs:39` `wave_top_px`; `crates/ui/src/nav/mod.rs:229` `max_scroll_points`; `crates/app/src/editor.rs:589` `note_times`; `crates/app/src/session.rs:624` `set_undo_policy`, `:649` `speed_mode`; `crates/analysis/src/spectrogram.rs:139` `suggested_levels`, `:154` `frame_to_sec`; `crates/core/src/undo.rs:74` `with_limit`, `:154` `undo_weight`, `:158` `redo_weight`; `crates/core/src/model.rs:271` `project_to_audio_time`; `crates/core/src/links.rs:183` `chain_fits_one_string`; `crates/core/src/edit.rs:520` `remove_notes`; `crates/core/src/undo.rs:82` `set_policy` (only reached from the dead `set_undo_policy`); `crates/core/src/grace.rs:231` `set_grace_kind`, `:299` `remove_grace`, `:366` `unlink_legato`; `crates/audio/src/player.rs:373` `track_peak_levels`; `crates/audio/src/resample.rs:71` `from_channels`; `crates/ui/src/note_editor/keymap.rs:183` `load_or_default`.
+**Where:** `crates/ui/src/tracks/geometry.rs:39` `wave_top_px`; `crates/ui/src/nav/mod.rs:229` `max_scroll_points`; `crates/app/src/editor.rs:589` `note_times`; `crates/app/src/session.rs:624` `set_undo_policy`, `:649` `speed_mode`; `crates/analysis/src/spectrogram.rs:139` `suggested_levels`, `:154` `frame_to_sec`; `crates/core/src/undo.rs:74` `with_limit`, `:154` `undo_weight`, `:158` `redo_weight`; `crates/core/src/model.rs:271` `project_to_audio_time`; `crates/core/src/links.rs:183` `chain_fits_one_string`; `crates/core/src/edit.rs:520` `remove_notes`; `crates/core/src/undo.rs:82` `set_policy` (only reached from the dead `set_undo_policy`); `crates/core/src/grace.rs:231` `set_grace_kind`, `:299` `remove_grace`, `:366` `unlink_legato`; `crates/audio/src/player.rs:373` `track_peak_levels`; `crates/audio/src/resample.rs:71` `from_channels`; `crates/core/src/tracks.rs:74` `project_end_sec` (only re-exported from `lib.rs:49`); `crates/ui/src/note_editor/keymap.rs:183` `load_or_default`.
 **Problem:** none of these has a non-test caller in the workspace (name search across all non-test code). They keep tests and API surface alive for nothing. Unused-in-app grace operations (`set_grace_kind`, `remove_grace`, `unlink_legato`) may be planned UI features: check `CONTEXT.md` first.
 **Instructions:**
 1. For each symbol, delete the definition and the tests that only exercise it (`grep -rw <name> crates`).
@@ -400,3 +400,9 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 3. Rename `division_label` to `division_name` (drop the wrapper); use `TICKS_PER_BEAT as u32` locally in `snap_note.rs` or make `UNITS_PER_BEAT` the single constant and delete the cast in `model.rs` users.
 4. Optional: in `snap_to_pos` replace the `(0..=limit/step).for_each` loop by `consider(((at / step as f64).round() as i64).clamp(0, limit / step) * step)`; keep `consider(0)`/`consider(len)`.
 **Risk:** low; existing `tempo.rs`/`snap.rs`/`measures.rs` tests cover 1-4 (`cargo test -p fretscribe-core`). Item 4 changes tie-breaking only if two candidates are equidistant: keep the test `snap_to_grid` ties.
+
+### I-027 · `Technique::Harmonic` and `PalmMute` are never produced or drawn · impact: low · saves ~5 lines · status: open
+**Where:** `crates/core/src/model.rs:121-122`.
+**Problem:** no code outside one test (`core/src/tracks.rs:379`) constructs or matches them; the tab/staff/spectro renderers only handle `Slide`, `Bend`, `Tie`. They are placeholders for unplanned features, and `Technique` is serialised (`Serialize`/`Deserialize`), so they only matter for files that contain them.
+**Instructions:** check `CONTEXT.md` for a planned harmonic/palm-mute feature; if none, delete both variants and change the `tracks.rs:379` test to use `Technique::Bend`. If saved projects may already hold them, keep them and add a `// reserved: file format` comment instead.
+**Risk:** low; only a format-compat question for old saves.
