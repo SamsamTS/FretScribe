@@ -33,7 +33,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/overview/headless.rs` | 476 | todo | |
 | `crates/audio/examples/play.rs` | 464 | todo | |
 | `crates/core/src/grace/tests.rs` | 444 | todo | |
-| `crates/app/src/form.rs` | 428 | todo | |
+| `crates/app/src/form.rs` | 428 | reviewed | prod part read (I-033) |
 | `crates/core/src/measures.rs` | 419 | reviewed | prod part read (I-026) |
 | `crates/ui/src/overview/mod.rs` | 415 | todo | |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
@@ -82,7 +82,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/pitch.rs` | 206 | reviewed | read; ok |
 | `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
 | `crates/ui/src/spectro/tests.rs` | 199 | todo | |
-| `crates/app/src/settings.rs` | 198 | todo | |
+| `crates/app/src/settings.rs` | 198 | reviewed | read (I-019) |
 | `crates/ui/src/grid/lines.rs` | 197 | todo | |
 | `crates/ui/src/theme.rs` | 196 | todo | |
 | `crates/ui/src/tracks/lanes.rs` | 195 | todo | |
@@ -113,7 +113,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/input.rs` | 112 | todo | |
 | `crates/ui/src/note_editor/buttons.rs` | 112 | todo | |
 | `crates/ui/src/tracks/geometry.rs` | 110 | todo | |
-| `crates/app/src/paths.rs` | 109 | todo | |
+| `crates/app/src/paths.rs` | 109 | reviewed | read; ok |
 | `crates/analysis/examples/spectrogram_png.rs` | 109 | todo | |
 | `crates/analysis/src/beatfit/synth.rs` | 104 | reviewed | read (I-032) |
 | `crates/ui/src/overview/ruler.rs` | 103 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 32 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 33 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -450,3 +450,9 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Problem:** no production code uses it; it is `pub` only so an example and the app's tests can reach it. `rough_grid` is a one-line wrapper over `generate_measures`.
 **Instructions:** either (a) gate it behind a cargo feature (`[features] test-support = []`, `#[cfg(any(test, feature = "test-support"))] pub mod synth;`, and enable it in `app`'s `[dev-dependencies]` and for the example with `required-features`), or (b) keep as is but delete `rough_grid` and call `generate_measures(0.0, len, bpm, TimeSignature::COMMON, &mut 1)` at the 2-3 call sites. Take (a) only if more crates start sharing fixtures (see I-006: one shared test-support module per crate would also host the `close` helpers).
 **Risk:** none for (b); (a) touches `Cargo.toml` of two crates.
+
+### I-033 · App form: note-name table and pitch-reference range duplicated from `core` · impact: low · saves ~6 lines · status: open
+**Where:** `crates/app/src/form.rs:9` (`NAMES`) vs `crates/core/src/pitch.rs:10-12` (`NOTE_NAMES`); `form.rs:251-256` (`400.0`, `480.0`, "400 to 480 Hz") vs `pitch.rs:7` (`A4_RANGE_HZ`).
+**Problem:** the 12 pitch-class names and the allowed A4 range are written twice; if core changes the range (or adds flats), the form silently disagrees.
+**Instructions:** in `core/src/pitch.rs` add `pub fn pitch_class_name(midi: u8) -> &'static str { NOTE_NAMES[usize::from(midi % 12)] }` (reuse it in `midi_to_name`) and `pub const A4_RANGE_HZ` (re-export from `lib.rs`); in `form.rs` call them, delete `NAMES`, and build the message with `format!("... {} to {} Hz", start, end)`; `parse_ranged` can take the `RangeInclusive`.
+**Risk:** none; `cargo test -p fretscribe form`.
