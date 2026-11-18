@@ -112,7 +112,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/grid/draw.rs` | 113 | todo | |
 | `crates/ui/src/note_editor/input.rs` | 112 | todo | |
 | `crates/ui/src/note_editor/buttons.rs` | 112 | todo | |
-| `crates/ui/src/tracks/geometry.rs` | 110 | todo | |
+| `crates/ui/src/tracks/geometry.rs` | 110 | reviewed | ok |
 | `crates/app/src/paths.rs` | 109 | reviewed | read; ok |
 | `crates/analysis/examples/spectrogram_png.rs` | 109 | todo | |
 | `crates/analysis/src/beatfit/synth.rs` | 104 | reviewed | read (I-032) |
@@ -138,7 +138,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/error.rs` | 59 | todo | |
 | `crates/ui/src/note_editor/mod.rs` | 56 | todo | |
 | `crates/app/tests/pipeline.rs` | 56 | todo | |
-| `crates/ui/src/tracks/icons.rs` | 55 | todo | |
+| `crates/ui/src/tracks/icons.rs` | 55 | reviewed | ok |
 | `crates/ui/src/nav/tuning.rs` | 53 | todo | |
 | `crates/ui/src/note_editor/overlay.rs` | 51 | todo | |
 | `crates/core/src/lib.rs` | 50 | todo | |
@@ -158,7 +158,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/lib.rs` | 27 | todo | |
 | `crates/analysis/examples/make_luts.rs` | 26 | todo | |
 | `crates/analysis/Cargo.toml` | 25 | reviewed | deps audited (I-001..I-003) |
-| `crates/ui/src/tracks/events.rs` | 23 | todo | |
+| `crates/ui/src/tracks/events.rs` | 23 | reviewed | ok |
 | `crates/ui/src/lib.rs` | 22 | todo | |
 | `crates/ui/Cargo.toml` | 20 | reviewed | deps audited (I-001..I-003) |
 | `crates/ui/src/tracks/mod.rs` | 19 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 77 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 45 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 82 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 46 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -555,3 +555,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** (1) `alt` is handled twice: `drive_drag` skips `snap_candidates` when alt and `snap_offset(.., alt)` returns early again; `snap_offset` recomputes `reach` already passed to `snap_candidates`. (2) `OffsetDrag` is read from egui temp data three times per frame (`HeaderParams`, `drag`, `drive_drag`). (3) `WaveformPalette::from_rgba(&style.lut.colors)` is rebuilt per lane per frame; build it once in `SpectroStyle`. (4) `show` mixes region input, drag, header, spectrogram, wheel-resize, resize-handle, waveform and drag overlay; split the wheel-resize and resize-handle blocks (both accumulate into egui temp data) into one `drive_rows` helper, and the drag overlay into `paint_drag`. (5) `ViewTuning::DEFAULT` is built inside the input closure for the wheel notches.
 **Instructions:** drop the `alt` param from `snap_offset` (caller passes an empty slice); read the drag once at the top of `show`; cache the palette; extract `drive_rows` and `paint_drag`.
 **Risk:** low.
+
+### I-046 (med) · Spectrogram note layout built 3x per frame per lane, quadratic `items()` · impact: med on long songs · perf: O(n²) per call · status: open
+**Where:** `ui/src/spectro/glyphs.rs` `items` (117-137: `tie_of` does a linear `notes.iter().find` per note, `legato_sources.contains` is linear, `grace_target_of` scans notes), `spectro/notes.rs` `hit_test` / `draw_notes` (each calls `items` + `layout` over ALL notes), `spectro/mod.rs` `show` (hover `hit_test` at ~299, `draw_notes` at ~316, and the `pointer::events` closure at ~327 calling `hit_test` again), `notes.rs:124` (`items.iter().any(|it| it.id == *id && it.grace)` inside the per-note loop).
+**Problem:** every frame the full note list is turned into glyph items and laid out two to three times (and once per lane with `show_notes_on_all`), with O(n²) lookups, no culling to the visible time/pitch window.
+**Instructions:** (1) build `items` once per frame in `show` (or cache by project revision + times) with `HashSet`/`HashMap` indexes (`legato_sources`, `tie_of`) and keep only notes intersecting the view; (2) compute `layout` once into a `Scene` and pass it to `draw_notes`, hover `hit` and the pointer closure (`Scene::hit` already exists); (3) carry `grace` in the `Glyph::Note` data instead of searching `items`. Pairs with I-037/I-043.
+**Risk:** med; hit-test must still see off-screen link endpoints, so cull with a margin or keep linked partners.
