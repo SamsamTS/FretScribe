@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-17 · base commit 3c1c6aa_
+_Last updated: 2026-11-18 · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -186,7 +186,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 
 ### I-002 · Pull `egui_extras` into workspace deps; narrow `symphonia` features · impact: low · saves compile time · status: open
 **Where:** `crates/ui/Cargo.toml:15`, `Cargo.toml:30`
-**Problem:** `egui_extras` is the only dependency with an inline version (single call: `crates/ui/src/kit.rs:31`), inconsistent with the rest. `symphonia` uses `features = ["all"]` while `AUDIO_EXTS` (`crates/app/src/app.rs:27`) only offers mp3, wav, flac, ogg, m4a, aac, aiff.
+**Problem:** `egui_extras` is the only dependency with an inline version (single call: `crates/ui/src/kit.rs:86`), inconsistent with the rest. `symphonia` uses `features = ["all"]` while `AUDIO_EXTS` (`crates/app/src/app.rs:27`) only offers mp3, wav, flac, ogg, m4a, aac, aiff.
 **Instructions:**
 1. Add `egui_extras = { version = "0.31", features = ["svg"] }` to `[workspace.dependencies]`; use `egui_extras.workspace = true` in `ui`.
 2. Replace `all` with `["mp3", "wav", "flac", "ogg", "vorbis", "isomp4", "aac", "aiff", "pcm"]`. Breaking: files in other formats (mkv, caf, alac, adpcm) stop decoding; skip step 2 if those must stay supported.
@@ -201,7 +201,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none.
 
 ### I-004 · Dead production API (only called from tests) · impact: med · saves ~90 lines incl. their tests · status: open
-**Where:** `crates/ui/src/tracks/geometry.rs:39` `wave_top_px`; `crates/ui/src/nav/mod.rs:229` `max_scroll_points`; `crates/app/src/editor.rs:555` `note_times`; `crates/app/src/session.rs:571` `set_undo_policy`, `:580` `speed_mode`; `crates/analysis/src/spectrogram.rs:139` `suggested_levels`, `:154` `frame_to_sec`; `crates/core/src/undo.rs:74` `with_limit`, `:154` `undo_weight`, `:158` `redo_weight`; `crates/core/src/model.rs:271` `project_to_audio_time`; `crates/core/src/links.rs:183` `chain_fits_one_string`; `crates/core/src/edit.rs:520` `remove_notes`; `crates/core/src/undo.rs:82` `set_policy` (only reached from the dead `set_undo_policy`); `crates/core/src/grace.rs:231` `set_grace_kind`, `:299` `remove_grace`, `:366` `unlink_legato`; `crates/audio/src/player.rs:373` `track_peak_levels`; `crates/audio/src/resample.rs:71` `from_channels`; `crates/ui/src/note_editor/keymap.rs:183` `load_or_default`.
+**Where:** `crates/ui/src/tracks/geometry.rs:39` `wave_top_px`; `crates/ui/src/nav/mod.rs:229` `max_scroll_points`; `crates/app/src/editor.rs:589` `note_times`; `crates/app/src/session.rs:624` `set_undo_policy`, `:649` `speed_mode`; `crates/analysis/src/spectrogram.rs:139` `suggested_levels`, `:154` `frame_to_sec`; `crates/core/src/undo.rs:74` `with_limit`, `:154` `undo_weight`, `:158` `redo_weight`; `crates/core/src/model.rs:271` `project_to_audio_time`; `crates/core/src/links.rs:183` `chain_fits_one_string`; `crates/core/src/edit.rs:520` `remove_notes`; `crates/core/src/undo.rs:82` `set_policy` (only reached from the dead `set_undo_policy`); `crates/core/src/grace.rs:231` `set_grace_kind`, `:299` `remove_grace`, `:366` `unlink_legato`; `crates/audio/src/player.rs:373` `track_peak_levels`; `crates/audio/src/resample.rs:71` `from_channels`; `crates/ui/src/note_editor/keymap.rs:183` `load_or_default`.
 **Problem:** none of these has a non-test caller in the workspace (name search across all non-test code). They keep tests and API surface alive for nothing. Unused-in-app grace operations (`set_grace_kind`, `remove_grace`, `unlink_legato`) may be planned UI features: check `CONTEXT.md` first.
 **Instructions:**
 1. For each symbol, delete the definition and the tests that only exercise it (`grep -rw <name> crates`).
@@ -210,7 +210,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** low; `cargo test --workspace` and `cargo check --all-targets`. Confirm no planned feature needs them before deleting.
 
 ### I-005 · Duplicate WAV writers and sine generators · impact: med · saves ~60 lines · status: open
-**Where:** WAV: `crates/audio/src/decode.rs:158` `wav_bytes`, `crates/app/src/loader.rs:208` `write_wav`, `crates/app/examples/demo_project.rs:12` `wav`. Sine: `crates/audio/src/testutil.rs:10`, `crates/audio/src/focus.rs:467`, `crates/audio/src/resample.rs:240`, `crates/audio/src/decode.rs` `sine_i16`, `crates/analysis/src/spectrogram_tests.rs:14` `tone`.
+**Where:** WAV: `crates/audio/src/decode.rs:158` `wav_bytes`, `crates/app/src/loader.rs:254` `write_wav`, `crates/app/examples/demo_project.rs:12` `wav`. Sine: `crates/audio/src/testutil.rs:10`, `crates/audio/src/focus.rs:467`, `crates/audio/src/resample.rs:240`, `crates/audio/src/decode.rs` `sine_i16`, `crates/analysis/src/spectrogram_tests.rs:14` `tone`.
 **Problem:** same RIFF header and same sine formula written 3 and 5 times.
 **Instructions:**
 1. Make one public `fretscribe_audio::wav::encode(rate, channels, &[i16]) -> Vec<u8>` (small module, used by the three WAV sites; the example can call it, so it should not be `#[cfg(test)]`).
@@ -236,7 +236,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none for 1-3; run `cargo test -p fretscribe-ui note_editor`. Behaviour must stay identical (existing tests in `action.rs` and `editor_tests.rs`).
 
 ### I-008 · Per-frame allocations in the editor panel · impact: low-med · perf: removes one `Vec<f64>` collect + sort per frame when "snap to onsets" is on · status: open
-**Where:** `crates/app/src/editor.rs:374` (`onset_targets(s)` at `:402`), `:375` (`snap_grid.clone()`), `:66` (`selection.ids.clone()`).
+**Where:** `crates/app/src/editor.rs:407` (`onset_targets(s)` at `:402`), `:375` (`snap_grid.clone()`), `:66` (`selection.ids.clone()`).
 **Problem:** `onset_list` gathers every onset of every beat track and sorts them (`O(N log N)`) on every frame, even when `collected.inputs` is empty (the usual case). The grid and selection ids are cloned per frame too.
 **Instructions:**
 1. Build `onset_list` and `grid` inside the `for input in collected.inputs` loop's first iteration (lazily, e.g. `let mut onsets = None; ... onsets.get_or_insert_with(|| onset_targets(s))`), or cache the sorted list in `Session` and recompute when `s.store.revision` or track offsets change.
@@ -269,7 +269,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none.
 
 ### I-012 · Small `core` cleanups: duplicated display constants, eager clones in `Delta::diff`, shadowed locals · impact: low · saves ~15 lines · status: open
-**Where:** `crates/core/src/persist.rs:59-61,73-87`; `crates/analysis/src/display.rs:5-7`; `crates/core/src/delta.rs:145-161`; `crates/core/src/delta.rs:93-96`.
+**Where:** `crates/core/src/persist.rs:78-81,93-110`; `crates/analysis/src/display.rs:5-7`; `crates/core/src/delta.rs:145-161`; `crates/core/src/delta.rs:93-96`.
 **Problem:** (a) `LEVELS_MIN_GAP`/`GAMMA_RANGE` in `persist.rs` duplicate `MIN_LEVELS_GAP`/`GAMMA_MIN`/`GAMMA_MAX` in `analysis/display.rs`, kept in sync by a comment; the comment's premise is backwards for the constants (`analysis` depends on `core`, not the other way round, so `analysis` can import them). (b) `sanitise` shadows `black`/`white` twice (`:75-78`). (c) `Delta::diff` clones `tracks`, `tuning` and (via `to_vec`) both measure lists for every edit even when nothing changed, because `Change::new` takes owned values and then drops them when equal.
 **Instructions:**
 1. In `analysis/display.rs` replace the three consts by `pub use fretscribe_core::persist::{LEVELS_MIN_GAP as MIN_LEVELS_GAP, ...}` (or rename core's to the analysis names, keeping the re-exports in `lib.rs:38` and `analysis/lib.rs:19`); update the comment in `persist.rs`.
@@ -288,7 +288,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 
 ### I-014 · `Player::set_tracks` path (decode-side preparation, cache, thread pool) is used by tests and the CLI example only · impact: high · saves ~110 lines · status: open
 **Where:** `crates/audio/src/player.rs:21-31` `TrackAudio`, `:73-81` `State::cache`, `:186-227` `set_tracks`, `:270-282` `load`, `:176-178` `sample_rate` (duplicate of `output_rate` at `:182`); `crates/audio/src/parallel.rs` (whole file, 40 lines); `crates/audio/src/decode.rs:148` `decode_files`; callers: `crates/audio/src/testutil.rs:21-38`, `player.rs` tests (`:570,626,628`), `crates/audio/examples/play.rs`.
-**Problem:** the app only calls `Player::set_prepared_tracks` (`crates/app/src/session.rs:230`) after preparing audio on a worker. `set_tracks`, `load`, the per-address `HashMap` cache of prepared audio, `TrackAudio` and the hand-written scoped thread pool `parallel_map` (a second pool next to the `rayon` one in `analysis`) exist for tests and the example, so production carries and ships ~110 lines nobody runs.
+**Problem:** the app only calls `Player::set_prepared_tracks` (`crates/app/src/session.rs:254`) after preparing audio on a worker. `set_tracks`, `load`, the per-address `HashMap` cache of prepared audio, `TrackAudio` and the hand-written scoped thread pool `parallel_map` (a second pool next to the `rayon` one in `analysis`) exist for tests and the example, so production carries and ships ~110 lines nobody runs.
 **Instructions:**
 1. In `testutil.rs`, make `track()` return a `PreparedTrack` (call `PreparedAudio::new(&decoded, RATE)`) and `setup()` call `set_prepared_tracks`; adapt the three tests in `player.rs` the same way.
 2. Delete `TrackAudio`, `set_tracks`, `load`, `State::cache`, `parallel.rs` (and its `mod`), `decode_files`, and `Player::sample_rate` (keep `output_rate`; check `grep -rn 'sample_rate()' crates/app crates/audio/examples`).
@@ -305,7 +305,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none for 1; 2 needs a product decision.
 
 ### I-016 · Per-frame work in the track lanes that could be cached or culled · impact: low-med · perf: ~1 KB alloc per lane per frame, O(all onsets) shapes per lane per frame, one sort of all targets per drag frame · status: open
-**Where:** `crates/ui/src/tracks/lane.rs:246` (`WaveformPalette::from_rgba` per lane per frame; also `crates/app/src/editor.rs:42`), `:262-267` (loops over every note start and every onset), `crates/app/src/store.rs:112-119` `snap_candidates` (+ `crates/analysis/src/sync.rs:91-92` `snap_offsets` sorts again).
+**Where:** `crates/ui/src/tracks/lane.rs:267` (`WaveformPalette::from_rgba` per lane per frame; also `crates/app/src/editor.rs:49`), `:262-267` (loops over every note start and every onset), `crates/app/src/store.rs:112-119` `snap_candidates` (+ `crates/analysis/src/sync.rs:91-92` `snap_offsets` sorts again).
 **Problem:** (a) the 256-colour waveform palette is rebuilt (`Vec<Color32>` of 256) for every lane on every frame from a LUT that only changes with `display_changed`. (b) `show` emits one `vline` per onset/note for the whole track even when off-screen; the onsets are sorted, so only the visible slice is needed. (c) every pointer move of an offset drag clones `beat_times`, appends all reference onsets and sorts the union inside `snap_offsets`.
 **Instructions:**
 1. Build `WaveformPalette` once next to `style.lut` (in `style_of` in `app/src/session.rs`, stored in the style struct), pass `&palette`; delete the two per-frame calls.
@@ -314,7 +314,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** low; visual check of lanes with onsets shown and offset dragging; `cargo test -p fretscribe-ui -p fretscribe`. Verify the gain by counting shapes per frame (`ctx.tessellation_stats` / egui `Shape` count) on a track with ~3000 onsets zoomed in.
 
 ### I-017 · Very long `show`/`layout` functions mixing painting and input handling · impact: low-med · saves ~0 lines, lowers review cost · status: open
-**Where:** `crates/ui/src/tab_view/mod.rs:210-365` `show_body` (155 lines); `crates/app/src/editor.rs:23` `show` (160); `crates/ui/src/tracks/lane.rs:140` `show` (143); `crates/ui/src/tracks/header.rs:86` `show` (136); `crates/ui/src/spectro/glyphs.rs:271` `layout` (113); `crates/analysis/src/beatfit/fit.rs:22` `fit_measures` (129); `crates/analysis/src/sync.rs:108` `estimate_offset` (101).
+**Where:** `crates/ui/src/tab_view/mod.rs:220-368` `show_body` (155 lines); `crates/app/src/editor.rs:24` `show` (160); `crates/ui/src/tracks/lane.rs:150` `show` (143); `crates/ui/src/tracks/header.rs:88` `show` (136); `crates/ui/src/spectro/glyphs.rs:271` `layout` (113); `crates/analysis/src/beatfit/fit.rs:22` `fit_measures` (129); `crates/analysis/src/sync.rs:108` `estimate_offset` (101).
 **Problem:** each function draws, reads input, mutates state and emits events in one body, with 4-6 interleaved concerns (e.g. `show_body`: paint strings, notes, stems, drag, click, marquee, context menu, keyboard).
 **Instructions:** split mechanically along the existing comment boundaries into private functions taking the already-computed locals (`ctx`, `geo`, `heads`, `response`): for `show_body` use `paint(..)`, `drag(..)`, `clicks(..)`, `marquee(..)`, `context_menu(..)`, `keys(..)`; for the lane, extract the wheel-row accumulator (`:206-218`) and the resize handle (`:220-234`). No behaviour change; do one file per commit.
 **Risk:** low; UI tests in `tab_view/tests.rs` and `tracks/tests.rs` cover event output.
@@ -329,13 +329,13 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none (compile-checked). The `app` and `audio` crates could not be checked here (no ALSA); run the same lint there.
 
 ### I-019 · Write-only state in `Session` and `Settings` · impact: low · saves ~17 lines · status: open
-**Where:** `crates/app/src/settings.rs:36,60` `default_tuning` (never read: the form uses its own `default_tuning(instrument)` at `form_ui.rs:319`); `crates/app/src/session.rs:89,166,245,265` `load_progress`; `:96,106-110,173` `hints` and `struct Hints { lut_missing_shown }`; `:98,175` `ref_text`.
+**Where:** `crates/app/src/settings.rs:36,60` `default_tuning` (never read: the form uses its own `default_tuning(instrument)` at `form_ui.rs:319`); `crates/app/src/session.rs:97,182,270,291` `load_progress`; `:96,106-110,173` `hints` and `struct Hints { lut_missing_shown }`; `:98,175` `ref_text`.
 **Problem:** none of the three is read anywhere (workspace-wide search); `load_progress` is only assigned from `LoadEvent::Progress`, `hints.lut_missing_shown` and `ref_text` are only initialised. The open-project dialog tracks its own progress (`app.rs:250,642`).
 **Instructions:** delete `Settings::default_tuning` (old `settings.json` files keep loading: the struct does not use `deny_unknown_fields`), the three session fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
 **Risk:** none; compile-checked by `cargo check -p fretscribe`.
 
 ### I-020 · `NoteTimes::build(&p.notes, &TempoMap::new(&p.measures))` repeated 22 times; redundant double resync · impact: low · saves ~20 line-widths, one resync per undo · status: open
-**Where:** `crates/app/src/session.rs:129,290,330,336,474`, `editor.rs:556`, `player_sync.rs:66`; `crates/ui/src/tab_view/edit.rs:92,168,236`, `note_editor/grace_entry.rs:209`; `crates/core/src/edit.rs:185,589`, `tracks.rs:144`, `grace.rs:197,224,232,244` (+ `examples`: `tab_demo.rs:35,55`, `note_editor_demo.rs:214`). Resync: `crates/app/src/session.rs:294` (inside `refresh`) then `:311`.
+**Where:** `crates/app/src/session.rs:137,316,356,362,500`, `editor.rs:556`, `player_sync.rs:66`; `crates/ui/src/tab_view/edit.rs:92,168,236`, `note_editor/grace_entry.rs:209`; `crates/core/src/edit.rs:185,589`, `tracks.rs:144`, `grace.rs:197,224,232,244` (+ `examples`: `tab_demo.rs:35,55`, `note_editor_demo.rs:214`). Resync: `crates/app/src/session.rs:320` (inside `refresh`) then `:311`.
 **Problem:** the same two-call idiom builds a throwaway `TempoMap` just to build the times, in three crates. `undo_redo` calls `refresh()` (which ends in `player_resync(false)`) and immediately `player_resync(true)`, so the first is overwritten.
 **Instructions:**
 1. Add `impl Project { pub fn note_times(&self) -> NoteTimes { NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)) } }` in `core` and use it at the sites above (only where no `TempoMap` is already in scope; keep `build(.., &tempo)` where it is).
@@ -343,7 +343,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** none; `cargo test --workspace`.
 
 ### I-021 · `app.rs`: repeated file dialogs, audio device opened twice when creating a project · impact: low · saves ~12 lines · status: open
-**Where:** `crates/app/src/app.rs:221,377,426` (audio picker), `:346,357` (project picker), `:240` and `:292` (`Player::new()`), `:482-483` (toast drain).
+**Where:** `crates/app/src/app.rs:222,397,446` (audio picker), `:346,357` (project picker), `:240` and `:292` (`Player::new()`), `:482-483` (toast drain).
 **Problem:** (a) the same `rfd::FileDialog::new().set_title(..).add_filter("Audio", &AUDIO_EXTS).pick_file()` chain appears 3 times, and the project filter twice. (b) `start_creating` builds a whole `Player` (opens the output stream) only to read `output_rate()`, drops it, and `open_file_with` builds another when the project opens: two device initialisations per new project (tens to hundreds of ms on some drivers). (c) `s.toasts.drain(..).collect::<Vec<_>>()` then `extend` is an `append`. (d) `App::toast` (`:132`) and `Session::toast` (`session.rs:189`) have identical bodies.
 **Instructions:**
 1. Add `fn pick_audio(title: &str) -> Option<PathBuf>` and `fn project_dialog() -> rfd::FileDialog`; use them at the 5 sites.
@@ -353,7 +353,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** low; manual check: create a project from the form with audio and confirm playback starts.
 
 ### I-022 · Toolbar: LUT folder re-decoded every frame while the colour-map dropdown is open; leftovers · impact: med (perf) · saves ~6 lines · status: open
-**Where:** `crates/app/src/toolbar.rs:202-205` (rescan), `:206` (names), `:47` (`let _ = s;`), `:60` (tooltip); `crates/app/src/luts.rs:40` `names`; `crates/analysis/src/lut.rs:100` `discover_luts`.
+**Where:** `crates/app/src/toolbar.rs:274-277` (rescan), `:206` (names), `:47` (`let _ = s;`), `:60` (tooltip); `crates/app/src/luts.rs:40` `names`; `crates/analysis/src/lut.rs:100` `discover_luts`.
 **Problem:** `kit::is_open(ui, "lut")` is true on every frame while the popup is open, so each frame runs `LutSet::scan`: `read_dir` plus a PNG decode of every palette file (`Lut::from_png`), and rebuilds `Arc<Lut>`s. That is disk I/O and image decoding at 60 fps for as long as the menu is shown. Also: `project(ui, s: &Session, ..)` ignores `s` (`let _ = s;`); the disabled export button's tooltip reads "Export arrives with Prompt 12", an internal planning reference visible to users; `LutSet::names()` exists but only tests use it, while the toolbar rebuilds a `Vec<String>` of names each frame.
 **Instructions:**
 1. Rescan only on the closed-to-open transition: keep `let was_open = ui.data(|d| d.get_temp::<bool>(id))` in egui temp memory (or a `bool` on `Session`), call `scan` when `is_open && !was_open`, then store `is_open`.
@@ -363,7 +363,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** low; manual check: add a PNG to the `LUT/` folder while the app runs, open the dropdown, confirm it appears.
 
 ### I-023 · Tab re-inference runs a full solve per edited note · impact: high · perf: multi-note edits cost k full solves instead of one · status: open
-**Where:** `crates/app/src/session.rs:335-342` `infer_affected`; `crates/notation/src/tab/solve.rs:400-452` `run`, `:461` `assign_tabs_range`; caller `crates/app/src/editor.rs:387`.
+**Where:** `crates/app/src/session.rs:361-368` `infer_affected`; `crates/notation/src/tab/solve.rs:400-452` `run`, `:461` `assign_tabs_range`; caller `crates/app/src/editor.rs:421`.
 **Problem:** `infer_affected` loops over the affected ids and calls `assign_tabs_range` for each. Every call rebuilds the whole `Ctx` (`spans`, `family` for all notes), all `Item`s (`build_items`, O(n)), then solves from the edited item to the next *locked* note, which is the end of the piece when nothing is locked (the default). Transposing or moving k selected notes therefore does k x (O(n) setup + O(n) combos + Viterbi over the rest of the piece). Also `iter().position(|n| n.id == *id)` per id and a second linear `contains` inside `run` (`:413`).
 **Instructions:**
 1. Add `assign_tabs_ranges(notes, times, tuning, capo, opts, edited: &[usize], backwards) -> Vec<u64>` in `solve.rs`: build `Ctx` and `items` once, compute each edited item's `(lo, hi)` window as now, sort and merge overlapping windows, and run `combos` + `viterbi` once per merged window (apply results in order).
@@ -381,7 +381,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** medium (hit-testing and link drawing must stay identical); run `cargo test -p fretscribe-ui spectro` and compare screenshots with a few links at the window edge. Verify the gain with 5000 notes: time `layout` (expected: a few ms down to well under 1 ms when zoomed in).
 
 ### I-025 · Linear `find`-by-id inside loops (per frame and per edit) · impact: low-med · perf: O(k·n) where O(n) is enough · status: open
-**Where:** `crates/ui/src/tab_view/draw.rs:169` (`grace_xs`, runs every frame: for each main note of a grace group, `project.notes.iter().find(..)`); `crates/notation/src/staff/mod.rs:368-375` (`links`: `find` per link, on every layout); `crates/ui/src/staff_view/links.rs:19`; `crates/app/src/session.rs:338`; `crates/notation/src/tab/solve.rs:481`; `crates/core/src/model.rs:308` `Project::note` (124 call sites).
+**Where:** `crates/ui/src/tab_view/draw.rs:169` (`grace_xs`, runs every frame: for each main note of a grace group, `project.notes.iter().find(..)`); `crates/notation/src/staff/mod.rs:368-375` (`links`: `find` per link, on every layout); `crates/ui/src/staff_view/links.rs:19`; `crates/app/src/session.rs:364`; `crates/notation/src/tab/solve.rs:481`; `crates/core/src/model.rs:308` `Project::note` (124 call sites).
 **Problem:** there is no id index and notes are not kept sorted by id (`validate` only checks uniqueness), so each lookup is O(n). `grace_xs` does it per grace group on every frame; `staff::links` does it per link on every re-layout.
 **Instructions:**
 1. In `grace_xs` and `staff::links`, build `let by_id: HashMap<u64, &Note> = notes.iter().map(|n| (n.id, n)).collect();` once and use it (about 3 lines each).
