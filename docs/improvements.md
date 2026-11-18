@@ -26,7 +26,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/tempo.rs` | 512 | reviewed | prod part read (I-026) |
 | `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
 | `crates/ui/src/note_editor/action.rs` | 507 | partial | apply() read (I-007) |
-| `crates/ui/src/grid/mod.rs` | 503 | todo | |
+| `crates/ui/src/grid/mod.rs` | 503 | reviewed | prod part read (I-038) |
 | `crates/notation/src/tab/solve.rs` | 492 | partial | run() and entry points read (I-023) |
 | `crates/ui/src/overview/logic.rs` | 485 | todo | |
 | `crates/ui/src/kit.rs` | 479 | todo | |
@@ -83,7 +83,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
 | `crates/ui/src/spectro/tests.rs` | 199 | todo | |
 | `crates/app/src/settings.rs` | 198 | reviewed | read (I-019) |
-| `crates/ui/src/grid/lines.rs` | 197 | todo | |
+| `crates/ui/src/grid/lines.rs` | 197 | reviewed | prod part read (I-038) |
 | `crates/ui/src/theme.rs` | 196 | todo | |
 | `crates/ui/src/tracks/lanes.rs` | 195 | todo | |
 | `crates/app/src/store.rs` | 193 | partial | snap_candidates read (I-016) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 37 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 38 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -488,3 +488,13 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 3. Delete `finish_resize`; call `self.finish_changes(env, vec![c], "Resize note")`. Add `fn edit(edit: ProjectEdit, affected: Vec<u64>) -> Vec<Effect>` for the repeated `vec![Effect::Edit { .. }]`.
 4. In `update`, `match &self.state` with `Copy`/small fields copied out (`State::Move { grab, offset_sec, sticky }` are `Copy`), cloning only `Link`/`Draw` payloads that are mutated after.
 **Risk:** low; `cargo test -p fretscribe-ui note_editor` (`editor_tests.rs` drives the state machine through `Input`).
+
+### I-038 · UI: three `format_time`, two ruler step tables, two "visible beat lines" implementations · impact: low · saves ~35 lines · status: open
+**Where:** `format_time`: `crates/ui/src/grid/mod.rs:430` (`m:ss.mmm`), `overview/ruler.rs:38` (`m:ss`/`h:mm:ss`), `spectro/ruler.rs:16` (`m:ss.dd` by step). Step tables: `overview/ruler.rs:1-20` (`STEPS` + `tick_step`) vs `spectro/ruler.rs:10-14` (`STEPS_SEC` + `ruler_step`). Lines: `grid/lines.rs:34` `visible_lines` and `ui/src/note_grid.rs:22` `NoteGrid::new` (both walk `beat_lines(i)` per visible measure and drop levels by pixel spacing; a third copy of the per-division loop is `core/snap.rs::grid_lines`, I-028); `grid/mod.rs:181-182` (`lines.to_vec()` + sort per frame in `line_shape`).
+**Problem:** same time formatting with three precisions, the same "first step that gives at least N px" lookup over two near-identical tables, and two density-thinning algorithms for beat lines that must agree visually (the new `note_grid.rs` says sheet and tab "share one `NoteGrid`", while the spectrogram overlay uses `visible_lines`).
+**Instructions:**
+1. One `pub fn format_time(sec: f64, decimals: usize) -> String` in `view.rs` (`m:ss` + fraction, `h:` prefix from one hour when `decimals == 0`, `"?"` for non-finite); the three callers pass 3, 0 and `decimals_for(step)`. Delete the other two bodies; the three `#[cfg(test)]` cases move with them.
+2. One `fn step_for(table: &[f64], pixels_per_sec: f64, min_px: f64) -> f64` next to `TimelineView`, used by both ruler modules (each keeps only its own table).
+3. In `line_shape`, replace `to_vec()` + `sort_by_key` by three passes over `lines` (`Straight`/`Triplet`, `MainBeat`, `Measure`) or a stable partition once in `visible_lines`.
+4. Before touching beat lines, decide whether the spectrogram overlay should reuse `NoteGrid::lines()` (same thinning as the notation); if so delete the duplicated spacing logic from `lines.rs`.
+**Risk:** low for 1-3 (pure formatting and lookup; keep the existing label tests); 4 is a visual behaviour decision, so only do it with the owner's agreement.
