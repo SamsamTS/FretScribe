@@ -3,7 +3,7 @@
 use fretscribe_core::PitchRef;
 
 use crate::testutil::*;
-use crate::{AudioError, Player, SpeedMode, TrackAudio};
+use crate::{AudioError, Player, SpeedMode};
 
 const SKIP_FADE_IN: usize = 480;
 
@@ -253,14 +253,7 @@ mod mixer {
     fn different_sample_rates_are_resampled_and_stay_aligned() {
         let slope = 0.1;
         let source: Vec<f32> = (0..88_200).map(|i| slope * i as f32 / 44_100.0).collect();
-        let t = TrackAudio {
-            id: 7,
-            audio: mono_audio(44_100, source),
-            offset_sec: 0.25,
-            volume: 1.0,
-            muted: false,
-            solo: false,
-        };
+        let t = track_of(7, mono_audio(44_100, source), 0.25);
         let (player, mut engine) = setup(vec![t]);
         assert!((player.duration_sec() - 2.25).abs() < 1e-3);
         player.play();
@@ -273,14 +266,7 @@ mod mixer {
 
     #[test]
     fn a_resampled_sine_keeps_its_pitch() {
-        let t = TrackAudio {
-            id: 1,
-            audio: mono_audio(44_100, sine(440.0, 44_100, 3.0, 0.5)),
-            offset_sec: 0.0,
-            volume: 1.0,
-            muted: false,
-            solo: false,
-        };
+        let t = track_of(1, mono_audio(44_100, sine(440.0, 44_100, 3.0, 0.5)), 0.0);
         let (player, mut engine) = setup(vec![t]);
         player.play();
         let r = render_sec(&player, &mut engine, 2.0);
@@ -339,7 +325,7 @@ mod mixer {
     }
 
     #[test]
-    fn initial_flags_from_set_tracks_apply_from_the_first_sample() {
+    fn initial_flags_from_the_tracks_apply_from_the_first_sample() {
         let mut muted = track(1, dc(2.0, 0.3));
         muted.muted = true;
         let mut soloed = track(2, dc(2.0, 0.2));
@@ -428,14 +414,7 @@ mod mixer {
         let frames = 48_000;
         let interleaved: Vec<f32> = (0..frames).flat_map(|_| [0.2, -0.3]).collect();
         let audio = crate::DecodedAudio::from_interleaved(RATE, 2, interleaved).unwrap();
-        let t = TrackAudio {
-            id: 1,
-            audio: std::sync::Arc::new(audio),
-            offset_sec: 0.0,
-            volume: 1.0,
-            muted: false,
-            solo: false,
-        };
+        let t = track_of(1, std::sync::Arc::new(audio), 0.0);
         let (player, mut engine) = setup(vec![t]);
         player.play();
         let mut buffer = vec![0.0; 128];
@@ -478,14 +457,14 @@ mod mixer {
     }
 
     #[test]
-    fn set_tracks_rejects_duplicate_ids_and_load_replaces_the_mix() {
+    fn set_prepared_tracks_rejects_duplicate_ids_and_replaces_the_mix() {
         let (player, _engine) = setup(vec![track(1, dc(1.0, 0.1))]);
-        let err = player.set_tracks(vec![track(5, dc(1.0, 0.1)), track(5, dc(1.0, 0.1))]);
+        let err = player.set_prepared_tracks(vec![track(5, dc(1.0, 0.1)), track(5, dc(1.0, 0.1))]);
         assert!(matches!(err, Err(AudioError::DuplicateTrack(5))));
         assert!((player.duration_sec() - 1.0).abs() < 1e-6);
-        player.load(mono_audio(RATE, dc(2.5, 0.1))).unwrap();
+        player.set_prepared_tracks(vec![track(1, dc(2.5, 0.1))]).unwrap();
         assert!((player.duration_sec() - 2.5).abs() < 1e-6);
-        player.set_tracks(Vec::new()).unwrap();
+        player.set_prepared_tracks(Vec::new()).unwrap();
         assert_eq!(player.duration_sec(), 0.0);
     }
 

@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -290,7 +290,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. If a meter is planned, keep the feature but replace the `Mutex<Vec>` by one `AtomicU32` (f32 bits) per track slot (no lock, no allocation on the audio thread).
 **Risk:** low; `cargo test -p fretscribe-audio`. Verify there is no audible or timing change with `cargo run -p fretscribe-audio --example play`.
 
-### I-014 · `Player::set_tracks` path (decode-side preparation, cache, thread pool) is used by tests and the CLI example only · impact: high · saves ~110 lines · status: open
+### I-014 · `Player::set_tracks` path (decode-side preparation, cache, thread pool) is used by tests and the CLI example only · impact: high · saves ~110 lines · status: done (removed `TrackAudio`, `set_tracks`, `load`, `State::cache`, `parallel.rs`, `decode_files`, `Player::sample_rate`; tests use `testutil::track_of`/`track` returning `PreparedTrack`; the three tests that only exercised the removed path were dropped; `AudioError` variants left as they are)
 **Where:** `crates/audio/src/player.rs:21-31` `TrackAudio`, `:73-81` `State::cache`, `:186-227` `set_tracks`, `:270-282` `load`, `:176-178` `sample_rate` (duplicate of `output_rate` at `:182`); `crates/audio/src/parallel.rs` (whole file, 40 lines); `crates/audio/src/decode.rs:148` `decode_files`; callers: `crates/audio/src/testutil.rs:21-38`, `player.rs` tests (`:570,626,628`), `crates/audio/examples/play.rs`.
 **Problem:** the app only calls `Player::set_prepared_tracks` (`crates/app/src/session.rs:254`) after preparing audio on a worker. `set_tracks`, `load`, the per-address `HashMap` cache of prepared audio, `TrackAudio` and the hand-written scoped thread pool `parallel_map` (a second pool next to the `rayon` one in `analysis`) exist for tests and the example, so production carries and ships ~110 lines nobody runs.
 **Instructions:**
