@@ -14,7 +14,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/app.rs` | 676 | partial | lines 1-490 read (I-021) |
 | `crates/analysis/src/waveform.rs` | 656 | partial | peaks() read; ok |
 | `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
-| `crates/analysis/src/sync.rs` | 632 | todo | |
+| `crates/analysis/src/sync.rs` | 632 | partial | lines 1-470 read (I-030) |
 | `crates/core/src/snap_note.rs` | 630 | reviewed | prod part read (I-028) |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
 | `crates/app/src/session.rs` | 583 | partial | lines 1-460 read (I-019, I-020) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 29 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 30 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -425,3 +425,13 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 2. Make `Prepared { samples, rate }` the only type (`Arc<Prepared>` held by `PreparedAudio` can become `pub struct PreparedAudio(Arc<Prepared>)` with the three accessors reading `self.0`); drop the `rate` duplicate.
 3. In `LoadJob` (`app/src/loader.rs:218`) build the `Arc<[f32]>` from `decoded.mono` by value (`Arc::from(decoded.mono)`) and drop `interleaved` as soon as `PreparedAudio::new` returns (it is already dropped with `decoded`; just confirm no clone of `DecodedAudio` is held in `Session`/`store`).
 **Risk:** low; `cargo test -p fretscribe-audio` (resample tests cover ratios and tails).
+
+### I-030 · Hann window written four times; `estimate_offset` computes the onset envelope twice · impact: low-med · perf: one full-track STFT less per sync with a grid hint · saves ~12 lines · status: open
+**Where:** Hann: `crates/analysis/src/sync.rs:285`, `cqt.rs:232`, `beatfit/mod.rs:98`, `pitchref.rs:122`. Envelope: `sync.rs:144` (`onset_envelope(other, ..)` inside the `grid_hint` branch) and `:215-218` (`tempos(other, ..)` recomputes it); `estimate_offset` (`:108-209`) is a 100-line function.
+**Problem:** (a) four copies of the same window, with three different formulations (f32 vs f64 `PI`/`TAU`, one casts only the `cos`); (b) `onset_envelope` is a full STFT of the track and runs twice for `other` (and `tempos` always runs it for `reference`), on the background sync job; (c) `grid_score` clones and sorts all onsets per candidate (`:255-257`) although the order does not depend on the candidate.
+**Instructions:**
+1. Put `pub(crate) fn hann(n: usize) -> Vec<f32>` in a new `analysis/src/dsp.rs` (or `lib.rs`), delete the four local versions.
+2. Compute `let env_other = onset_envelope(other, sample_rate);` once at the top of `estimate_offset`, pass it to the `grid_hint` block and change `tempos` to take an envelope (`tempos(&env, ..)`); same for `reference`.
+3. Sort and truncate `onsets` once when building them (`:146`) and let `grid_score` take the prepared slice.
+4. Split `estimate_offset` into `correlate` (peaks + refine), `disambiguate` (the `[a, b]` block, `:170-190`) and `drift_note` (`:192-197`) to bring it under ~40 lines.
+**Risk:** low; `cargo test -p fretscribe-analysis` (sync tests assert offsets and notes). Step 1 changes window values at the 1e-7 level only (f64 formulation kept for all).
