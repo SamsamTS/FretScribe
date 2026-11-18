@@ -123,7 +123,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/spectro/readout.rs` | 88 | reviewed | ok |
 | `crates/notation/src/tab/label.rs` | 86 | reviewed | read (I-036) |
 | `crates/app/src/luts.rs` | 85 | reviewed | I-022 |
-| `crates/audio/src/metadata.rs` | 80 | todo | |
+| `crates/audio/src/metadata.rs` | 80 | reviewed | read; ok |
 | `crates/ui/src/staff_view/links.rs` | 74 | reviewed | I-044 |
 | `crates/ui/src/spectro/ruler.rs` | 73 | reviewed | I-038 (`ruler_step`/`format_time`) + I-047 |
 | `crates/ui/src/spectro/pointer.rs` | 73 | reviewed | ok |
@@ -135,36 +135,36 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tab_view/colors.rs` | 64 | reviewed | read; ok |
 | `crates/ui/src/spectro/waveform.rs` | 63 | reviewed | I-047 |
 | `crates/analysis/examples/sync_offset.rs` | 62 | todo | |
-| `crates/core/src/error.rs` | 59 | todo | |
-| `crates/ui/src/note_editor/mod.rs` | 56 | todo | |
+| `crates/core/src/error.rs` | 59 | reviewed | I-033 |
+| `crates/ui/src/note_editor/mod.rs` | 56 | reviewed | read; ok |
 | `crates/app/tests/pipeline.rs` | 56 | todo | |
 | `crates/ui/src/tracks/icons.rs` | 55 | reviewed | ok |
 | `crates/ui/src/nav/tuning.rs` | 53 | reviewed | read; ok (I-040 for tuning) |
-| `crates/ui/src/note_editor/overlay.rs` | 51 | todo | |
-| `crates/core/src/lib.rs` | 50 | todo | |
+| `crates/ui/src/note_editor/overlay.rs` | 51 | reviewed | read; ok |
+| `crates/core/src/lib.rs` | 50 | reviewed | I-004, I-051 |
 | `crates/audio/src/parallel.rs` | 50 | reviewed | I-014 |
 | `Cargo.toml` | 47 | reviewed | deps audited (I-001..I-003) |
-| `crates/audio/src/ramp.rs` | 46 | todo | |
+| `crates/audio/src/ramp.rs` | 46 | reviewed | read; ok |
 | `crates/analysis/examples/pitchref.rs` | 38 | todo | |
 | `crates/ui/src/note_editor/testkit.rs` | 36 | todo | |
 | `crates/analysis/examples/beatfit_bench.rs` | 35 | todo | |
 | `crates/app/Cargo.toml` | 34 | reviewed | deps audited (I-001..I-003) |
 | `crates/ui/src/grid/style.rs` | 31 | reviewed | read; ok |
-| `crates/audio/src/stretch.rs` | 31 | todo | |
-| `crates/audio/src/lib.rs` | 28 | todo | |
-| `crates/analysis/src/lib.rs` | 28 | todo | |
-| `crates/audio/src/error.rs` | 27 | todo | |
-| `crates/app/src/main.rs` | 27 | todo | |
-| `crates/app/src/lib.rs` | 27 | todo | |
+| `crates/audio/src/stretch.rs` | 31 | reviewed | read; ok |
+| `crates/audio/src/lib.rs` | 28 | reviewed | read; ok |
+| `crates/analysis/src/lib.rs` | 28 | reviewed | read; ok |
+| `crates/audio/src/error.rs` | 27 | reviewed | read; ok |
+| `crates/app/src/main.rs` | 27 | reviewed | read; ok |
+| `crates/app/src/lib.rs` | 27 | reviewed | read; ok |
 | `crates/analysis/examples/make_luts.rs` | 26 | todo | |
 | `crates/analysis/Cargo.toml` | 25 | reviewed | deps audited (I-001..I-003) |
 | `crates/ui/src/tracks/events.rs` | 23 | reviewed | ok |
-| `crates/ui/src/lib.rs` | 22 | todo | |
+| `crates/ui/src/lib.rs` | 22 | reviewed | read; ok |
 | `crates/ui/Cargo.toml` | 20 | reviewed | deps audited (I-001..I-003) |
-| `crates/ui/src/tracks/mod.rs` | 19 | todo | |
+| `crates/ui/src/tracks/mod.rs` | 19 | reviewed | read; ok |
 | `crates/audio/Cargo.toml` | 17 | reviewed | deps audited (I-001..I-003) |
 | `crates/core/Cargo.toml` | 15 | reviewed | deps audited (I-001..I-003) |
-| `crates/analysis/src/error.rs` | 11 | todo | |
+| `crates/analysis/src/error.rs` | 11 | reviewed | read; ok |
 | `crates/ui/examples/legato_demo.rs` | 9 | todo | |
 | `crates/notation/Cargo.toml` | 8 | reviewed | deps audited (I-001..I-003) |
 | `crates/notation/src/lib.rs` | 4 | reviewed | read; ok |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 102 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 50 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 112 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 51 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -586,3 +586,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** `levels`, `gamma`, `lut` always travel together (they are `SpectroStyle`'s fields); the key clones the LUT name every frame.
 **Instructions:** move `SpectroStyle` (levels, gamma, lut) to `analysis` (or add `analysis::RenderStyle`) and pass it as one parameter, dropping the `allow`; key the cache on `Arc::as_ptr(&lut) as usize` (or a LUT id) instead of the name `String`.
 **Risk:** low.
+
+### I-051 (low) · Level/gamma limits and clamping defined in both `core` and `analysis` · impact: low · saves ~25 lines · status: open
+**Where:** `core/src/persist.rs:79-109` (`LEVELS_MIN_GAP` 0.02, `GAMMA_RANGE` 0.2..=5.0, inline levels clamp at 99-101) vs `analysis/src/display.rs:5-8,33-56` (`MIN_LEVELS_GAP` 0.02, `GAMMA_MIN/MAX`, `Levels::clamped`, `clamp_gamma`); `core/src/error.rs` `PitchRefOutOfRange` message hardcodes `400..=480` (I-033).
+**Problem:** the same two limits and the same clamping logic exist twice and must be kept in sync by hand; `analysis` already depends on `core`.
+**Instructions:** keep the constants in `core` (`persist` or a new `display_limits`), have `analysis::display` re-use them (`pub use`), and make `UiState::sanitise` call the shared clamp (move a tiny `Levels::clamped` to `core`, `analysis::Levels` re-exports it). Build the error message from `PitchRef::MIN/MAX` (I-033).
+**Risk:** low; settings/persist tests cover clamping.
