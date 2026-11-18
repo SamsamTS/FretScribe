@@ -45,7 +45,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
 | `crates/ui/src/spectro/glyphs.rs` | 395 | partial | layout() read (I-024) |
 | `crates/analysis/src/pitchref.rs` | 394 | todo | |
-| `crates/audio/src/resample.rs` | 391 | todo | |
+| `crates/audio/src/resample.rs` | 391 | reviewed | prod part read (I-029) |
 | `crates/ui/src/nav/mod.rs` | 388 | todo | |
 | `crates/notation/src/staff/mod.rs` | 382 | todo | |
 | `crates/analysis/src/spectrogram_tests.rs` | 378 | todo | |
@@ -55,7 +55,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/spectro/glyphs/tests.rs` | 355 | todo | |
 | `crates/ui/src/view.rs` | 352 | todo | |
 | `crates/audio/src/focus_tests.rs` | 347 | todo | |
-| `crates/audio/src/synth.rs` | 334 | todo | |
+| `crates/audio/src/synth.rs` | 334 | reviewed | prod part read; ok (render_offline in I-004) |
 | `crates/ui/src/spectro/mod.rs` | 319 | reviewed | show/cache read (I-024) |
 | `crates/notation/src/staff/tests.rs` | 311 | todo | |
 | `crates/notation/src/tab/tests.rs` | 306 | todo | |
@@ -70,7 +70,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/tracks/header.rs` | 280 | todo | |
 | `crates/ui/src/tab_view/draw.rs` | 277 | todo | |
 | `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
-| `crates/audio/src/decode.rs` | 269 | todo | |
+| `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
 | `crates/analysis/src/beatfit/mod.rs` | 263 | todo | |
 | `crates/ui/src/nav/input.rs` | 261 | todo | |
 | `crates/ui/src/tab_view/edit.rs` | 241 | todo | |
@@ -79,7 +79,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/spectrogram.rs` | 224 | todo | |
 | `crates/app/src/autosave.rs` | 217 | todo | |
 | `crates/analysis/src/lut.rs` | 210 | todo | |
-| `crates/core/src/pitch.rs` | 206 | todo | |
+| `crates/core/src/pitch.rs` | 206 | reviewed | read; ok |
 | `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
 | `crates/ui/src/spectro/tests.rs` | 199 | todo | |
 | `crates/app/src/settings.rs` | 198 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 28 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 29 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -416,3 +416,12 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 3. Replace the two grid helpers by one `fn grid_near(tempo, grid, from, forward: bool)`; in `step_on_grid` build the candidate list once outside the loop only if `steps.abs() > 1`, else leave as is.
 4. Merge the two `use crate::model::...` lines.
 **Risk:** low; snapping has dense tests (`snap_note/tests`, `snap.rs`): `cargo test -p fretscribe-core snap`. Item 2 does not change results (candidates outside the radius are already filtered by `choose`).
+
+### I-029 · `resample.rs`: duplicated channel-copy loop and double wrapper; `DecodedAudio` keeps two full copies · impact: low-med · saves ~15 lines, up to ~1/3 of decoded RAM for mono files · status: open
+**Where:** `crates/audio/src/resample.rs:192-199` vs `:209-216` (identical copy loop and "unexpected channel count" error), `:60-68`/`:34-41` (`Prepared::from_decoded` + `PreparedAudio::new`), `:129-141` (`to_stereo`) and `:173` (same `right = width.min(2) - 1` rule); `crates/audio/src/decode.rs:26-27,52-58` (`mono` and `interleaved`).
+**Problem:** (a) the two branches of `resample_to_stereo` fill `input` from an interleaved chunk with the same 5-line loop and the same let-else; (b) `Prepared` (samples) is wrapped in `Arc` inside `PreparedAudio` (rate) so every accessor is a forwarder; (c) for 1-channel files `interleaved` and `mono` are equal copies (`from_interleaved` always builds `mono`), and each stereo decode holds `mono` (4 B/frame) plus `interleaved` (8 B/frame) after `Prepared` was already built from it (`app/src/loader.rs:218` copies `mono` again into an `Arc<[f32]>`).
+**Instructions:**
+1. Add `fn load(input: &mut [Vec<f32>], frames: impl Iterator<Item = &[f32]>, right: usize) -> Result<()>` (does the let-else + loop) and call it from both places; pass `right` from one helper `fn right_channel(width)` shared with `to_stereo`.
+2. Make `Prepared { samples, rate }` the only type (`Arc<Prepared>` held by `PreparedAudio` can become `pub struct PreparedAudio(Arc<Prepared>)` with the three accessors reading `self.0`); drop the `rate` duplicate.
+3. In `LoadJob` (`app/src/loader.rs:218`) build the `Arc<[f32]>` from `decoded.mono` by value (`Arc::from(decoded.mono)`) and drop `interleaved` as soon as `PreparedAudio::new` returns (it is already dropped with `decoded`; just confirm no clone of `DecodedAudio` is held in `Session`/`store`).
+**Risk:** low; `cargo test -p fretscribe-audio` (resample tests cover ratios and tails).
