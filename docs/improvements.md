@@ -44,7 +44,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
 | `crates/ui/src/spectro/glyphs.rs` | 395 | partial | layout() read (I-024) |
-| `crates/analysis/src/pitchref.rs` | 394 | todo | |
+| `crates/analysis/src/pitchref.rs` | 394 | reviewed | prod part read (I-030) |
 | `crates/audio/src/resample.rs` | 391 | reviewed | prod part read (I-029) |
 | `crates/ui/src/nav/mod.rs` | 388 | todo | |
 | `crates/notation/src/staff/mod.rs` | 382 | todo | |
@@ -74,7 +74,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/beatfit/mod.rs` | 263 | todo | |
 | `crates/ui/src/nav/input.rs` | 261 | todo | |
 | `crates/ui/src/tab_view/edit.rs` | 241 | todo | |
-| `crates/analysis/src/cqt.rs` | 236 | todo | |
+| `crates/analysis/src/cqt.rs` | 236 | partial | lines 1-130 read; ok |
 | `crates/ui/examples/tracks_demo.rs` | 235 | todo | |
 | `crates/analysis/src/spectrogram.rs` | 224 | todo | |
 | `crates/app/src/autosave.rs` | 217 | todo | |
@@ -433,5 +433,6 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 1. Put `pub(crate) fn hann(n: usize) -> Vec<f32>` in a new `analysis/src/dsp.rs` (or `lib.rs`), delete the four local versions.
 2. Compute `let env_other = onset_envelope(other, sample_rate);` once at the top of `estimate_offset`, pass it to the `grid_hint` block and change `tempos` to take an envelope (`tempos(&env, ..)`); same for `reference`.
 3. Sort and truncate `onsets` once when building them (`:146`) and let `grid_score` take the prepared slice.
-4. Split `estimate_offset` into `correlate` (peaks + refine), `disambiguate` (the `[a, b]` block, `:170-190`) and `drift_note` (`:192-197`) to bring it under ~40 lines.
+4. In `pitchref.rs:260` hoist `smooth.iter().sum::<f64>()` out of the `map` closure (it is recomputed for each of the 100 bins).
+5. Split `estimate_offset` into `correlate` (peaks + refine), `disambiguate` (the `[a, b]` block, `:170-190`) and `drift_note` (`:192-197`) to bring it under ~40 lines.
 **Risk:** low; `cargo test -p fretscribe-analysis` (sync tests assert offsets and notes). Step 1 changes window values at the 1e-7 level only (f64 formulation kept for all).
