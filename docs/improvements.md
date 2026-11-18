@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -366,7 +366,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. Use `s.luts.names()` (return `impl Iterator<Item = &str>` or cache `Vec<String>` in `LutSet`) instead of the per-frame `collect`; delete the duplicate.
 **Risk:** low; manual check: add a PNG to the `LUT/` folder while the app runs, open the dropdown, confirm it appears.
 
-### I-023 · Tab re-inference runs a full solve per edited note · impact: high · perf: multi-note edits cost k full solves instead of one · status: open
+### I-023 · Tab re-inference runs a full solve per edited note · impact: high · perf: multi-note edits cost k full solves instead of one · status: done (`assign_tabs_ranges` merges windows and solves each once; `infer_affected` calls it once with an id index; `assign_tabs_range` is a wrapper. Test: 3 edited notes give the same placements as 3 sequential calls, with and without a lock. Not benchmarked on a 2000-note piece)
 **Where:** `crates/app/src/session.rs:361-368` `infer_affected`; `crates/notation/src/tab/solve.rs:400-452` `run`, `:461` `assign_tabs_range`; caller `crates/app/src/editor.rs:421`.
 **Problem:** `infer_affected` loops over the affected ids and calls `assign_tabs_range` for each. Every call rebuilds the whole `Ctx` (`spans`, `family` for all notes), all `Item`s (`build_items`, O(n)), then solves from the edited item to the next *locked* note, which is the end of the piece when nothing is locked (the default). Transposing or moving k selected notes therefore does k x (O(n) setup + O(n) combos + Viterbi over the rest of the piece). Also `iter().position(|n| n.id == *id)` per id and a second linear `contains` inside `run` (`:413`).
 **Instructions:**

@@ -19,7 +19,10 @@ impl eframe::App for Preview {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| match &mut self.form {
             Some(form) => drop(form.show(ui)),
-            None => drop(show_home(ui, &self.settings, &|p| if p.ends_with("c") { TileStatus::MissingAudio } else { TileStatus::Ok }, NOW)),
+            None => {
+                let status: std::collections::HashMap<_, _> = self.settings.recent.iter().filter(|r| r.path.ends_with("c")).map(|r| (r.path.clone(), TileStatus::MissingAudio)).collect();
+                drop(show_home(ui, &self.settings, Some(&status), NOW))
+            }
         });
         self.frames += 1;
         let Some(path) = self.shot.clone() else { return };

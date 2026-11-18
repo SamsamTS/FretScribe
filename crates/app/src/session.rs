@@ -11,7 +11,7 @@ use fretscribe_core::{
     shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, TempoMap, UiState, UndoPolicy, UndoStack,
 };
 use fretscribe_notation::staff::{self, StaffLayout, StaffOptions};
-use fretscribe_notation::tab::{assign_tabs, assign_tabs_range, TabOptions};
+use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::note_editor::{Keymap, NoteEditor};
 use fretscribe_ui::{RegionSelection, SpectroCache, SpectroStyle, TabViewState, TrackLanesState, ViewController, ViewTuning};
@@ -360,11 +360,9 @@ impl Session {
     /// Re-run inference after note edits: the edited notes' neighbourhood only.
     pub fn infer_affected(&mut self, affected: &[u64]) {
         let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
-        for id in affected {
-            if let Some(i) = self.project.notes.iter().position(|n| n.id == *id) {
-                assign_tabs_range(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, i, self.tab_state.propagate_backwards);
-            }
-        }
+        let index: std::collections::HashMap<u64, usize> = self.project.notes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        let edited: Vec<usize> = affected.iter().filter_map(|id| index.get(id).copied()).collect();
+        assign_tabs_ranges(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, &edited, self.tab_state.propagate_backwards);
     }
 
     /// One undoable edit around any model mutation; errors become a toast.
