@@ -39,7 +39,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
 | `crates/app/src/toolbar.rs` | 409 | partial | lines 1-360 read (I-022) |
 | `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
-| `crates/ui/src/nav/maths.rs` | 404 | todo | |
+| `crates/ui/src/nav/maths.rs` | 404 | reviewed | read; ok (I-040 for tuning) |
 | `crates/core/src/tracks.rs` | 401 | reviewed | read (I-004) |
 | `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
 | `crates/ui/examples/note_editor_demo.rs` | 396 | todo | |
@@ -61,7 +61,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/notation/src/tab/tests.rs` | 306 | todo | |
 | `crates/ui/src/note_editor/keymap.rs` | 303 | reviewed | I-048 |
 | `crates/app/src/jobs.rs` | 303 | partial | Job abstraction read; ok |
-| `crates/ui/src/overview/waveform.rs` | 296 | todo | |
+| `crates/ui/src/overview/waveform.rs` | 296 | reviewed | read; ok (palette per lane: I-045) |
 | `crates/app/src/home.rs` | 288 | reviewed | read (I-034) |
 | `crates/ui/src/note_editor/grace_entry.rs` | 285 | reviewed | I-048 |
 | `crates/ui/src/tracks/lane.rs` | 284 | reviewed | I-016, I-045 |
@@ -72,7 +72,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
 | `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
 | `crates/analysis/src/beatfit/mod.rs` | 263 | reviewed | prod part read; ok |
-| `crates/ui/src/nav/input.rs` | 261 | todo | |
+| `crates/ui/src/nav/input.rs` | 261 | reviewed | read; ok (I-040 for tuning) |
 | `crates/ui/src/tab_view/edit.rs` | 241 | reviewed | lines 190-241 read; ok (`auto_string` clones Project once per right-click, fine) |
 | `crates/analysis/src/cqt.rs` | 236 | reviewed | read; ok |
 | `crates/ui/examples/tracks_demo.rs` | 235 | todo | |
@@ -84,7 +84,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/spectro/tests.rs` | 199 | todo | |
 | `crates/app/src/settings.rs` | 198 | reviewed | read (I-019) |
 | `crates/ui/src/grid/lines.rs` | 197 | reviewed | prod part read (I-038) |
-| `crates/ui/src/theme.rs` | 196 | todo | |
+| `crates/ui/src/theme.rs` | 196 | reviewed | I-047 |
 | `crates/ui/src/tracks/lanes.rs` | 195 | reviewed | read (I-041) |
 | `crates/app/src/store.rs` | 193 | partial | snap_candidates read (I-016) |
 | `crates/ui/src/note_editor/select.rs` | 192 | reviewed | I-048 |
@@ -116,7 +116,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/app/src/paths.rs` | 109 | reviewed | read; ok |
 | `crates/analysis/examples/spectrogram_png.rs` | 109 | todo | |
 | `crates/analysis/src/beatfit/synth.rs` | 104 | reviewed | read (I-032) |
-| `crates/ui/src/overview/ruler.rs` | 103 | todo | |
+| `crates/ui/src/overview/ruler.rs` | 103 | reviewed | I-038 |
 | `crates/ui/examples/tab_demo.rs` | 100 | todo | |
 | `crates/ui/src/tab_view/menu.rs` | 96 | reviewed | read; ok |
 | `crates/audio/src/testutil.rs` | 91 | todo | |
@@ -139,7 +139,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/mod.rs` | 56 | todo | |
 | `crates/app/tests/pipeline.rs` | 56 | todo | |
 | `crates/ui/src/tracks/icons.rs` | 55 | reviewed | ok |
-| `crates/ui/src/nav/tuning.rs` | 53 | todo | |
+| `crates/ui/src/nav/tuning.rs` | 53 | reviewed | read; ok (I-040 for tuning) |
 | `crates/ui/src/note_editor/overlay.rs` | 51 | todo | |
 | `crates/core/src/lib.rs` | 50 | todo | |
 | `crates/audio/src/parallel.rs` | 50 | reviewed | I-014 |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 93 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 49 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 99 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 49 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -200,6 +200,7 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Instructions:**
 1. In `crates/core/src/lib.rs` add `pub use uuid::Uuid;`.
 2. In both app files use `fretscribe_core::Uuid`; remove `uuid.workspace = true` from `crates/app/Cargo.toml`.
+**Also:** `staff_view::install_fonts` (`staff_view/mod.rs:42`) is used only by `examples/staff_demo.rs` and a test; the app uses `theme::install_fonts` (which already calls `staff_view::add_fonts`). Drop it or gate it with `#[cfg(test)]`/the example (add to I-004).
 **Risk:** none.
 
 ### I-004 · Dead production API (only called from tests) · impact: med · saves ~90 lines incl. their tests · status: open
