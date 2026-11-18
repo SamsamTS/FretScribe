@@ -11,7 +11,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/note_editor/editor_tests.rs` | 790 | todo | |
 | `crates/ui/src/note_editor/editor.rs` | 717 | reviewed | prod part read (I-037) |
 | `crates/audio/src/player.rs` | 700 | reviewed | prod part read (I-014, I-013) |
-| `crates/app/src/app.rs` | 676 | partial | lines 1-490 read (I-021) |
+| `crates/app/src/app.rs` | 676 | reviewed | I-021, I-034, I-054 |
 | `crates/analysis/src/waveform.rs` | 656 | partial | peaks() read; ok |
 | `crates/ui/src/note_editor/draw.rs` | 637 | reviewed | prod part read (I-010, I-011) |
 | `crates/analysis/src/sync.rs` | 632 | partial | lines 1-470 read (I-030) |
@@ -37,7 +37,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/measures.rs` | 419 | reviewed | prod part read (I-026) |
 | `crates/ui/src/overview/mod.rs` | 415 | reviewed | read; ok |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
-| `crates/app/src/toolbar.rs` | 409 | partial | lines 1-360 read (I-022) |
+| `crates/app/src/toolbar.rs` | 409 | reviewed | I-022, I-052 |
 | `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
 | `crates/ui/src/nav/maths.rs` | 404 | reviewed | read; ok (I-040 for tuning) |
 | `crates/core/src/tracks.rs` | 401 | reviewed | read (I-004) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 115 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 53 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 117 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 54 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -594,7 +594,7 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Risk:** low; settings/persist tests cover clamping.
 
 ### I-052 (low) · `app/form_ui.rs` re-implements kit widgets and repeats small tables · impact: low · saves ~60 lines · status: open
-**Where:** `app/src/form_ui.rs`: `button` (404-416), `step_button`, `add_track_button` + `rounded_rect_path` (463-488, hand-built dashed rounded rect), `field` (340, pass-through to `kit::text_field`), `text_w`/`text_wf` (328-333, `to_owned` + `layout_no_wrap` per call), `role_label`/`instrument_label` (43-57), `[Instrument::Guitar, Instrument::Bass]` written three times in `tuning_ui`, `track_row` (419-461, ~40 literal pixel offsets, `label_w` sum of magic numbers), `REFERENCE_NOTE` hardcodes "+/-50 cents".
+**Where:** `app/src/form_ui.rs`: `button` (404-416), `step_button`, `add_track_button` + `rounded_rect_path` (463-488, hand-built dashed rounded rect), `field` (340, pass-through to `kit::text_field`), `text_w`/`text_wf` (328-333, `to_owned` + `layout_no_wrap` per call), `role_label`/`instrument_label` (43-57), `[Instrument::Guitar, Instrument::Bass]` written three times in `tuning_ui`, `track_row` (419-461, ~40 literal pixel offsets, `label_w` sum of magic numbers), `REFERENCE_NOTE` hardcodes "+/-50 cents"; `capo_ui` duplicates `toolbar.rs:379` `capo_stepper` (both `MAX_CAPO` steppers); `toolbar.rs:412,427-433` repeat the 400..480 Hz limits (I-033).
 **Problem:** the app has its own pill/button styles beside `ui::kit` (`pill`, `dropdown`, `text_field`), so the look is maintained in two places; `form_ui` is 581 lines mostly of layout constants.
 **Instructions:** (1) move `button`, `step_button` and the dashed "add" button into `kit` (they are generic) and reuse them in `toolbar.rs`/`home.rs` where similar buttons exist; (2) delete `field` and call `text_field`; (3) `Instrument::ALL` const + `TrackRole::label()`/`Instrument::label()` in core/app next to the enums (also used by `tracks/header.rs`, I-042); (4) derive `label_w` from a named column list (`const ROW_COLS`); (5) format the reference note from the shared cents limit (I-033).
 **Risk:** low; visual check of the new-project form.
@@ -604,3 +604,8 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** adding a job type or an option means editing 2-3 places, and positional bool tuples are easy to swap silently.
 **Instructions:** add `Jobs::any(&self)` and use it in `poll_jobs` and `jobs_running`; replace the tuples with the existing `LaneOptions` / a `TabOptions` struct derived `Serialize/Deserialize` (keep a serde alias for the old array form via `#[serde(from)]` to stay compatible, bump `CURRENT_VERSION` only if needed) so `restore_view`/`snapshot` become one assignment each.
 **Risk:** low; persist round-trip tests exist.
+
+### I-054 (low) · `app/app.rs`: dialog choice as magic integers, screen dispatch by repeated `matches!` · impact: low · saves ~15 lines · status: open
+**Where:** `app.rs` `confirm_ui` (525-568, `choice = Some(0/1/2)`), `update` (657-679, four `matches!(self.screen, ..)` branches), `reveal` (591-600, `let _ = dir` to silence the unused var), `editor::dialogs`/`missing_audio_dialog` (two more hand-rolled modal windows with the same frame/anchor chain).
+**Instructions:** `enum Choice { Save, Discard, Cancel }`; `match &self.screen { Screen::Creating(c) => .., Screen::Home => .., Screen::Form(_) => .., Screen::Editor(_) => .. }`; extract `fn dialog(ctx, title) -> egui::Window` in `theme` (`dialog_frame` + collapsible(false) + centre anchor) and use it for the three windows; give `reveal` one `cfg` body per OS returning `Command` so no dummy binding is needed.
+**Risk:** low.
