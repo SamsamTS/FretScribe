@@ -15,7 +15,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/waveform.rs` | 656 | partial | peaks() read; ok |
 | `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
 | `crates/analysis/src/sync.rs` | 632 | todo | |
-| `crates/core/src/snap_note.rs` | 630 | todo | |
+| `crates/core/src/snap_note.rs` | 630 | reviewed | prod part read (I-028) |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
 | `crates/app/src/session.rs` | 583 | partial | lines 1-460 read (I-019, I-020) |
 | `crates/app/src/form_ui.rs` | 581 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 27 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 28 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -406,3 +406,13 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Problem:** no code outside one test (`core/src/tracks.rs:379`) constructs or matches them; the tab/staff/spectro renderers only handle `Slide`, `Bend`, `Tie`. They are placeholders for unplanned features, and `Technique` is serialised (`Serialize`/`Deserialize`), so they only matter for files that contain them.
 **Instructions:** check `CONTEXT.md` for a planned harmonic/palm-mute feature; if none, delete both variants and change the `tracks.rs:379` test to use `Technique::Bend`. If saved projects may already hold them, keep them and add a `// reserved: file format` comment instead.
 **Risk:** low; only a format-compat question for old saves.
+
+### I-028 · Grid enumeration written three times; `snap_edge` builds a candidate per note on every pointer move · impact: low-med · saves ~25 lines · status: open
+**Where:** `crates/core/src/snap_note.rs:117-143` (`grid_candidates`), `:214-228` (neighbour candidates), `:247-261` (`first_grid_at_or_after`/`last_grid_at_or_before`); `crates/core/src/snap.rs:176-201` (`grid_lines`), `:142-165` (`snap_to_pos`); `snap_note.rs:9-11` (two `use crate::model` lines).
+**Problem:** (a) the "for each division, step through the measure in units, keep the coarsest division per position in a `BTreeMap<u32, u8>`" loop exists in both `grid_candidates` and `grid_lines`, differing only by the end bound; (b) with neighbour snap on, `snap_edge` pushes a `Candidate` (one `pos_to_sec`, i.e. a `normalise` + hash lookup) for every other note of the track on each call, although only those within `threshold` of `sec` can win; `choose` then re-filters them all; (c) `first_grid_at_or_after` and `last_grid_at_or_before` are mirror images; `step_on_grid` rebuilds three measures of candidates per step.
+**Instructions:**
+1. Add `pub(crate) fn grid_units(end_units: u32, divisions: &[u8]) -> BTreeMap<u32, u8>` in `snap.rs` (the shared loop; `grid_lines` passes the measure length, `grid_candidates` passes `len_units` (+ 2 beats for the last measure)); both callers map the result.
+2. In the neighbour loop compute `let s = tempo.pos_to_sec(pos); if (s - sec).abs() > threshold { continue; }` before pushing, so the candidate list holds only reachable targets.
+3. Replace the two grid helpers by one `fn grid_near(tempo, grid, from, forward: bool)`; in `step_on_grid` build the candidate list once outside the loop only if `steps.abs() > 1`, else leave as is.
+4. Merge the two `use crate::model::...` lines.
+**Risk:** low; snapping has dense tests (`snap_note/tests`, `snap.rs`): `cargo test -p fretscribe-core snap`. Item 2 does not change results (candidates outside the radius are already filtered by `choose`).
