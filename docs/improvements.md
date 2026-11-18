@@ -68,7 +68,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/grid/popup.rs` | 282 | todo | |
 | `crates/analysis/tests/export_spectrogram_png.rs` | 281 | todo | |
 | `crates/ui/src/tracks/header.rs` | 280 | reviewed | read (I-042) |
-| `crates/ui/src/tab_view/draw.rs` | 277 | todo | |
+| `crates/ui/src/tab_view/draw.rs` | 277 | reviewed | read (I-043, I-025) |
 | `crates/app/src/loader.rs` | 275 | partial | LoadJob read; ok |
 | `crates/audio/src/decode.rs` | 269 | reviewed | prod part read (I-029) |
 | `crates/analysis/src/beatfit/mod.rs` | 263 | reviewed | prod part read; ok |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `staff_view/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 72 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 42 findings).** Top wins: I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 72 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 43 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -532,3 +532,14 @@ Not yet read: ui `nav/`, `staff_view/`, `tracks/{lanes,header,offset,geometry,ic
 4. Build `items` once (`const STRING_ITEMS: [&str; 9]` and slice `..tools.strings.min(9)`), which also lets `menu_rows` take `&[&str]`; replace the format-built id with `("tool-string", id)`.
 5. Turn `TrackHeader::show` into a free `pub fn show_header(..)` (re-export name unchanged for callers).
 **Risk:** low; `cargo test -p fretscribe-ui tracks` (header tests cover `volume_text`, `opacity_for`; layout is visual, so check once in `tracks_demo`).
+
+### I-043 (med) · Tab view rebuilds whole-project link/id tables and grace layout on every frame · impact: med on long songs · perf: ~6 hash builds over all notes + text layout per grace note per frame · status: open
+**Where:** `crates/ui/src/tab_view/draw.rs:185-230` (`notes`), `:22-38` (`links`), `:161-182` (`grace_xs`), `:233-277` (`stems`); `:199-200` (`c.selected.contains`, `flashes.iter().find` per visible note).
+**Problem:** only the first loop of `notes` skips off-screen notes. Before it, every frame builds `links(&notes)` (a `Vec`), `bend_ends`, `has_incoming`, `has_outgoing` (3 `HashSet`s) and `grace_xs` (a `HashMap<u64, Vec<&Note>>`, a sort and 2 `layout_no_wrap` calls per grace note, plus a linear `find` for each main note at `:169`), and after it a `by_id` `HashMap` of **all** notes. `stems` walks all beams/events with no culling in its first loop. A 2000-note song therefore allocates and hashes ~12 000 entries per repaint (every mouse move and playback frame), although the screen shows ~50 notes.
+**Instructions:**
+1. Cull first: collect `visible: Vec<&Note>` (start/end inside `t0..t1`, plus the other end of any link crossing the edge) and run the link/grace passes over that list only.
+2. Link tables depend only on `project.notes`: build them once per edit (store in `TabViewState` keyed by a `Project` revision counter or by `(notes.len(), last edit id)` supplied by the app; see `Session` resync points, I-020) and reuse across frames.
+3. Replace `by_id` by `project.note(id)` only for link endpoints (after I-025 adds an indexed `Project::note`), and `grace_xs` by a lookup restricted to visible mains.
+4. Convert `selected: &[u64]` to a `HashSet` once per frame at the call site (also benefits lane/staff views), and keep `flashes` sorted so a miss costs O(1) when empty (it is empty almost always: check `flashes.is_empty()` first).
+5. In `stems`, skip beams whose first/last event are both outside `view.x_to_sec(-20.0 .. width + 20.0)` before the level loop.
+**Risk:** low-med; step 2 needs a correct invalidation key. Steps 1, 4, 5 are local. `cargo test -p fretscribe-ui tab_view` (tests render rects and links with the same `Ctx`).
