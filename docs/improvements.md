@@ -27,7 +27,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/delta.rs` | 512 | reviewed | prod part read (I-012) |
 | `crates/ui/src/note_editor/action.rs` | 507 | reviewed | I-007 |
 | `crates/ui/src/grid/mod.rs` | 503 | reviewed | prod part read (I-038) |
-| `crates/notation/src/tab/solve.rs` | 492 | partial | run() and entry points read (I-023) |
+| `crates/notation/src/tab/solve.rs` | 492 | reviewed | I-023 |
 | `crates/ui/src/overview/logic.rs` | 485 | reviewed | read; ok |
 | `crates/ui/src/kit.rs` | 479 | reviewed | prod part read (I-039) |
 | `crates/ui/src/overview/headless.rs` | 476 | reviewed | read; ok |
@@ -38,7 +38,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/ui/src/overview/mod.rs` | 415 | reviewed | read; ok |
 | `crates/ui/src/note_editor/modify.rs` | 412 | reviewed | preview_changes read (I-010) |
 | `crates/app/src/toolbar.rs` | 409 | reviewed | I-022, I-052 |
-| `crates/ui/src/tab_view/mod.rs` | 407 | partial | show_body read (I-017) |
+| `crates/ui/src/tab_view/mod.rs` | 407 | reviewed | I-017, I-058 |
 | `crates/ui/src/nav/maths.rs` | 404 | reviewed | read; ok (I-040 for tuning) |
 | `crates/core/src/tracks.rs` | 401 | reviewed | read (I-004) |
 | `crates/core/src/snap.rs` | 400 | reviewed | prod part read (I-026) |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 123 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 57 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 125 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 58 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -626,3 +626,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** two copies of the same visual algorithm and constants must be kept in sync by hand; one of them is test-only code compiled into the release crate.
 **Instructions:** (1) move the shared pieces (`column_for`/`Column`, `smoothed`, `fade`, `distance_from_centre`, the constants) into `analysis::waveform` as a small public API that yields per-column `(envelope rows, body rows, level)`; (2) have `ui` build its mesh from that and drop its copy; (3) keep the PNG exporter as a test helper (`#[cfg(test)]` or move into `tests/`) built on the same API, and remove the `render_waveform_rgba` re-export. Also `Block::from_samples` re-checks `is_finite` per sample (hoist or sanitise once when decoding).
 **Risk:** med; compare the exported PNG against the on-screen result before and after.
+
+### I-058 (low) · `tab_view/mod.rs` 158-line `TabView::show`, per-frame Vec allocations in `line_style` · impact: low · saves ~30 lines · status: open
+**Where:** `ui/src/tab_view/mod.rs:211-368` `show` (painting, drag, click, marquee, context menu, popup, keyboard in one body); `:194-208` `line_style` (`chosen(Vec<u8>)` collects a new `Vec` per string per frame, `m.strings.clone()`), `:339` `state.menu.clone()` every frame while the menu is open, `:258` `acts_on` clones `selected`, `:229` `string_label_styled(..).unwrap_or_default()` allocates per string per frame.
+**Problem:** one function owns six concerns, so the drag/marquee state machines can't be tested without egui; small avoidable allocations in the paint path.
+**Instructions:** split into `paint_staff`, `drive_drag`, `drive_marquee`, `drive_menu`, `drive_keys` (each taking `&mut TabViewState` + `&mut events`); make `chosen` a `fn(&[u8] or impl Iterator<Item=u8>, string) -> bool` (no collect); show the menu through `if let Some(model) = &state.menu` with the model's `Rc`/borrow instead of cloning; cache string labels in `TabStyle` or compute them once per tuning change.
+**Risk:** low; `tab_view` tests exercise `apply`/`menu_model`, not `show`, so check drag and menu by hand.
