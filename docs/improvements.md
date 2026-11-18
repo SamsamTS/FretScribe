@@ -74,11 +74,11 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/beatfit/mod.rs` | 263 | todo | |
 | `crates/ui/src/nav/input.rs` | 261 | todo | |
 | `crates/ui/src/tab_view/edit.rs` | 241 | todo | |
-| `crates/analysis/src/cqt.rs` | 236 | partial | lines 1-130 read; ok |
+| `crates/analysis/src/cqt.rs` | 236 | reviewed | read; ok |
 | `crates/ui/examples/tracks_demo.rs` | 235 | todo | |
-| `crates/analysis/src/spectrogram.rs` | 224 | todo | |
+| `crates/analysis/src/spectrogram.rs` | 224 | reviewed | prod part read (I-004, I-031) |
 | `crates/app/src/autosave.rs` | 217 | todo | |
-| `crates/analysis/src/lut.rs` | 210 | todo | |
+| `crates/analysis/src/lut.rs` | 210 | reviewed | read; ok |
 | `crates/core/src/pitch.rs` | 206 | reviewed | read; ok |
 | `crates/core/src/overlap.rs` | 206 | reviewed | partial (I-010) |
 | `crates/ui/src/spectro/tests.rs` | 199 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`, `model.rs`; audio `resample.rs`, `synth.rs`, `decode.rs`; analysis `beatfit/`, `pitchref.rs`, `cqt.rs`, `spectrogram.rs`; notation `staff/`; ui `grid/`, `overview/`, `nav/`, `staff_view/`, `note_editor/editor.rs`; app `form*.rs`, `home.rs`, `autosave.rs`, `settings.rs`. Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally.
 
 ## Findings
-**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 30 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, ~30 of ~157 files read in full or part; the rest not yet read; compiler lints run on core/notation/analysis/ui; 31 findings).** Top wins: I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -436,3 +436,11 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 4. In `pitchref.rs:260` hoist `smooth.iter().sum::<f64>()` out of the `map` closure (it is recomputed for each of the 100 bins).
 5. Split `estimate_offset` into `correlate` (peaks + refine), `disambiguate` (the `[a, b]` block, `:170-190`) and `drift_note` (`:192-197`) to bring it under ~40 lines.
 **Risk:** low; `cargo test -p fretscribe-analysis` (sync tests assert offsets and notes). Step 1 changes window values at the 1e-7 level only (f64 formulation kept for all).
+
+### I-031 · Inert `WindowKind`/`window` parameter; `Spectrogram` repeats `SpectrogramInfo` field by field · impact: low · saves ~25 lines (incl. 6 hand-built literals) · status: open
+**Where:** `crates/analysis/src/spectrogram.rs:12-15,24,39` (`WindowKind`, `SpectrogramParams::window`), re-exported at `analysis/src/lib.rs:26`; `spectrogram.rs:67-89,106-116` (`SpectrogramInfo` vs `Spectrogram`); literals at `ui/src/spectro/tests.rs:23`, `ui/examples/tracks_demo.rs:58`, `ui/examples/note_editor_demo.rs:45`, `analysis/src/notes.rs:61`, `analysis/src/spectrogram_tests.rs:272`.
+**Problem:** (a) `WindowKind` has one variant and nothing reads `params.window`: `cqt.rs` always builds a Hann window; (b) `Spectrogram` holds the same six fields as `SpectrogramInfo` plus `data`, so `Spectrogram::empty` copies them one by one and every test/example literal spells all seven fields.
+**Instructions:**
+1. Delete `WindowKind`, the `window` field, its default and the re-export.
+2. Change `Spectrogram` to `{ pub info: SpectrogramInfo, pub data: Vec<f32> }` and read `s.info.n_rows` etc. (accessor-free, mechanical rename; `Deref<Target = SpectrogramInfo>` on `Spectrogram` keeps `s.n_rows` working and makes it a 0-call-site change). `empty` becomes `Self { data: vec![0.0; i.n_rows * i.n_frames], info: i.clone() }`.
+**Risk:** low; compile-driven. Step 2 with `Deref` is the minimal variant.
