@@ -18,7 +18,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/core/src/snap_note.rs` | 630 | reviewed | prod part read (I-028) |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
 | `crates/app/src/session.rs` | 583 | partial | lines 1-460 read (I-019, I-020) |
-| `crates/app/src/form_ui.rs` | 581 | todo | |
+| `crates/app/src/form_ui.rs` | 581 | reviewed | I-052 |
 | `crates/app/src/editor.rs` | 557 | partial | frame loop read (I-008) |
 | `crates/ui/src/staff_view/mod.rs` | 552 | reviewed | I-044 |
 | `crates/core/src/undo.rs` | 552 | reviewed | prod part read; ok |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 112 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 51 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 113 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 52 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -592,3 +592,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** the same two limits and the same clamping logic exist twice and must be kept in sync by hand; `analysis` already depends on `core`.
 **Instructions:** keep the constants in `core` (`persist` or a new `display_limits`), have `analysis::display` re-use them (`pub use`), and make `UiState::sanitise` call the shared clamp (move a tiny `Levels::clamped` to `core`, `analysis::Levels` re-exports it). Build the error message from `PitchRef::MIN/MAX` (I-033).
 **Risk:** low; settings/persist tests cover clamping.
+
+### I-052 (low) · `app/form_ui.rs` re-implements kit widgets and repeats small tables · impact: low · saves ~60 lines · status: open
+**Where:** `app/src/form_ui.rs`: `button` (404-416), `step_button`, `add_track_button` + `rounded_rect_path` (463-488, hand-built dashed rounded rect), `field` (340, pass-through to `kit::text_field`), `text_w`/`text_wf` (328-333, `to_owned` + `layout_no_wrap` per call), `role_label`/`instrument_label` (43-57), `[Instrument::Guitar, Instrument::Bass]` written three times in `tuning_ui`, `track_row` (419-461, ~40 literal pixel offsets, `label_w` sum of magic numbers), `REFERENCE_NOTE` hardcodes "+/-50 cents".
+**Problem:** the app has its own pill/button styles beside `ui::kit` (`pill`, `dropdown`, `text_field`), so the look is maintained in two places; `form_ui` is 581 lines mostly of layout constants.
+**Instructions:** (1) move `button`, `step_button` and the dashed "add" button into `kit` (they are generic) and reuse them in `toolbar.rs`/`home.rs` where similar buttons exist; (2) delete `field` and call `text_field`; (3) `Instrument::ALL` const + `TrackRole::label()`/`Instrument::label()` in core/app next to the enums (also used by `tracks/header.rs`, I-042); (4) derive `label_w` from a named column list (`const ROW_COLS`); (5) format the reference note from the shared cents limit (I-033).
+**Risk:** low; visual check of the new-project form.
