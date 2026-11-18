@@ -102,7 +102,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/analysis/src/beatfit/fit.rs` | 161 | reviewed | read; ok |
 | `crates/analysis/src/notes.rs` | 156 | todo | |
 | `crates/analysis/src/render.rs` | 155 | todo | |
-| `crates/ui/src/tracks/offset.rs` | 151 | todo | |
+| `crates/ui/src/tracks/offset.rs` | 151 | reviewed | I-045 |
 | `crates/ui/src/grid/event.rs` | 150 | todo | |
 | `crates/notation/src/staff/value.rs` | 149 | reviewed | read (I-036) |
 | `crates/analysis/src/beatfit/tests.rs` | 132 | todo | |
@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_view/{draw,edit,menu,colors}`, `spectro/*` (partly), `note_editor/{keymap,grace_entry,select,exact,clip,input,buttons,overlay}`, `overview/{headless,waveform,ruler}`, `grid/{popup,headless,event,drag,draw,style}`, `view.rs`, `theme.rs`; app `form_ui.rs`; rest of `session.rs`/`app.rs`/`editor.rs`/`toolbar.rs`, `analysis/{waveform,display,notes,render}.rs`, `notation/tab/solve.rs` (rest). Test files last. `app`/`audio` could not be compiled here (no ALSA): run `unreachable_pub` on them locally. If `main` moves again, re-run the I-004 symbol check and the line-reference refresh first.
 
 ## Findings
-**Summary (interim, 75 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 44 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
+**Summary (interim, 77 of 165 files read in full or part; the rest not yet read; the rest not yet read; compiler lints run on core/notation/analysis/ui; 45 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-004 (~19 dead pub functions), I-005/I-006 (duplicated WAV/sine/assert helpers). Estimated ~510 lines removable so far; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
 ### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
@@ -549,3 +549,9 @@ Not yet read: ui `nav/`, `tracks/{lanes,header,offset,geometry,icons}`, `tab_vie
 **Problem:** same line interpolation and quadratic-bezier construction written twice; links are drawn for the whole song each frame; two unrelated `Head` types in one module tree.
 **Instructions:** (1) build the `BeamLine` first and use `line.y_at` for the shift computation; (2) make `Paint::arc` take an optional control point (or add `bezier(a, ctrl, b, w, color)`) and use it in Bend; (3) rename links' `Head` to `Anchor`; resolve `from`/`to` anchors once per link; (4) skip links whose x-range is outside the visible range (reuse `first..last` event indices via `note_ref`).
 **Risk:** low; visual regression check on bends and slurs.
+
+### I-045 (low) · `tracks/lane.rs` 160-line `show` with duplicated alt/snap logic and per-frame rebuilds · impact: low · saves ~25 lines · status: open
+**Where:** `ui/src/tracks/lane.rs` `TrackLane::show` (150-307), `drive_drag` (126-148), `offset.rs` `snap_offset`.
+**Problem:** (1) `alt` is handled twice: `drive_drag` skips `snap_candidates` when alt and `snap_offset(.., alt)` returns early again; `snap_offset` recomputes `reach` already passed to `snap_candidates`. (2) `OffsetDrag` is read from egui temp data three times per frame (`HeaderParams`, `drag`, `drive_drag`). (3) `WaveformPalette::from_rgba(&style.lut.colors)` is rebuilt per lane per frame; build it once in `SpectroStyle`. (4) `show` mixes region input, drag, header, spectrogram, wheel-resize, resize-handle, waveform and drag overlay; split the wheel-resize and resize-handle blocks (both accumulate into egui temp data) into one `drive_rows` helper, and the drag overlay into `paint_drag`. (5) `ViewTuning::DEFAULT` is built inside the input closure for the wheel notches.
+**Instructions:** drop the `alt` param from `snap_offset` (caller passes an empty slice); read the drag once at the top of `show`; cache the palette; extract `drive_rows` and `paint_drag`.
+**Risk:** low.
