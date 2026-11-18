@@ -13,7 +13,7 @@ _Last updated: 2026-11-18 · base commit 14ed048_
 | `crates/audio/src/player.rs` | 700 | reviewed | prod part read (I-014, I-013) |
 | `crates/app/src/app.rs` | 676 | partial | lines 1-490 read (I-021) |
 | `crates/analysis/src/waveform.rs` | 656 | partial | peaks() read; ok |
-| `crates/ui/src/note_editor/draw.rs` | 637 | todo | |
+| `crates/ui/src/note_editor/draw.rs` | 637 | reviewed | prod part read (I-010, I-011) |
 | `crates/analysis/src/sync.rs` | 632 | partial | lines 1-470 read (I-030) |
 | `crates/core/src/snap_note.rs` | 630 | reviewed | prod part read (I-028) |
 | `crates/core/src/persist.rs` | 608 | reviewed | prod part read (I-012) |
@@ -265,7 +265,7 @@ Not yet read: core `tempo.rs`, `tracks.rs`, `snap.rs`, `measures.rs`, `grace.rs`
 **Risk:** low for 1-2 (pure refactor, link tests in `links.rs` and `overlap.rs`); 3 touches the preview only. Verify with a benchmark or a test timing `resolve_overlaps` on a 5000-note project before and after (expected: from tens of ms to well under 1 ms for a single touched note).
 
 ### I-011 · Epsilon constants redefined per file in `core` · impact: low · saves ~12 lines · status: open
-**Where:** `1e-9`: `crates/core/src/edit.rs:20,21`, `links.rs:20`, `grace.rs:20`, `snap_note.rs:17`, `overlap.rs:13`, `measures.rs:12`; `1e-12`: `snap.rs:17`, `snap_note.rs:18`; `1e-3`: `edit.rs:19` `MIN_MEASURE_SEC`, `grace.rs:19`, `links.rs:21`.
+**Where:** `1e-9`: `crates/core/src/edit.rs:20,21`, `links.rs:20`, `grace.rs:20`, `snap_note.rs:17`, `overlap.rs:13`, `measures.rs:12`; `1e-12`: `snap.rs:17`, `snap_note.rs:18`, `ui/note_editor/draw.rs:12` (same `EPS`, 1e-9); `1e-3`: `edit.rs:19` `MIN_MEASURE_SEC`, `grace.rs:19`, `links.rs:21`.
 **Problem:** the same tolerance is declared under 6 names in 7 files; a change to one silently diverges from the others.
 **Instructions:** put `pub(crate) const EPS: f64 = 1e-9;` (and `TIE_EPS`, `MIN_NOTE_SEC` if the three `1e-3` mean the same thing) in `tempo.rs` next to `BEAT_EPS`, delete the local copies and import. Keep separate only the ones with a different meaning.
 **Risk:** none.
