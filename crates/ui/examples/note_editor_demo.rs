@@ -217,7 +217,8 @@ impl Demo {
 
     fn run(&mut self, ctx: &egui::Context, inputs: Vec<ne::Input>, px_per_sec: f64, hovered: Option<u64>) {
         for input in inputs {
-            let mut env = Env { project: &mut self.project, grid: &self.grid, px_per_sec, threshold_px: 12.0, onsets: None, now: ctx.input(|i| i.time), hovered };
+            let tempo = TempoMap::new(&self.project.measures);
+            let mut env = Env { project: &mut self.project, grid: &self.grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, onsets: None, now: ctx.input(|i| i.time), hovered };
             for effect in self.editor.handle(&mut env, input.clone()) {
                 match effect {
                     Effect::Seek(sec) => self.playhead = sec,

@@ -23,11 +23,13 @@ pub enum Base {
     SixtyFourth,
 }
 
+const WHOLE_TICKS: i64 = 4 * fretscribe_core::TICKS_PER_BEAT;
+
 impl Base {
     const ALL: [Self; 7] = [Self::Whole, Self::Half, Self::Quarter, Self::Eighth, Self::Sixteenth, Self::ThirtySecond, Self::SixtyFourth];
 
     pub fn ticks(self) -> i64 {
-        192 >> self as u32
+        WHOLE_TICKS >> self as u32
     }
 
     /// Flags (or beams) a note of this value carries.

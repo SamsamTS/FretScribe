@@ -66,6 +66,7 @@ Modules are not re-exported at the crate root.
 - `Project::note_times()`; `persist::clamp_levels(black, white)` (shared by `UiState::sanitise` and `analysis::Levels::clamped`).
 - `core::{pitch_class_name, A4_RANGE_HZ}`; `ui::theme::dialog(ctx, title)`.
 - `audio::apply_focus_offline` removed; `core::A4_MIDI` exported (used by `analysis`).
+- `ui::note_editor::Env` has a new field `tempo: &TempoMap` (the grid of `project`, built by the caller).
 - `analysis::Spectrogram { data, info: SpectrogramInfo }` (derefs to the info); `WindowKind` and `SpectrogramParams::window` removed.
 - `Project::resolve_overlaps(placed)` keeps same-pitch notes from overlapping: the placed notes win, the others are cut (and unlinked on the cut side), split (the tail is a new note that takes over the outgoing links) or removed when under `MIN_PIECE_BEATS`; a grace note overlapped by another note is removed. Every note editor edit calls it inside its undo step; other code that places notes must do the same.
 

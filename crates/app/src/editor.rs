@@ -406,6 +406,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let px_per_sec = s.ctl.current.pixels_per_sec;
     let mut snap_targets: Option<(Vec<f64>, fretscribe_core::SnapGrid)> = None;
     let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
+    let tempo = fretscribe_core::TempoMap::new(&s.project.measures);
     for input in tool_inputs.chain(collected.inputs) {
         let (onset_list, grid) = snap_targets.get_or_insert_with(|| {
             let onsets = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
@@ -413,7 +414,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
         });
         let mut effects = {
             let onsets = (!onset_list.is_empty()).then_some(onset_list.as_slice());
-            let mut env = Env { project: &mut s.project, grid, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
+            let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
             s.editor.handle(&mut env, input)
         };
         for effect in effects.drain(..) {
