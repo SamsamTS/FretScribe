@@ -16,6 +16,7 @@ pub mod tempo;
 pub mod tracks;
 pub mod undo;
 
+pub use uuid::Uuid;
 pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
 pub use error::{CoreError, EditError, UndoError};
 pub use grace::{

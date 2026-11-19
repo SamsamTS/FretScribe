@@ -61,6 +61,7 @@ Modules are not re-exported at the crate root.
 - No note tools or context menus: everything is gestures (left drag from empty space draws; a click seeks) plus `ui::note_editor::NoteAction` (`apply`) for keys and the track-head buttons.
 - `ui::note_editor`: `NoteEditor::handle(&mut Env, Input) -> Vec<Effect>` (pure; `collect` turns egui input into `Input`), `Effect::Edit { edit, merge, affected }` (the app pushes it with `UndoStack::push` / `push_merged` and re-runs the tab inference on `affected`), `action_buttons`, `ExactFields`/`apply_exact`, `apply_changes`/`preview_changes`. `TrackLanesOutput::source_pointer` exposes the source lane's geometry and hovered note.
 - `core`: `links` (invariants, `link_notes`, `unlink`, `cycle_link`, `link_selection`, bridging delete), `snap_note` (`snap_note`, `snap_resized`, `SnapOpts`), `TempoMap::{pos_to_beats, beats_to_pos}`, `Project::edit_notes`, `ProjectEdit::merge`. `analysis::notes::refine_pitch`.
+- `core` re-exports `Uuid` (`project_id`); `app` no longer depends on `uuid`. Decoding is limited to mp3, wav, flac, ogg/vorbis, mp4/m4a, aac, aiff, pcm.
 - `Project::resolve_overlaps(placed)` keeps same-pitch notes from overlapping: the placed notes win, the others are cut (and unlinked on the cut side), split (the tail is a new note that takes over the outgoing links) or removed when under `MIN_PIECE_BEATS`; a grace note overlapped by another note is removed. Every note editor edit calls it inside its undo step; other code that places notes must do the same.
 
 ## 2026-11-09 - legato, grace notes, tied links

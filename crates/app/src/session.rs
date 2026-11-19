@@ -15,7 +15,7 @@ use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::note_editor::{Keymap, NoteEditor};
 use fretscribe_ui::{RegionSelection, SpectroCache, SpectroStyle, TabViewState, TrackLanesState, ViewController, ViewTuning};
-use uuid::Uuid;
+use fretscribe_core::Uuid;
 
 use crate::autosave::AutosavePolicy;
 use crate::jobs::{self, Job};

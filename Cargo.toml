@@ -26,7 +26,8 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 eframe = "0.31"
 egui = "0.31"
-symphonia = { version = "0.5", features = ["all"] }
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "vorbis", "isomp4", "aac", "aiff", "pcm"] }
+egui_extras = { version = "0.31", features = ["svg"] }
 rodio = { version = "0.20", default-features = false }
 realfft = "3"
 rubato = "0.16"

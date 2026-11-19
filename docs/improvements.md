@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -186,7 +186,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. `cargo check --workspace --all-targets` (examples included) to confirm nothing else needs them.
 **Risk:** none (grep shows no use).
 
-### I-002 · Pull `egui_extras` into workspace deps; narrow `symphonia` features · impact: low · saves compile time · status: open
+### I-002 · Pull `egui_extras` into workspace deps; narrow `symphonia` features · impact: low · saves compile time · status: done (both steps; symphonia limited to mp3, wav, flac, ogg, vorbis, isomp4, aac, aiff, pcm: mkv/caf/alac/adpcm no longer decode, accepted)
 **Where:** `crates/ui/Cargo.toml:15`, `Cargo.toml:30`
 **Problem:** `egui_extras` is the only dependency with an inline version (single call: `crates/ui/src/kit.rs:86`), inconsistent with the rest. `symphonia` uses `features = ["all"]` while `AUDIO_EXTS` (`crates/app/src/app.rs:27`) only offers mp3, wav, flac, ogg, m4a, aac, aiff.
 **Instructions:**
@@ -194,7 +194,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 2. Replace `all` with `["mp3", "wav", "flac", "ogg", "vorbis", "isomp4", "aac", "aiff", "pcm"]`. Breaking: files in other formats (mkv, caf, alac, adpcm) stop decoding; skip step 2 if those must stay supported.
 **Risk:** step 2 only. Check with `cargo test -p fretscribe-audio` (decode tests) and one file per listed extension.
 
-### I-003 · `uuid` dependency in `fretscribe-app` is only used for a type name · impact: low · saves 1 dependency edge · status: open
+### I-003 · `uuid` dependency in `fretscribe-app` is only used for a type name · impact: low · saves 1 dependency edge · status: done (`fretscribe_core::Uuid` re-export; `uuid` removed from `app`; the `install_fonts` note left to I-004)
 **Where:** `crates/app/src/autosave.rs:10`, `crates/app/src/session.rs:18`
 **Problem:** `app` depends on `uuid` solely to name `Uuid` (`project_id`); `core` already owns it.
 **Instructions:**
