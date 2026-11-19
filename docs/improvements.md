@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -177,7 +177,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 ## Findings
 **Summary (all 165 files covered: 130 production/test-support files read in full or part, 35 test/example files scanned for duplicated helpers only; compiler lints run on core/notation/analysis/ui; 59 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-046 (spectro layout 3x per frame), I-057 (waveform colouring implemented twice), I-004 (~19 dead pub functions), I-005/I-006/I-059 (duplicated WAV/sine/assert/project test helpers). Estimated ~1,300 lines removable; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
 
-### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: open
+### I-001 · Remove unused dependencies · impact: med · saves 3 manifest lines, 2 crates from the build · status: done (`anyhow` removed everywhere; `thiserror`/`log` removed from `app` only; `cargo check --workspace --all-targets` clean)
 **Where:** `Cargo.toml:26` (`anyhow`), `crates/app/Cargo.toml:24` (`anyhow`), `:25` (`thiserror`), `:26` (`log`)
 **Problem:** `anyhow` has zero call sites in the workspace; `thiserror` and `log` are declared in `fretscribe-app` but never used there (no `log::`/`warn!` etc., no `derive(Error)`).
 **Instructions:**
