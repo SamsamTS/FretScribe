@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -375,7 +375,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. Add a test: editing 3 notes in one call gives the same `string_fret`s as three sequential single calls on a fixture with no locked notes (and with one lock in the middle).
 **Risk:** medium (solver ordering): results of sequential calls can differ when windows overlap and later calls start from earlier results; define the new behaviour as "solve each merged window once" and verify with the existing solver tests plus the new one. Measure: time `infer_affected` on a 2000-note piece with 200 selected notes before and after (expected from seconds to milliseconds).
 
-### I-024 · The whole note scene is laid out 2-3 times per frame, for all notes, visible or not · impact: med-high · perf: O(all notes) allocation-heavy work per frame, multiplied by the number of hit tests · status: open
+### I-024 · The whole note scene is laid out 2-3 times per frame, for all notes, visible or not · impact: med-high · perf: O(all notes) allocation-heavy work per frame, multiplied by the number of hit tests · status: done (steps 1-2: one `NoteScene` per frame shared by hover, draw and the editor via `SpectroOutput.scene`; `items_in` culls to the visible window + 12 notes/40 px margin, keeping link/legato/grace partners; O(1) tie/legato lookups. Step 3, caching the scene across frames, left open)
 **Where:** `crates/ui/src/spectro/glyphs.rs:271-380` `layout` (about 12 `Vec`s and 2 `HashMap`s per call); callers per frame: `spectro/notes.rs:90` `hit_test` (from `spectro/mod.rs:286` on every hover frame, and from `note_editor/input.rs:37` on every sampled pointer event), `notes.rs:174` `draw_notes`, `:181` `draw_ghost`, `glyphs.rs:387,391` `note_glyphs`/`link_points`.
 **Problem:** `hit_test` and `draw_notes` each call `layout(geo, &items(notes, times), &m)` from scratch, so while the pointer is over the spectrogram a frame does two full layouts (three with the editor's input sampling), and each layout covers every note of the project, including the ones far outside the visible window. Cost grows with the piece length even when zoomed in on one bar.
 **Instructions:**

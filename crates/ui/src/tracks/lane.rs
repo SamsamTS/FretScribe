@@ -1,6 +1,7 @@
 //! One lane: header, spectrogram strip, waveform strip and the offset drag.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use egui::{pos2, vec2, Color32, Context, Event, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
 use fretscribe_analysis::Spectrogram;
@@ -14,7 +15,7 @@ use crate::nav::{notches, ViewTuning};
 use crate::note_editor::HeaderTools;
 use crate::view::RegionSelection;
 use crate::spectro::{
-    place_readout, white, GhostShape, HitZone, Peak, SpectroCache, SpectroEvent, SpectroGeometry,
+    place_readout, white, GhostShape, HitZone, NoteScene, Peak, SpectroCache, SpectroEvent, SpectroGeometry,
     SpectroStyle, SpectrogramView, WaveformView,
 };
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
@@ -92,9 +93,10 @@ pub struct TrackLane<'a> {
 }
 
 /// What the note editor needs from the source lane's spectrogram.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct LanePointer {
     pub geometry: SpectroGeometry,
+    pub scene: Rc<NoteScene>,
     pub hovered_note: Option<(u64, HitZone)>,
     pub pitch_ruler: Rect,
 }
@@ -221,7 +223,7 @@ impl TrackLane<'_> {
                     }
                     let out = widget.show(&mut sui, &view, &pitch, &mut state.cache);
                     if is_source {
-                        pointer = Some(LanePointer { geometry: out.geometry, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
+                        pointer = Some(LanePointer { geometry: out.geometry, scene: out.scene, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
                     }
                     spectro_events.extend(out.events.into_iter().filter(|e| is_source || matches!(e, SpectroEvent::SeekRequested(_))));
                 }

@@ -43,7 +43,7 @@ Modules are not re-exported at the crate root.
 ## 2026-11-07 - ui: spectrogram view, track lanes
 
 - `fretscribe-ui` depends on `fretscribe-analysis` and `fretscribe-notation`.
-- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{SeekRequested, DrawBegan, DrawMoved, DrawEnded, DrawCancelled}` (the `Draw*` events carry no hit), `GhostShape`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
+- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{SeekRequested, DrawBegan, DrawMoved, DrawEnded, DrawCancelled}` (the `Draw*` events carry no hit), `GhostShape`, `HitZone`, `hit_test` (wrapper), `NoteScene` (`build(geo, notes, times)`, `hit(pos, hovered)`; one per frame, exposed as `SpectroOutput.scene: Rc<NoteScene>` and passed to `draw_notes`; `LanePointer`/`SourcePointer` carry it), `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
 - Notes are `&[Note]` plus `NoteTimes`. Texture cache key includes window, size, pitch range, A4, levels, gamma, LUT, data pointer and a caller `revision` (bump it when data changes in place).
 - `SpectroOutput::pitch_ruler` (`PITCH_RULER_WIDTH`) is the left label strip: used for the nav drag, drags there do not draw.
 - `tracks`: `TrackLanes`, `TrackLane`, `TrackHeader`, `TrackLanesState`, `LaneOptions` (display preferences owned by the app), `LaneSource`, `TrackEvent`; `view::LANE_HEADER_WIDTH` (240 pt).

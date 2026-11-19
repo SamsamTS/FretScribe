@@ -1,7 +1,7 @@
 //! Pure geometry of the note glyphs: rectangles, slide lines, bend arrows, legato arcs and link
 //! points. Every size is a multiple of the note height `h` (one pitch row).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use egui::{pos2, vec2, Pos2, Rect};
 use fretscribe_core::{grace_target_of, Note, NoteTimes, Technique};
@@ -115,10 +115,46 @@ pub struct GlyphItem {
 }
 
 pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
-    let legato_sources: Vec<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
-    let tie_of = |id: u64| notes.iter().find(|n| n.link_to == Some(id) && n.technique == Some(Technique::Tie)).map(|n| n.id);
+    items_in(notes, times, None)
+}
+
+/// The ids to lay out for the visible `(from_sec, to_sec)` window: the notes that touch it, their link
+/// partners in both directions, and the other members of their grace group, so that every drawn link
+/// has both ends.
+fn kept_in_window(notes: &[Note], times: &NoteTimes, (from, to): (f64, f64)) -> HashSet<u64> {
+    let group = |n: &Note| n.grace_of.map_or(n.id, |g| g.main);
+    let visible: HashSet<u64> = notes
+        .iter()
+        .filter(|n| matches!((times.start_sec(n.id), times.end_sec(n.id)), (Some(s), Some(e)) if e >= from && s <= to))
+        .map(|n| n.id)
+        .collect();
+    let groups: HashSet<u64> = notes.iter().filter(|n| visible.contains(&n.id)).map(group).collect();
+    let mut keep = visible.clone();
+    for n in notes {
+        if visible.contains(&n.id) {
+            keep.extend(n.link_to);
+            keep.extend(n.legato.map(|l| l.from));
+        }
+        if n.link_to.is_some_and(|t| visible.contains(&t)) || n.legato.is_some_and(|l| visible.contains(&l.from)) || groups.contains(&group(n)) {
+            keep.insert(n.id);
+        }
+    }
+    keep
+}
+
+/// [`items`] restricted to what [`kept_in_window`] keeps when a window is given.
+pub fn items_in(notes: &[Note], times: &NoteTimes, window: Option<(f64, f64)>) -> Vec<GlyphItem> {
+    let keep = window.map(|w| kept_in_window(notes, times, w));
+    let legato_sources: HashSet<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
+    let mut tie_source: HashMap<u64, u64> = HashMap::new();
+    for n in notes.iter().filter(|n| n.technique == Some(Technique::Tie)) {
+        if let Some(to) = n.link_to {
+            tie_source.entry(to).or_insert(n.id);
+        }
+    }
     notes
         .iter()
+        .filter(|n| keep.as_ref().is_none_or(|k| k.contains(&n.id)))
         .filter_map(|n| {
             let kind = if matches!(n.technique, Some(Technique::Bend)) { LinkKind::Bend } else { LinkKind::Slide };
             let tied = n.technique == Some(Technique::Tie);
@@ -129,7 +165,7 @@ pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
                 start_sec: times.start_sec(n.id)?,
                 end_sec: times.end_sec(n.id)?,
                 link: n.link_to.filter(|_| !tied).map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
-                legato_from: n.legato.map(|l| l.from).or_else(|| tie_of(n.id)),
+                legato_from: n.legato.map(|l| l.from).or_else(|| tie_source.get(&n.id).copied()),
                 grace: n.grace_of.is_some(),
             })
         })
@@ -187,6 +223,7 @@ fn cubic(p0: Pos2, c1: Pos2, c2: Pos2, p3: Pos2) -> Vec<Pos2> {
         .collect()
 }
 
+#[derive(Debug)]
 pub struct Scene {
     height: f32,
     pub glyphs: Vec<Glyph>,

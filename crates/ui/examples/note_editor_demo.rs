@@ -320,7 +320,7 @@ impl eframe::App for Demo {
                 .inner;
             let events: Vec<SpectroEvent> = spec_out.events.iter().cloned().chain(seek).collect();
             let refine = |sec: f64, midi: f32| refine_pitch(&self.spectrogram, &self.pitch_ref, sec, midi);
-            let source = ne::SourcePointer { geometry: spec_out.geometry, hovered_note: spec_out.hovered_note, pitch_ruler: spec_out.pitch_ruler, notes: &self.project.notes, times: &self.times };
+            let source = ne::SourcePointer { geometry: spec_out.geometry, scene: &spec_out.scene, hovered_note: spec_out.hovered_note, pitch_ruler: spec_out.pitch_ruler, notes: &self.project.notes, times: &self.times };
             let collected = ne::collect(ctx, &source, &events, &self.editor, &self.keymap, &refine);
             let hovered = spec_out.hovered_note.map(|h| h.0);
             self.run(ctx, collected.inputs, view.pixels_per_sec, hovered);
