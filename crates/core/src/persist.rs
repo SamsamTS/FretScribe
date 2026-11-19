@@ -75,7 +75,7 @@ pub struct UiState {
     pub lane_rows: Vec<(u64, u32)>,
 }
 
-/// Same values as `analysis::{MIN_LEVELS_GAP, GAMMA_MIN, GAMMA_MAX}` (core cannot depend on analysis).
+/// Display limits; `analysis::display` re-exports them as `MIN_LEVELS_GAP`, `GAMMA_MIN` and `GAMMA_MAX`.
 pub const LEVELS_MIN_GAP: f32 = 0.02;
 pub const Q_RANGE: std::ops::RangeInclusive<f32> = 10.0..=120.0;
 pub const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.2..=5.0;
@@ -92,10 +92,8 @@ impl UiState {
     /// Clamps the display and focus fields to their valid ranges (levels keep their minimum gap).
     pub fn sanitise(&mut self) {
         self.focus_strength = finite_or(self.focus_strength, 0.5).clamp(0.0, 1.0);
-        let black = finite_or(self.spectro_black, 0.0).clamp(0.0, 1.0);
-        let white = finite_or(self.spectro_white, 1.0).clamp(0.0, 1.0);
-        let mut white = white;
-        let mut black = black;
+        let mut black = finite_or(self.spectro_black, 0.0).clamp(0.0, 1.0);
+        let mut white = finite_or(self.spectro_white, 1.0).clamp(0.0, 1.0);
         if white - black < LEVELS_MIN_GAP {
             white = (black + LEVELS_MIN_GAP).min(1.0);
             black = black.min(white - LEVELS_MIN_GAP);

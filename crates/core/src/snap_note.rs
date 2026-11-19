@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::tempo::{EPS, TIE_EPS};
 use crate::model::{Note, TimePos};
 use crate::snap::{SnapGrid, UNITS_PER_BEAT};
 use crate::model::TICKS_PER_BEAT;
@@ -14,8 +15,6 @@ use crate::tempo::TempoMap;
 const NEIGHBOUR_CAP: f64 = 0.4;
 const HYSTERESIS: f64 = 0.8;
 const MIN_SPACING_PX: f64 = 6.0;
-const SAME_SEC: f64 = 1e-9;
-const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SnapOpts<'a> {
@@ -164,11 +163,11 @@ fn choose(candidates: &[Candidate], sec: f64, sticky_sec: Option<f64>) -> Option
     let sticky = sticky_sec.and_then(|s| {
         candidates
             .iter()
-            .find(|c| (c.sec - s).abs() < SAME_SEC && (c.sec - sec).abs() <= c.radius)
+            .find(|c| (c.sec - s).abs() < EPS && (c.sec - sec).abs() <= c.radius)
     });
     match sticky {
         Some(s)
-            if (best.sec - s.sec).abs() >= SAME_SEC
+            if (best.sec - s.sec).abs() >= EPS
                 && (best.sec - sec).abs() > HYSTERESIS * (s.sec - sec).abs() =>
         {
             Some(*s)
@@ -245,7 +244,7 @@ pub fn snap_edge(
 }
 
 fn first_grid_at_or_after(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> TimePos {
-    let sec = tempo.pos_to_sec(from) - SAME_SEC;
+    let sec = tempo.pos_to_sec(from) - EPS;
     grid_candidates(tempo, &grid.sorted_divisions(), sec)
         .into_iter()
         .find(|c| c.1 >= sec)
@@ -253,7 +252,7 @@ fn first_grid_at_or_after(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> T
 }
 
 fn last_grid_at_or_before(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> TimePos {
-    let sec = tempo.pos_to_sec(from) + SAME_SEC;
+    let sec = tempo.pos_to_sec(from) + EPS;
     grid_candidates(tempo, &grid.sorted_divisions(), sec)
         .into_iter()
         .rev()
@@ -272,9 +271,9 @@ pub fn step_on_grid(tempo: &TempoMap, grid: &SnapGrid, pos: TimePos, steps: i32)
         let sec = tempo.pos_to_sec(pos);
         let list = grid_candidates(tempo, &grid.sorted_divisions(), sec);
         let next = if steps > 0 {
-            list.iter().find(|c| c.1 > sec + SAME_SEC)
+            list.iter().find(|c| c.1 > sec + EPS)
         } else {
-            list.iter().rev().find(|c| c.1 < sec - SAME_SEC)
+            list.iter().rev().find(|c| c.1 < sec - EPS)
         };
         match next {
             Some(c) => pos = tempo.normalise(c.0),
@@ -303,7 +302,7 @@ pub fn snap_resized(
     match edge {
         Edge::End => {
             let earliest = add_beats(tempo, fixed, min);
-            if tempo.pos_to_sec(snapped) >= tempo.pos_to_sec(earliest) - SAME_SEC {
+            if tempo.pos_to_sec(snapped) >= tempo.pos_to_sec(earliest) - EPS {
                 snapped
             } else if on_grid {
                 first_grid_at_or_after(tempo, opts.grid, earliest)
@@ -313,7 +312,7 @@ pub fn snap_resized(
         }
         Edge::Start => {
             let latest = add_beats(tempo, fixed, -min);
-            if tempo.pos_to_sec(snapped) <= tempo.pos_to_sec(latest) + SAME_SEC {
+            if tempo.pos_to_sec(snapped) <= tempo.pos_to_sec(latest) + EPS {
                 snapped
             } else if on_grid {
                 last_grid_at_or_before(tempo, opts.grid, latest)

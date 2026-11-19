@@ -90,7 +90,7 @@ pub fn shift_track(
     if !new_offset_sec.is_finite() {
         return Err(EditError::InvalidTime(new_offset_sec));
     }
-    project.transact("Shift track", |p| {
+    project.edit_notes("Shift track", |p| {
         let index = p.track_index(track_id)?;
         let delta = new_offset_sec - p.tracks[index].offset_sec;
         p.tracks[index].offset_sec = new_offset_sec;

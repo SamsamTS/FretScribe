@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::tempo::TIE_EPS;
 use crate::model::{TimePos, TICKS_PER_BEAT};
 use crate::tempo::{TempoMap, BEAT_EPS};
 
@@ -14,7 +15,6 @@ pub const TRIPLET_DIVISIONS: [u8; 4] = [3, 6, 12, 24];
 
 /// Every allowed division divides 48, so all grid positions are integers in 1/48-beat units.
 pub(crate) const UNITS_PER_BEAT: u32 = crate::model::TICKS_PER_BEAT as u32;
-const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapGrid {

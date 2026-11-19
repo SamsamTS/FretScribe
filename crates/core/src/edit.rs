@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::tempo::EPS;
 use crate::delta::{Delta, Snapshot};
 use crate::error::{CoreError, EditError, UndoError};
 use crate::measures::{self, recompute_starts, valid_tempo, Propagation};
@@ -17,8 +18,6 @@ use crate::pitch::PitchRef;
 use crate::tempo::{NoteTimes, TempoMap};
 
 const MIN_MEASURE_SEC: f64 = 1e-3;
-const SAME_TIME_EPS: f64 = 1e-9;
-const INTEGER_EPS: f64 = 1e-9;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NotePolicy {
@@ -106,7 +105,7 @@ fn resolve(map: &TempoMap, pos: TimePos, old_sec: f64, policy: NotePolicy) -> Ti
         NotePolicy::FollowGrid => map.index_of(pos.measure).is_some(),
         NotePolicy::KeepAudioPosition => map
             .try_pos_to_sec(pos)
-            .is_some_and(|sec| (sec - old_sec).abs() < SAME_TIME_EPS),
+            .is_some_and(|sec| (sec - old_sec).abs() < EPS),
     };
     if unchanged {
         map.normalise(pos)
@@ -117,13 +116,6 @@ fn resolve(map: &TempoMap, pos: TimePos, old_sec: f64, policy: NotePolicy) -> Ti
 
 impl Project {
     /// Runs `f` as one undoable edit; an error leaves the project untouched.
-    pub fn edit_notes<F>(&mut self, label: &str, f: F) -> Result<ProjectEdit, EditError>
-    where
-        F: FnOnce(&mut Project) -> Result<(), EditError>,
-    {
-        self.transact(label, f)
-    }
-
     /// Like `edit_notes` for operations with their own error and result types.
     pub fn try_edit<T, E>(
         &mut self,
@@ -140,7 +132,8 @@ impl Project {
         }
     }
 
-    pub(crate) fn transact<F>(&mut self, label: &str, f: F) -> Result<ProjectEdit, EditError>
+    /// Runs `f` as one undoable edit; an error leaves the project untouched.
+    pub fn edit_notes<F>(&mut self, label: &str, f: F) -> Result<ProjectEdit, EditError>
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
     {
@@ -205,7 +198,7 @@ impl Project {
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
     {
-        self.transact(label, |p| p.rebase_notes(policy, f))
+        self.edit_notes(label, |p| p.rebase_notes(policy, f))
     }
 
     fn check_measure(&self, index: usize) -> Result<(), EditError> {
@@ -219,15 +212,6 @@ impl Project {
         }
     }
 
-    pub fn set_tempo(
-        &mut self,
-        index: usize,
-        new_bpm: f64,
-        policy: NotePolicy,
-    ) -> Result<ProjectEdit, EditError> {
-        self.set_tempo_scoped(index, new_bpm, Propagation::Following, policy)
-    }
-
     pub fn set_tempo_scoped(
         &mut self,
         index: usize,
@@ -238,15 +222,6 @@ impl Project {
         self.grid_edit("Set tempo", policy, |p| {
             measures::set_tempo_scoped(&mut p.measures, index, new_bpm, propagation).map(drop)
         })
-    }
-
-    pub fn set_time_sig(
-        &mut self,
-        index: usize,
-        new_sig: TimeSignature,
-        policy: NotePolicy,
-    ) -> Result<ProjectEdit, EditError> {
-        self.set_time_sig_scoped(index, new_sig, Propagation::Following, policy)
     }
 
     pub fn set_time_sig_scoped(
@@ -395,7 +370,7 @@ impl Project {
         policy: NotePolicy,
         confirmed: bool,
     ) -> Result<ProjectEdit, EditError> {
-        self.transact("Delete measure", |p| {
+        self.edit_notes("Delete measure", |p| {
             p.check_measure(index)?;
             if p.measures.len() == 1 {
                 return Err(EditError::LastMeasure);
@@ -451,7 +426,7 @@ impl Project {
             let units = at_beat * f64::from(sig.denominator) / 4.0;
             let whole = units.round();
             let split_ok = at_beat.is_finite()
-                && (units - whole).abs() < INTEGER_EPS
+                && (units - whole).abs() < EPS
                 && whole >= 1.0
                 && whole < f64::from(sig.numerator);
             if !split_ok {
@@ -461,7 +436,7 @@ impl Project {
 
             let nominal = p.measures[index].tempo_bpm;
             let effective = map.effective_bpm(index);
-            let tempo_bpm = if (effective - nominal).abs() < INTEGER_EPS {
+            let tempo_bpm = if (effective - nominal).abs() < EPS {
                 nominal
             } else {
                 effective
@@ -503,7 +478,7 @@ impl Project {
                 + map.beats_in_measure(index + 1) * 60.0 / map.effective_bpm(index + 1);
             let realised = merged_sig.beats() * 60.0 / total_sec;
             let nominal = p.measures[index].tempo_bpm;
-            let tempo_bpm = if (realised - nominal).abs() < INTEGER_EPS {
+            let tempo_bpm = if (realised - nominal).abs() < EPS {
                 nominal
             } else {
                 realised.clamp(MIN_BPM, MAX_BPM)
@@ -593,7 +568,7 @@ mod tests {
         let mut p = project(4);
         let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
         assert_eq!(secs(&p, n), (2.5, 3.0));
-        p.set_tempo(0, 60.0, Follow).unwrap();
+        p.set_tempo_scoped(0, 60.0, Propagation::Following, Follow).unwrap();
         assert_eq!(pos(&p, n), (TimePos::at(2, 1.0), TimePos::at(2, 2.0)));
         assert_eq!(secs(&p, n), (5.0, 6.0));
     }
@@ -602,7 +577,7 @@ mod tests {
     fn keep_audio_position_keeps_seconds_and_changes_beats() {
         let mut p = project(4);
         let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
-        p.set_tempo(0, 60.0, Keep).unwrap();
+        p.set_tempo_scoped(0, 60.0, Propagation::Following, Keep).unwrap();
         let (s, e) = secs(&p, n);
         close(s, 2.5);
         close(e, 3.0);
@@ -617,7 +592,7 @@ mod tests {
         let mut p = project(4);
         let third = 1.0 / 3.0;
         let n = note(&mut p, 60, (1, third), (1, 2.0 * third));
-        p.set_tempo(3, 90.0, Keep).unwrap();
+        p.set_tempo_scoped(3, 90.0, Propagation::Following, Keep).unwrap();
         assert_eq!(
             pos(&p, n),
             (TimePos::at(1, third), TimePos::at(1, 2.0 * third))
@@ -628,8 +603,8 @@ mod tests {
     fn note_on_beat_two_stays_on_beat_two_of_the_same_measure() {
         let mut p = project(6);
         let n = note(&mut p, 60, (5, 1.0), (5, 2.0));
-        p.set_tempo(2, 90.0, Follow).unwrap();
-        p.set_time_sig(0, TimeSignature::new(4, 4), Follow).unwrap();
+        p.set_tempo_scoped(2, 90.0, Propagation::Following, Follow).unwrap();
+        p.set_time_sig_scoped(0, TimeSignature::new(4, 4), Propagation::Following, Follow).unwrap();
         assert_eq!(p.note(n).unwrap().start, TimePos::at(5, 1.0));
     }
 
@@ -637,7 +612,7 @@ mod tests {
     fn tempo_change_with_propagation_moves_all_equal_measures() {
         let mut p = project(4);
         let n = note(&mut p, 60, (3, 0.0), (3, 4.0));
-        p.set_tempo(1, 60.0, Follow).unwrap();
+        p.set_tempo_scoped(1, 60.0, Propagation::Following, Follow).unwrap();
         assert_eq!(
             p.measures.iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(),
             [120.0, 60.0, 60.0, 60.0]
@@ -653,7 +628,7 @@ mod tests {
         let mut p = project(3);
         let n = note(&mut p, 60, (1, 3.0), (2, 1.0));
         assert_eq!(secs(&p, n), (1.5, 2.5));
-        p.set_tempo(0, 60.0, Follow).unwrap();
+        p.set_tempo_scoped(0, 60.0, Propagation::Following, Follow).unwrap();
         assert_eq!(secs(&p, n), (3.0, 5.0));
         assert_eq!(pos(&p, n), (TimePos::at(1, 3.0), TimePos::at(2, 1.0)));
     }
@@ -662,7 +637,7 @@ mod tests {
     fn note_spanning_a_barline_with_keep_audio() {
         let mut p = project(3);
         let n = note(&mut p, 60, (1, 3.0), (2, 1.0));
-        p.set_tempo(0, 60.0, Keep).unwrap();
+        p.set_tempo_scoped(0, 60.0, Propagation::Following, Keep).unwrap();
         let (s, e) = secs(&p, n);
         close(s, 1.5);
         close(e, 2.5);
@@ -672,7 +647,7 @@ mod tests {
     fn unnormalised_end_beat_is_normalised_after_a_time_signature_edit() {
         let mut p = project(3);
         let n = note(&mut p, 60, (1, 1.0), (1, 3.5));
-        p.set_time_sig(0, TimeSignature::new(3, 4), Follow).unwrap();
+        p.set_time_sig_scoped(0, TimeSignature::new(3, 4), Propagation::Following, Follow).unwrap();
         assert_eq!(p.note(n).unwrap().start, TimePos::at(1, 1.0));
         let end = p.note(n).unwrap().end;
         assert_eq!(end.measure, 2);
@@ -683,13 +658,13 @@ mod tests {
     fn time_signature_edit_follow_and_keep() {
         let mut p = project(3);
         let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
-        p.set_time_sig(0, TimeSignature::new(3, 4), Keep).unwrap();
+        p.set_time_sig_scoped(0, TimeSignature::new(3, 4), Propagation::Following, Keep).unwrap();
         let (s, e) = secs(&p, n);
         close(s, 2.5);
         close(e, 3.0);
         let mut p = project(3);
         let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
-        p.set_time_sig(0, TimeSignature::new(3, 4), Follow).unwrap();
+        p.set_time_sig_scoped(0, TimeSignature::new(3, 4), Propagation::Following, Follow).unwrap();
         let (s, e) = secs(&p, n);
         close(s, 2.0);
         close(e, 2.5);
@@ -700,8 +675,8 @@ mod tests {
         let mut p = project(3);
         note(&mut p, 60, (1, 0.0), (1, 1.0));
         let before = p.clone();
-        assert!(p.set_tempo(9, 100.0, Follow).is_err());
-        assert!(p.set_tempo(0, 0.0, Follow).is_err());
+        assert!(p.set_tempo_scoped(9, 100.0, Propagation::Following, Follow).is_err());
+        assert!(p.set_tempo_scoped(0, 0.0, Propagation::Following, Follow).is_err());
         assert!(p.delete_measure(0, Follow, false).is_err());
         assert_eq!(p, before);
     }
@@ -711,7 +686,7 @@ mod tests {
         let mut p = project(4);
         note(&mut p, 60, (2, 1.0), (2, 2.0));
         let before = p.clone();
-        let edit = p.set_tempo(0, 60.0, Follow).unwrap();
+        let edit = p.set_tempo_scoped(0, 60.0, Propagation::Following, Follow).unwrap();
         let after = p.clone();
         assert_ne!(after, before);
         edit.undo(&mut p);
@@ -1045,7 +1020,7 @@ mod tests {
     #[test]
     fn split_six_eight_and_validation() {
         let mut p = project(1);
-        p.set_time_sig(0, TimeSignature::new(6, 8), Follow).unwrap();
+        p.set_time_sig_scoped(0, TimeSignature::new(6, 8), Propagation::Following, Follow).unwrap();
         assert_eq!(
             p.split_measure(0, 1.5)
                 .map(|e| e.label().to_owned())
@@ -1167,7 +1142,7 @@ mod tests {
     fn json_round_trip_after_edits() {
         let mut p = project(4);
         note(&mut p, 60, (2, 1.0 / 3.0), (3, 0.5));
-        p.set_tempo(1, 97.5, Follow).unwrap();
+        p.set_tempo_scoped(1, 97.5, Propagation::Following, Follow).unwrap();
         p.insert_measure(2, Follow).unwrap();
         let json = serde_json::to_string(&p).unwrap();
         assert_eq!(serde_json::from_str::<Project>(&json).unwrap(), p);

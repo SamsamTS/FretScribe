@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -247,7 +247,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 2. At `:66`, pass `&s.editor.selection.ids` directly to `StaffView` if the borrow allows (it only needs `&[u64]`); otherwise leave.
 **Risk:** none. Verify: count allocations with a debug counter or time `onset_targets` on a project with ~5000 onsets (expected gain: ~100-300 us per frame).
 
-### I-009 · Redundant wrappers in `core/edit.rs` · impact: low · saves ~30 lines · status: open
+### I-009 · Redundant wrappers in `core/edit.rs` · impact: low · saves ~30 lines · status: done (`edit_notes` is the single name (`transact` removed); `set_tempo`/`set_time_sig` removed, tests use the `_scoped` forms; the `1e-9` constants merged via I-011)
 **Where:** `crates/core/src/edit.rs:120` `edit_notes`, `:143` `transact`, `:222` `set_tempo`, `:243` `set_time_sig`, `:19-21` consts.
 **Problem:** `edit_notes` only forwards to `transact` (two names, one behaviour; 17 vs 4 non-test callers). `Project::set_tempo` and `Project::set_time_sig` only call their `_scoped` twin with `Propagation::Following` and are called from tests only (`undo.rs:242,483`, `delta.rs:472`; the app uses `_scoped`). `SAME_TIME_EPS` and `INTEGER_EPS` are both `1e-9`.
 **Instructions:**
@@ -266,13 +266,13 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. Longer term: give `Project` a `note_index` or keep `notes` sorted by id and use `binary_search` in `note()`/`note_mut()`.
 **Risk:** low for 1-2 (pure refactor, link tests in `links.rs` and `overlap.rs`); 3 touches the preview only. Verify with a benchmark or a test timing `resolve_overlaps` on a 5000-note project before and after (expected: from tens of ms to well under 1 ms for a single touched note).
 
-### I-011 · Epsilon constants redefined per file in `core` · impact: low · saves ~12 lines · status: open
+### I-011 · Epsilon constants redefined per file in `core` · impact: low · saves ~12 lines · status: done (`tempo::{EPS, TIE_EPS}` replace the six `1e-9` and two `1e-12` copies in core; the three `1e-3` minimums kept (different meanings); `ui` draw.rs `EPS` kept (other crate))
 **Where:** `1e-9`: `crates/core/src/edit.rs:20,21`, `links.rs:20`, `grace.rs:20`, `snap_note.rs:17`, `overlap.rs:13`, `measures.rs:12`; `1e-12`: `snap.rs:17`, `snap_note.rs:18`, `ui/note_editor/draw.rs:12` (same `EPS`, 1e-9); `1e-3`: `edit.rs:19` `MIN_MEASURE_SEC`, `grace.rs:19`, `links.rs:21`.
 **Problem:** the same tolerance is declared under 6 names in 7 files; a change to one silently diverges from the others.
 **Instructions:** put `pub(crate) const EPS: f64 = 1e-9;` (and `TIE_EPS`, `MIN_NOTE_SEC` if the three `1e-3` mean the same thing) in `tempo.rs` next to `BEAT_EPS`, delete the local copies and import. Keep separate only the ones with a different meaning.
 **Risk:** none.
 
-### I-012 · Small `core` cleanups: duplicated display constants, eager clones in `Delta::diff`, shadowed locals · impact: low · saves ~15 lines · status: open
+### I-012 · Small `core` cleanups: duplicated display constants, eager clones in `Delta::diff`, shadowed locals · impact: low · saves ~15 lines · status: done (`analysis::display` re-exports core's limits; `sanitise` locals merged; `Change::of` clones only when a diff exists, `same_tracks` takes slices)
 **Where:** `crates/core/src/persist.rs:78-81,93-110`; `crates/analysis/src/display.rs:5-7`; `crates/core/src/delta.rs:145-161`; `crates/core/src/delta.rs:93-96`.
 **Problem:** (a) `LEVELS_MIN_GAP`/`GAMMA_RANGE` in `persist.rs` duplicate `MIN_LEVELS_GAP`/`GAMMA_MIN`/`GAMMA_MAX` in `analysis/display.rs`, kept in sync by a comment; the comment's premise is backwards for the constants (`analysis` depends on `core`, not the other way round, so `analysis` can import them). (b) `sanitise` shadows `black`/`white` twice (`:75-78`). (c) `Delta::diff` clones `tracks`, `tuning` and (via `to_vec`) both measure lists for every edit even when nothing changed, because `Change::new` takes owned values and then drops them when equal.
 **Instructions:**

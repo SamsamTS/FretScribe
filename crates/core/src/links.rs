@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use thiserror::Error;
 
+use crate::tempo::EPS;
 use crate::edit::ProjectEdit;
 use crate::model::{GraceKind, Legato, LegatoLink, Note, Project, Technique, Tuning};
 use crate::overlap::MIN_PIECE_BEATS;
@@ -17,7 +18,6 @@ use crate::tempo::{NoteTimes, TempoMap};
 pub const MAX_FRET: u8 = 24;
 const BEND_MAX_SEMITONES: u8 = 4;
 const LEGATO_MAX_GAP_BEATS: f64 = 0.25;
-const SAME_SEC: f64 = 1e-9;
 const MIN_TIED_SEC: f64 = 1e-3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -239,7 +239,7 @@ impl Project {
             times.start_sec(from).unwrap_or(0.0),
             times.start_sec(to).unwrap_or(0.0),
         );
-        if sb < sa - SAME_SEC || (ties_end(a) && sb < sa + MIN_TIED_SEC) {
+        if sb < sa - EPS || (ties_end(a) && sb < sa + MIN_TIED_SEC) {
             return Err(LinkError::NotInOrder);
         }
         if self.outgoing(from).is_some() {
@@ -337,7 +337,7 @@ impl Project {
                 continue;
             };
             let (a, b) = (self.notes[fi].clone(), self.notes[ti].clone());
-            if !ties_end(&a) || (at(a.end) - at(b.start)).abs() < SAME_SEC {
+            if !ties_end(&a) || (at(a.end) - at(b.start)).abs() < EPS {
                 continue;
             }
             let end_follows = touched.contains(&to);
@@ -454,7 +454,7 @@ impl Project {
         let (me, start) = (self.note(id)?, times.start_sec(id)?);
         self.notes
             .iter()
-            .filter(|n| times.start_sec(n.id).is_some_and(|s| s < start - SAME_SEC))
+            .filter(|n| times.start_sec(n.id).is_some_and(|s| s < start - EPS))
             .max_by(|a, b| {
                 let key = |n: &Note| {
                     (
@@ -495,7 +495,7 @@ impl Project {
                 times.start_sec(n.id).unwrap_or(0.0),
                 times.end_sec(n.id).unwrap_or(0.0),
             );
-            if groups.is_empty() || start >= group_end - SAME_SEC {
+            if groups.is_empty() || start >= group_end - EPS {
                 groups.push(Vec::new());
                 group_end = end;
             }

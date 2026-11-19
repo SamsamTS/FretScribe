@@ -12,6 +12,10 @@ use std::collections::HashMap;
 use crate::model::{Measure, Note, TimePos, MIN_BPM, TICKS_PER_BEAT};
 
 pub(crate) const BEAT_EPS: f64 = 1e-10;
+/// Equality tolerance for times, positions and values.
+pub(crate) const EPS: f64 = 1e-9;
+/// Tolerance for tie-breaking between equidistant snap candidates.
+pub(crate) const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BeatKind {

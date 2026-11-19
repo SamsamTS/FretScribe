@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use crate::tempo::EPS;
 use crate::model::{Note, Technique};
 use crate::tempo::TempoMap;
 use crate::tracks::next_note_id;
@@ -9,7 +10,6 @@ use crate::Project;
 
 /// Shortest piece of a note that survives being run over (one lattice unit).
 pub const MIN_PIECE_BEATS: f64 = 1.0 / 24.0;
-const EPS: f64 = 1e-9;
 
 impl Project {
     /// First re-ties the links of the `placed` notes (`tie_links`; the notes they link to count as

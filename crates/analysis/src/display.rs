@@ -2,9 +2,11 @@
 
 use crate::spectrogram::SpectrogramParams;
 
-pub const MIN_LEVELS_GAP: f32 = 0.02;
-pub const GAMMA_MIN: f32 = 0.2;
-pub const GAMMA_MAX: f32 = 5.0;
+use fretscribe_core::persist::{GAMMA_RANGE, LEVELS_MIN_GAP};
+
+pub const MIN_LEVELS_GAP: f32 = LEVELS_MIN_GAP;
+pub const GAMMA_MIN: f32 = *GAMMA_RANGE.start();
+pub const GAMMA_MAX: f32 = *GAMMA_RANGE.end();
 pub const GAMMA_DEFAULT: f32 = 1.0;
 /// Starting display values for the application (tuned by eye), distinct from the identity defaults.
 pub const APP_GAMMA: f32 = 0.8;

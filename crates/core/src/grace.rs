@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use thiserror::Error;
 
+use crate::tempo::EPS;
 use crate::links::{legato_kind, strings_differ, LinkError, LinkType, MAX_FRET};
 use crate::model::{GraceKind, GraceNote, Legato, Note, Project, TICKS_PER_BEAT};
 use crate::tempo::{NoteTimes, TempoMap};
@@ -17,7 +18,6 @@ use crate::tracks::next_note_id;
 pub const ACCIACCATURA_SEC: f64 = 0.04;
 pub const APPOGGIATURA_SEC: f64 = 0.1;
 const MIN_GRACE_SEC: f64 = 1e-3;
-const SAME_SEC: f64 = 1e-9;
 
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum GraceError {
@@ -68,7 +68,7 @@ pub fn grace_target_of(notes: &[Note], times: &NoteTimes, id: u64) -> Option<u64
         .iter()
         .filter(|n| n.id == main || n.grace_of.is_some_and(|g| g.main == main))
         .filter_map(|n| Some((n.id, times.start_sec(n.id)?)))
-        .filter(|&(other, s)| other != id && s > start - SAME_SEC)
+        .filter(|&(other, s)| other != id && s > start - EPS)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(other, _)| other)
 }
@@ -101,7 +101,7 @@ impl Project {
             .iter()
             .filter(|n| n.id != main && !group.contains(&n.id))
             .filter_map(|n| times.start_sec(n.id))
-            .filter(|&s| s < limit - SAME_SEC)
+            .filter(|&s| s < limit - EPS)
             .fold(f64::NEG_INFINITY, f64::max)
     }
 
@@ -130,7 +130,7 @@ impl Project {
                         .is_some_and(|g| g.main == main && g.kind == GraceKind::Acciaccatura)
             })
             .filter_map(|n| times.start_sec(n.id))
-            .filter(|&s| s > after + SAME_SEC)
+            .filter(|&s| s > after + EPS)
             .fold(main_start, f64::min);
         Some((end, end - self.previous_start(times, main, end)))
     }

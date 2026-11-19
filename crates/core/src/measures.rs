@@ -5,11 +5,11 @@
 
 use std::ops::Range;
 
+use crate::tempo::EPS;
 use crate::error::EditError;
 use crate::model::{Measure, TimeSignature, MAX_BPM, MIN_BPM};
 
 const MAX_GENERATED_MEASURES: usize = 100_000;
-const SAME_VALUE_EPS: f64 = 1e-9;
 
 pub fn valid_tempo(bpm: f64) -> bool {
     bpm.is_finite() && (MIN_BPM..=MAX_BPM).contains(&bpm)
@@ -37,7 +37,7 @@ pub fn generate_measures(
     let duration = time_sig.beats() * 60.0 / bpm;
     let span = (audio_len_sec - start_sec) / duration;
     let count = if span.is_finite() {
-        ((span - SAME_VALUE_EPS).ceil().max(1.0) as usize).min(MAX_GENERATED_MEASURES)
+        ((span - EPS).ceil().max(1.0) as usize).min(MAX_GENERATED_MEASURES)
     } else {
         1
     };
@@ -58,13 +58,13 @@ pub fn cover_audio(measures: &mut Vec<Measure>, audio_len_sec: f64, next_id: &mu
         return false;
     }
     let before = measures.len();
-    while measures.len() > 1 && measures.last().is_some_and(|m| m.start_sec >= audio_len_sec - SAME_VALUE_EPS && !keep(m)) {
+    while measures.len() > 1 && measures.last().is_some_and(|m| m.start_sec >= audio_len_sec - EPS && !keep(m)) {
         measures.pop();
     }
     while measures.len() < MAX_GENERATED_MEASURES {
         let Some(last) = measures.last() else { break };
         let end = last.start_sec + last.nominal_duration_sec();
-        if end >= audio_len_sec - SAME_VALUE_EPS {
+        if end >= audio_len_sec - EPS {
             break;
         }
         let mut next = Measure::new(*next_id, end, last.tempo_bpm, last.time_sig);
