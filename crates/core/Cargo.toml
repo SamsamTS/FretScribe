@@ -11,5 +11,8 @@ log.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 
+[features]
+test-support = []
+
 [dev-dependencies]
 tempfile.workspace = true

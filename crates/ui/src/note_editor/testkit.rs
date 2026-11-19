@@ -1,18 +1,14 @@
-use fretscribe_core::{next_note_id, Note, Project, SnapGrid, TempoMap, TimePos, TimeSignature, Track, TrackRole};
+use fretscribe_core::{Project, SnapGrid, TempoMap, TimePos};
 
 use super::EditCtx;
 
 pub const PX_PER_SEC: f64 = 200.0;
 
 pub fn project() -> Project {
-    Project::new(Track::new(1, "Guitar", TrackRole::Guitar), 8.0, 120.0, TimeSignature::COMMON)
+    fretscribe_core::testkit::project(8.0)
 }
 
-pub fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
-    let id = next_note_id(p);
-    p.notes.push(Note::new(id, midi, TimePos::at(1, start), TimePos::at(1, end)));
-    id
-}
+pub use fretscribe_core::testkit::add;
 
 pub fn at(beat: f64) -> TimePos {
     TimePos::at(1, beat)

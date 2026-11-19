@@ -13,6 +13,8 @@ pub mod pitch;
 pub mod snap;
 pub mod snap_note;
 pub mod tempo;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testkit;
 pub mod tracks;
 pub mod undo;
 

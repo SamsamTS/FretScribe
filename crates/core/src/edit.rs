@@ -561,16 +561,11 @@ impl Project {
 mod tests {
     use super::*;
     use crate::measures::tests::{close, near, secs};
-    use crate::model::{GraceKind, GraceNote, Legato, LegatoLink, Note, Track, TrackRole};
+    use crate::model::{GraceKind, GraceNote, Legato, LegatoLink, Note};
     use NotePolicy::{FollowGrid as Follow, KeepAudioPosition as Keep};
 
     fn project(measures: usize) -> Project {
-        Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            measures as f64 * 2.0,
-            120.0,
-            TimeSignature::COMMON,
-        )
+        crate::testkit::project(measures as f64 * 2.0)
     }
 
     fn note(p: &mut Project, midi: u8, start: (u64, f64), end: (u64, f64)) -> u64 {

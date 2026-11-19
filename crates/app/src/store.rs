@@ -123,7 +123,7 @@ impl LaneSource for AudioStore {
 pub(crate) mod tests {
     use super::*;
     use fretscribe_audio::DecodedAudio;
-    use fretscribe_core::{TimeSignature, Track, TrackRole};
+    
 
     pub fn data(onsets: Vec<f64>, seconds: f64) -> TrackData {
         let rate = 8000;
@@ -150,10 +150,7 @@ pub(crate) mod tests {
     }
 
     fn project() -> Project {
-        let mut p = Project::new(Track::new(1, "G", TrackRole::Guitar), 4.0, 120.0, TimeSignature::COMMON);
-        p.add_track(Track::new(0, "D", TrackRole::Drums));
-        p.add_track(Track::new(0, "B", TrackRole::Bass));
-        p
+        fretscribe_core::testkit::band(4.0)
     }
 
     #[test]

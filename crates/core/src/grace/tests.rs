@@ -1,15 +1,9 @@
 use super::*;
 use crate::measures::tests::{near as close, secs};
 use crate::links::LinkType;
-use crate::model::{TimeSignature, Track, TrackRole};
 
 fn project() -> Project {
-    Project::new(
-        Track::new(1, "Guitar", TrackRole::Guitar),
-        8.0,
-        120.0,
-        TimeSignature::COMMON,
-    )
+    crate::testkit::project(8.0)
 }
 
 fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {

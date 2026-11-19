@@ -1,19 +1,15 @@
 use egui::{pos2, vec2, Context, CentralPanel, Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect};
-use fretscribe_core::{next_note_id, LinkType, Note, NoteTimes, Project, TempoMap, TimePos, TimeSignature, Track, TrackRole, Tuning};
+use fretscribe_core::{LinkType, NoteTimes, Project, TempoMap, Tuning};
 use fretscribe_notation::tab::{assign_tabs, TabOptions};
 
 use super::*;
 use crate::view::TimelineView;
 
 fn project() -> Project {
-    Project::new(Track::new(1, "Guitar", TrackRole::Guitar), 20.0, 120.0, TimeSignature::COMMON)
+    fretscribe_core::testkit::project(20.0)
 }
 
-fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
-    let id = next_note_id(p);
-    p.notes.push(Note::new(id, midi, TimePos::at(1, start), TimePos::at(1, end)));
-    id
-}
+use fretscribe_core::testkit::add;
 
 fn solved(midis: &[u8]) -> Project {
     let mut p = project();

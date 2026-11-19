@@ -258,19 +258,11 @@ impl Delta {
 pub(crate) mod tests {
     use super::*;
     use crate::edit::{NotePolicy, ProjectEdit};
-    use crate::model::{TimePos, TimeSignature, TrackRole};
+    use crate::model::{TimePos, TrackRole};
     use crate::tracks::{next_note_id, shift_track};
 
     pub fn project() -> Project {
-        let mut p = Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            8.0,
-            120.0,
-            TimeSignature::COMMON,
-        );
-        p.add_track(Track::new(0, "Drums", TrackRole::Drums));
-        p.add_track(Track::new(0, "Bass", TrackRole::Bass));
-        p
+        crate::testkit::band(8.0)
     }
 
     pub fn add_note(p: &mut Project, midi: u8) -> ProjectEdit {
