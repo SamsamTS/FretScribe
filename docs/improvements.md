@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -332,7 +332,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. Optionally add `#![warn(unreachable_pub)]` to the five library crates so it stays clean.
 **Risk:** none (compile-checked). The `app` and `audio` crates could not be checked here (no ALSA); run the same lint there.
 
-### I-019 · Write-only state in `Session` and `Settings` · impact: low · saves ~17 lines · status: open
+### I-019 · Write-only state in `Session` and `Settings` · impact: low · saves ~17 lines · status: done (`default_tuning`, `load_progress`, `Hints`, `ref_text` removed; the `Progress` arm kept as `{ .. }`; also removed a now-empty `if !busy {}` in `poll_loads`)
 **Where:** `crates/app/src/settings.rs:36,60` `default_tuning` (never read: the form uses its own `default_tuning(instrument)` at `form_ui.rs:319`); `crates/app/src/session.rs:97,182,270,291` `load_progress`; `:96,106-110,173` `hints` and `struct Hints { lut_missing_shown }`; `:98,175` `ref_text`.
 **Problem:** none of the three is read anywhere (workspace-wide search); `load_progress` is only assigned from `LoadEvent::Progress`, `hints.lut_missing_shown` and `ref_text` are only initialised. The open-project dialog tracks its own progress (`app.rs:250,642`).
 **Instructions:** delete `Settings::default_tuning` (old `settings.json` files keep loading: the struct does not use `deny_unknown_fields`), the three session fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
@@ -453,7 +453,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** either (a) gate it behind a cargo feature (`[features] test-support = []`, `#[cfg(any(test, feature = "test-support"))] pub mod synth;`, and enable it in `app`'s `[dev-dependencies]` and for the example with `required-features`), or (b) keep as is but delete `rough_grid` and call `generate_measures(0.0, len, bpm, TimeSignature::COMMON, &mut 1)` at the 2-3 call sites. Take (a) only if more crates start sharing fixtures (see I-006: one shared test-support module per crate would also host the `close` helpers).
 **Risk:** none for (b); (a) touches `Cargo.toml` of two crates.
 
-### I-033 · App form: note-name table and pitch-reference range duplicated from `core` · impact: low · saves ~6 lines · status: open
+### I-033 · App form: note-name table and pitch-reference range duplicated from `core` · impact: low · saves ~6 lines · status: done (`pitch_class_name` and `A4_RANGE_HZ` exported from core; the form uses both and builds its message from the range)
 **Where:** `crates/app/src/form.rs:9` (`NAMES`) vs `crates/core/src/pitch.rs:10-12` (`NOTE_NAMES`); `form.rs:251-256` (`400.0`, `480.0`, "400 to 480 Hz") vs `pitch.rs:7` (`A4_RANGE_HZ`).
 **Problem:** the 12 pitch-class names and the allowed A4 range are written twice; if core changes the range (or adds flats), the form silently disagrees.
 **Instructions:** in `core/src/pitch.rs` add `pub fn pitch_class_name(midi: u8) -> &'static str { NOTE_NAMES[usize::from(midi % 12)] }` (reuse it in `midi_to_name`) and `pub const A4_RANGE_HZ` (re-export from `lib.rs`); in `form.rs` call them, delete `NAMES`, and build the message with `format!("... {} to {} Hz", start, end)`; `parse_ranged` can take the `RangeInclusive`.
@@ -600,13 +600,13 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** (1) move `button`, `step_button` and the dashed "add" button into `kit` (they are generic) and reuse them in `toolbar.rs`/`home.rs` where similar buttons exist; (2) delete `field` and call `text_field`; (3) `Instrument::ALL` const + `TrackRole::label()`/`Instrument::label()` in core/app next to the enums (also used by `tracks/header.rs`, I-042); (4) derive `label_w` from a named column list (`const ROW_COLS`); (5) format the reference note from the shared cents limit (I-033).
 **Risk:** low; visual check of the new-project form.
 
-### I-053 (low) · `app/session.rs`: duplicated "any job running" expression, tuple-packed UI options · impact: low · saves ~20 lines · status: open
+### I-053 (low) · `app/session.rs`: duplicated "any job running" expression, tuple-packed UI options · impact: low · saves ~20 lines · status: done (`Jobs::any()` used at both sites. The tuple-packed `lane_options`/`tab_options` left open (persisted format, serde compatibility))
 **Where:** `session.rs:475` and `:493` (the same four-term `jobs.autofit/tempo/pitch/sync` check, the second adding `loads`), `restore_view` (572-587) / `snapshot` (590-609) mirror each other field by field through anonymous tuples (`lane_options: (bool, bool, bool)`, `tab_options: (bool, bool, bool)` in `core::persist::UiState`).
 **Problem:** adding a job type or an option means editing 2-3 places, and positional bool tuples are easy to swap silently.
 **Instructions:** add `Jobs::any(&self)` and use it in `poll_jobs` and `jobs_running`; replace the tuples with the existing `LaneOptions` / a `TabOptions` struct derived `Serialize/Deserialize` (keep a serde alias for the old array form via `#[serde(from)]` to stay compatible, bump `CURRENT_VERSION` only if needed) so `restore_view`/`snapshot` become one assignment each.
 **Risk:** low; persist round-trip tests exist.
 
-### I-054 (low) · `app/app.rs`: dialog choice as magic integers, screen dispatch by repeated `matches!` · impact: low · saves ~15 lines · status: open
+### I-054 (low) · `app/app.rs`: dialog choice as magic integers, screen dispatch by repeated `matches!` · impact: low · saves ~15 lines · status: done (`Choice` enum, `theme::dialog(ctx, title)` used by the 8 dialog windows, `reveal` builds one `Command` per OS. The `matches!` screen dispatch in `update` left open)
 **Where:** `app.rs` `confirm_ui` (525-568, `choice = Some(0/1/2)`), `update` (657-679, four `matches!(self.screen, ..)` branches), `reveal` (591-600, `let _ = dir` to silence the unused var), `editor.rs` `exact_window`, `confirm_delete`, `sync_window`, `tempo_window`, `pitch_window` and `missing_audio_dialog` (six more hand-rolled modal windows with the same frame/anchor chain).
 **Instructions:** `enum Choice { Save, Discard, Cancel }`; `match &self.screen { Screen::Creating(c) => .., Screen::Home => .., Screen::Form(_) => .., Screen::Editor(_) => .. }`; extract `fn dialog(ctx, title) -> egui::Window` in `theme` (`dialog_frame` + collapsible(false) + centre anchor) and use it for the three windows; give `reveal` one `cfg` body per OS returning `Command` so no dummy binding is needed.
 **Risk:** low.

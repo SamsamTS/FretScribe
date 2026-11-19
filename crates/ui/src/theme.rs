@@ -103,6 +103,11 @@ pub fn install_fonts(ctx: &egui::Context) {
 }
 
 /// Frame of dialog windows: the window colour (like the toolbar), not the lighter panel grey.
+/// A non-collapsible window in the dialog frame; callers add anchor/resizable as needed.
+pub fn dialog<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
+    egui::Window::new(title).frame(dialog_frame(ctx)).collapsible(false)
+}
+
 pub fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::window(&ctx.style()).fill(WINDOW_BG)
 }

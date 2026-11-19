@@ -166,7 +166,7 @@ impl App {
         let Some(r) = self.recover.first() else { return };
         let name = r.saved_path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "an unsaved project".to_owned(), |s| s.to_string_lossy().into_owned());
         let mut choice = None;
-        egui::Window::new("Recovered work").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        fretscribe_ui::theme::dialog(ctx, "Recovered work").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.label(format!("FretScribe did not close properly. A newer recovery copy of {name} exists."));
             ui.horizontal(|ui| {
                 if ui.button("Restore recovered version").clicked() {
@@ -535,26 +535,22 @@ impl App {
             return;
         }
         let mut choice = None;
-        egui::Window::new("Unsaved changes").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        fretscribe_ui::theme::dialog(ctx, "Unsaved changes").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.label("The project has unsaved changes.");
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    choice = Some(0);
-                }
-                if ui.button("Discard changes").clicked() {
-                    choice = Some(1);
-                }
-                if ui.button("Cancel").clicked() {
-                    choice = Some(2);
+                for (label, c) in [("Save", Choice::Save), ("Discard changes", Choice::Discard), ("Cancel", Choice::Cancel)] {
+                    if ui.button(label).clicked() {
+                        choice = Some(c);
+                    }
                 }
             });
         });
         let Some(choice) = choice else { return };
         let confirm = self.confirm.take();
-        if choice == 2 {
+        if choice == Choice::Cancel {
             return;
         }
-        if choice == 0 {
+        if choice == Choice::Save {
             self.save(false);
             if matches!(&self.screen, Screen::Editor(s) if s.dirty) {
                 return;
@@ -605,15 +601,27 @@ fn tile_status(path: &Path) -> TileStatus {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Choice {
+    Save,
+    Discard,
+    Cancel,
+}
+
 fn reveal(path: &Path) {
-    let dir = path.parent().unwrap_or(path);
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg("/select,").arg(path).spawn();
+    let mut command = std::process::Command::new("explorer");
+    #[cfg(target_os = "windows")]
+    command.arg("/select,").arg(path);
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "macos")]
+    command.arg("-R").arg(path);
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
-    let _ = dir;
+    let mut command = std::process::Command::new("xdg-open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    command.arg(path.parent().unwrap_or(path));
+    let _ = command.spawn();
 }
 
 fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
@@ -649,7 +657,7 @@ fn missing_audio_dialog(ctx: &Context, s: &mut Session) {
         return;
     }
     let mut located = None;
-    egui::Window::new("Locate audio file...").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Locate audio file...").anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
         for (id, path) in &missing {
             ui.horizontal(|ui| {
                 ui.label(s.project.track(*id).map_or("track", |t| t.name.as_str()));

@@ -64,6 +64,7 @@ Modules are not re-exported at the crate root.
 - `core` re-exports `Uuid` (`project_id`); `app` no longer depends on `uuid`. Decoding is limited to mp3, wav, flac, ogg/vorbis, mp4/m4a, aac, aiff, pcm.
 - `core::testkit` (`project(secs)`, `band(secs)`, `add(p, midi, start, end)`) is compiled for core tests and with feature `test-support` (enabled by the dev-dependencies of `ui` and `app`).
 - `Project::note_times()`; `persist::clamp_levels(black, white)` (shared by `UiState::sanitise` and `analysis::Levels::clamped`).
+- `core::{pitch_class_name, A4_RANGE_HZ}`; `ui::theme::dialog(ctx, title)`.
 - `Project::resolve_overlaps(placed)` keeps same-pitch notes from overlapping: the placed notes win, the others are cut (and unlinked on the cut side), split (the tail is a new note that takes over the outgoing links) or removed when under `MIN_PIECE_BEATS`; a grace note overlapped by another note is removed. Every note editor edit calls it inside its undo step; other code that places notes must do the same.
 
 ## 2026-11-09 - legato, grace notes, tied links

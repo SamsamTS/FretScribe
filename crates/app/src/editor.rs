@@ -460,7 +460,7 @@ pub fn dialogs(ctx: &Context, s: &mut Session) {
 fn exact_window(ctx: &Context, s: &mut Session) {
     let Some(mut f) = s.exact.take() else { return };
     let (mut keep, mut apply) = (true, false);
-    egui::Window::new("Exact edit").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).open(&mut keep).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Exact edit").open(&mut keep).show(ctx, |ui| {
         egui::Grid::new("exact").show(ui, |ui| {
             for (label, (bar, beat)) in [("Start bar / beat", &mut f.start), ("End bar / beat", &mut f.end)] {
                 ui.label(label);
@@ -499,7 +499,7 @@ fn exact_window(ctx: &Context, s: &mut Session) {
 fn confirm_delete(ctx: &Context, s: &mut Session) {
     let Some(event) = s.pending_delete else { return };
     let mut choice = None;
-    egui::Window::new("Delete measure?").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Delete measure?").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
         ui.label("This measure contains notes. Deleting it removes them too.");
         ui.horizontal(|ui| {
             if ui.button("Delete").clicked() {
@@ -528,7 +528,7 @@ fn sync_window(ctx: &Context, s: &mut Session) {
     let Some(d) = s.sync_dialog.take() else { return };
     let name = s.project.track(d.track).map_or_else(String::new, |t| t.name.clone());
     let (mut apply, mut close) = (None, false);
-    egui::Window::new(format!("Align '{name}'")).frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, format!("Align '{name}'")).show(ctx, |ui| {
         ui.label("The alignment is uncertain. Pick an offset:");
         for c in &d.candidates {
             ui.horizontal(|ui| {
@@ -552,7 +552,7 @@ fn tempo_window(ctx: &Context, s: &mut Session) {
         return;
     }
     let (mut pick, mut close) = (None, false);
-    egui::Window::new("Detected tempo").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Detected tempo").show(ctx, |ui| {
         ui.label("Pick the tempo that matches the beat (the detector may find half or double):");
         for &(bpm, conf) in s.tempo_choices.iter().take(5) {
             if ui.button(format!("{bpm:.1} BPM  ({:.0}%)", conf * 100.0)).clicked() {
@@ -573,7 +573,7 @@ fn tempo_window(ctx: &Context, s: &mut Session) {
 fn pitch_window(ctx: &Context, s: &mut Session) {
     let Some(est) = s.pitch_result.clone() else { return };
     let (mut apply, mut close) = (false, false);
-    egui::Window::new("Reference pitch").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Reference pitch").show(ctx, |ui| {
         ui.label(format!("Estimated A = {:.1} Hz ({:+.0} cents, confidence {:.0}%)", est.a4_hz, est.cents, est.confidence * 100.0));
         ui.small("The detector only resolves offsets within +/-50 cents of A = 440. A recording a half step down, or played with a capo, reads about 0 cents: use the tuning presets and the capo for that.");
         ui.horizontal(|ui| {

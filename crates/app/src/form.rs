@@ -2,11 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use fretscribe_core::{PitchRef, Project, TimeSignature, Track, TrackRole, Tuning, MAX_BPM, MIN_BPM};
+use fretscribe_core::{pitch_class_name, PitchRef, Project, TimeSignature, Track, TrackRole, Tuning, A4_RANGE_HZ, MAX_BPM, MIN_BPM};
 use fretscribe_notation::tab::presets;
 
 pub const MAX_CAPO: u8 = 12;
-const NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /// Only selects the parse defaults and presets; `Project` has no instrument field.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -115,7 +114,7 @@ pub fn tuning_text(tuning: &Tuning) -> String {
         .iter()
         .enumerate()
         .map(|(i, &m)| {
-            let name = NAMES[usize::from(m % 12)];
+            let name = pitch_class_name(m);
             if i + 1 == tuning.open_strings.len() { name.to_lowercase() } else { name.to_owned() }
         })
         .collect::<Vec<_>>()
@@ -248,12 +247,13 @@ impl FormValues {
         errors.name = name.is_empty().then(|| "Enter a name".to_owned());
         let bpm = parse_ranged(&self.bpm, MIN_BPM, MAX_BPM, "BPM").map_err(|e| errors.bpm = Some(e)).ok();
         let time_sig = parse_time_sig(&self.time_sig).map_err(|e| errors.time_sig = Some(e)).ok();
-        let reference_hz = parse_ranged(&self.reference_hz, 400.0, 480.0, "Hz")
+        let (hz_lo, hz_hi) = (f64::from(*A4_RANGE_HZ.start()), f64::from(*A4_RANGE_HZ.end()));
+        let reference_hz = parse_ranged(&self.reference_hz, hz_lo, hz_hi, "Hz")
             .ok()
             .and_then(|hz| PitchRef::new(hz as f32).ok())
             .map(|p| p.a4_hz());
         if reference_hz.is_none() {
-            errors.reference = Some("Enter a frequency from 400 to 480 Hz".to_owned());
+            errors.reference = Some(format!("Enter a frequency from {hz_lo} to {hz_hi} Hz"));
         }
         let tuning = parse_tuning(&self.tuning, self.instrument).map_err(|e| errors.tuning = Some(e)).ok();
         errors.capo = (self.capo > MAX_CAPO).then(|| format!("Capo must be 0 to {MAX_CAPO}"));

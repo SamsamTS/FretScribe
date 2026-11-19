@@ -48,6 +48,13 @@ pub struct Jobs {
     pub sync: Vec<(u64, Job<Vec<SyncCandidate>>)>,
 }
 
+impl Jobs {
+    /// Any background analysis job (not the track loads) is running.
+    pub fn any(&self) -> bool {
+        self.autofit.is_some() || self.tempo.is_some() || self.pitch.is_some() || !self.sync.is_empty()
+    }
+}
+
 pub struct Session {
     pub project: Project,
     pub project_id: Uuid,
@@ -94,27 +101,19 @@ pub struct Session {
     pub nav_regions: Option<fretscribe_ui::NavRegions>,
     /// The Q the spectrograms were last (re)computed with.
     pub q_applied: f32,
-    pub load_progress: Option<(f32, String)>,
     pub jobs: Jobs,
     pub sync_on_ready: Vec<u64>,
     pub sync_dialog: Option<SyncDialog>,
     pub toasts: Vec<Toast>,
     pub synced: Vec<PlayerCall>,
     pub audio_len_sec: f64,
-    pub hints: Hints,
     pub snap_on: bool,
-    pub ref_text: String,
     pub synth_on: bool,
     pub synth_synced: bool,
     pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
     pub pending_delete: Option<fretscribe_ui::GridEvent>,
     pub tempo_choices: Vec<(f64, f64)>,
     pub pitch_result: Option<fretscribe_analysis::pitchref::PitchRefEstimate>,
-}
-
-#[derive(Default)]
-pub struct Hints {
-    pub lut_missing_shown: bool,
 }
 
 fn style_of(ui: &UiState, luts: &LutSet) -> SpectroStyle {
@@ -179,16 +178,13 @@ impl Session {
             requant: None,
             nav_regions: None,
             q_applied: ui.spectro_q,
-            load_progress: None,
             jobs: Jobs::default(),
             sync_on_ready: Vec::new(),
             sync_dialog: None,
             toasts: Vec::new(),
             synced: Vec::new(),
             audio_len_sec,
-            hints: Hints::default(),
             snap_on: true,
-            ref_text: String::new(),
             synth_on: false,
             synth_synced: false,
             exact: None,
@@ -267,7 +263,7 @@ impl Session {
         let (mut ready, mut spectro) = (false, false);
         for e in events {
             match e {
-                LoadEvent::Progress { fraction, label } => self.load_progress = Some((fraction, label)),
+                LoadEvent::Progress { .. } => {}
                 LoadEvent::TrackReady { id, duration_sec } => {
                     ready = true;
                     self.audio_len_sec = self.audio_len_sec.max(duration_sec);
@@ -286,11 +282,7 @@ impl Session {
         if spectro {
             self.revision += 1;
         }
-        let busy = !self.loads.is_empty() || self.requant.is_some();
-        if !busy {
-            self.load_progress = None;
-        }
-        busy
+        !self.loads.is_empty() || self.requant.is_some()
     }
 
     // ---- model edits ---------------------------------------------------------------------
@@ -474,7 +466,7 @@ impl Session {
         for (id, candidates) in finished {
             self.apply_sync(id, candidates);
         }
-        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty()
+        self.jobs.any()
     }
 
     fn apply_sync(&mut self, id: u64, candidates: Vec<SyncCandidate>) {
@@ -492,7 +484,7 @@ impl Session {
     }
 
     pub fn jobs_running(&self) -> bool {
-        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty() || !self.loads.is_empty()
+        self.jobs.any() || !self.loads.is_empty()
     }
 
     /// One undoable step: re-solves the string/fret of every note that is not locked.
