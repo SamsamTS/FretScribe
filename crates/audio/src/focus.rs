@@ -14,7 +14,7 @@ use fretscribe_core::{midi_to_freq, PitchRef, Tuning};
 
 use crate::ramp::Ramp;
 
-const MAX_FRET: u8 = 24;
+use fretscribe_core::MAX_FRET;
 const LOW_CORNER_RATIO: f64 = 0.6;
 const HIGH_CORNER_RATIO: f64 = 4.0;
 const MAX_DEPTH_DB: f64 = 24.0;
@@ -23,7 +23,6 @@ const MAX_CORNER_RATE_RATIO: f64 = 0.45;
 const BUTTERWORTH_4TH_Q: [f64; 2] = [0.541_196_100_146_197, 1.306_562_964_876_376_5];
 const RETUNE_LOG_THRESHOLD: f64 = 0.03;
 const FADE_SEC: f64 = 0.010;
-const OFFLINE_PAD_SEC: f64 = 0.1;
 
 /// Range of fundamentals the guitar can play, from the lowest open string to the highest string
 /// at the 24th fret.
@@ -297,36 +296,9 @@ impl FocusFilter {
     }
 }
 
-/// Zero-phase version for analysis: forward-backward filtering leaves onset times where they are,
-/// and squares the response, so half the depth is used to match the realtime cut.
-pub fn apply_focus_offline(mono: &[f32], rate: u32, band: &FocusBand, strength: f32) -> Vec<f32> {
-    if mono.len() < 2 || rate == 0 || strength.is_nan() || strength <= 0.0 {
-        return mono.to_vec();
-    }
-    let amount = f64::from(blend_amount(strength.min(1.0) * 0.5));
-    let pad = ((OFFLINE_PAD_SEC * f64::from(rate)) as usize).min(mono.len() - 1);
-    let (first, last) = (f64::from(mono[0]), f64::from(mono[mono.len() - 1]));
-
-    let mut signal: Vec<f64> = Vec::with_capacity(mono.len() + 2 * pad);
-    signal.extend((1..=pad).rev().map(|k| 2.0 * first - f64::from(mono[k])));
-    signal.extend(mono.iter().map(|&s| f64::from(s)));
-    signal.extend((1..=pad).map(|k| 2.0 * last - f64::from(mono[mono.len() - 1 - k])));
-
-    let design = corners(band, f64::from(rate), 1.0);
-    for _ in 0..2 {
-        let mut chain = Chain::new(design, f64::from(rate));
-        for x in &mut signal {
-            *x = chain.sample(amount, 0, *x);
-        }
-        signal.reverse();
-    }
-    signal[pad..pad + mono.len()].iter().map(|&x| x as f32).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::sine_frames;
 
     fn tuning(open: &[u8]) -> Tuning {
         Tuning {
@@ -465,49 +437,4 @@ mod tests {
         assert!(filter.incoming.is_none());
     }
 
-    fn amplitude(x: &[f32], freq: f64, rate: u32) -> f64 {
-        let (mut re, mut im) = (0.0, 0.0);
-        for (i, &s) in x.iter().enumerate() {
-            let phase = TAU * freq * i as f64 / f64::from(rate);
-            re += f64::from(s) * phase.cos();
-            im += f64::from(s) * phase.sin();
-        }
-        2.0 * re.hypot(im) / x.len() as f64
-    }
-
-    #[test]
-    fn offline_filter_keeps_onsets_in_place() {
-        let mut impulse = vec![0.0f32; 30_000];
-        impulse[12_345] = 1.0;
-        let out = apply_focus_offline(&impulse, 48_000, &FocusBand::default(), 1.0);
-        let peak = (0..out.len()).max_by(|&a, &b| out[a].abs().total_cmp(&out[b].abs())).unwrap();
-        assert!((peak as i64 - 12_345).abs() <= 1, "{peak}");
-        assert_eq!(out.len(), impulse.len());
-    }
-
-    #[test]
-    fn offline_filter_cuts_out_of_band_and_keeps_the_band() {
-        let band = FocusBand::default();
-        let rate = 48_000;
-        let window = 8_000..40_000;
-        let through = |freq: f64| {
-            let x = sine_frames(freq, rate, 48_000, 1.0);
-            let y = apply_focus_offline(&x, rate, &band, 1.0);
-            20.0 * (amplitude(&y[window.clone()], freq, rate) / amplitude(&x[window.clone()], freq, rate)).log10()
-        };
-        assert!(through(440.0).abs() < 0.5);
-        assert!(through(30.0) < -15.0, "{}", through(30.0));
-        assert!(through(11_000.0) < -15.0, "{}", through(11_000.0));
-    }
-
-    #[test]
-    fn offline_filter_without_strength_is_a_copy() {
-        let x = sine_frames(100.0, 48_000, 1_000, 1.0);
-        assert_eq!(apply_focus_offline(&x, 48_000, &FocusBand::default(), 0.0), x);
-        assert_eq!(apply_focus_offline(&x, 48_000, &FocusBand::default(), f32::NAN), x);
-        assert!(apply_focus_offline(&[], 48_000, &FocusBand::default(), 1.0).is_empty());
-        let tiny = apply_focus_offline(&[0.5, -0.5, 0.25], 48_000, &FocusBand::default(), 1.0);
-        assert_eq!(tiny.len(), 3);
-        assert!(tiny.iter().all(|s| s.is_finite()));
-    }
 }

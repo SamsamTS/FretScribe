@@ -4,11 +4,11 @@
 
 use egui::{pos2, Color32, Mesh, Rect};
 
-pub const PALETTE_SIZE: usize = 256;
+pub(crate) const PALETTE_SIZE: usize = 256;
 /// Keep in sync with `fretscribe_analysis::waveform` (`WAVEFORM_GAMMA`, the colour smoothing and
 /// the private level constants).
 pub const WAVEFORM_GAMMA: f32 = 1.25;
-pub const COLOR_SMOOTHING_PX: usize = 20;
+pub(crate) const COLOR_SMOOTHING_PX: usize = 20;
 const ENVELOPE_SHARE: f32 = 0.8;
 const BODY_LIFT: f32 = 0.3;
 const EDGE_SCALE: f32 = 0.7;
@@ -88,7 +88,7 @@ fn sanitise(v: f32) -> f32 {
 }
 
 /// Loudness of each column (largest absolute peak) after the gamma, 0 for silent columns.
-pub fn levels(peaks: &[(f32, f32, f32)]) -> Vec<f32> {
+pub(crate) fn levels(peaks: &[(f32, f32, f32)]) -> Vec<f32> {
     peaks
         .iter()
         .map(|&(min, max, _)| sanitise(min).abs().max(sanitise(max).abs()).powf(1.0 / WAVEFORM_GAMMA))
@@ -97,7 +97,7 @@ pub fn levels(peaks: &[(f32, f32, f32)]) -> Vec<f32> {
 
 /// Moving average over a window of `2 * (pixels / 2) + 1` columns, counting only non-silent ones,
 /// so notes do not fade into the silence around them. 0 or 1 disables it.
-pub fn smooth_levels(levels: &[f32], pixels: usize) -> Vec<f32> {
+pub(crate) fn smooth_levels(levels: &[f32], pixels: usize) -> Vec<f32> {
     if pixels <= 1 {
         return levels.to_vec();
     }
@@ -120,7 +120,7 @@ pub fn smooth_levels(levels: &[f32], pixels: usize) -> Vec<f32> {
 }
 
 /// 1 on the centre line, `EDGE_SCALE` at the tip of the envelope.
-pub fn fade(distance: f32) -> f32 {
+pub(crate) fn fade(distance: f32) -> f32 {
     1.0 - (1.0 - EDGE_SCALE) * distance.clamp(0.0, 1.0)
 }
 
@@ -137,7 +137,7 @@ fn gradient_quad(mesh: &mut Mesh, rect: Rect, top: Color32, bottom: Color32) {
 /// One column per peak `(min, max, rms)` across `wave`; `ppp` is the number of physical pixels per
 /// point so that each column is one physical pixel wide. The background is the palette's lowest
 /// colour, painted by the caller.
-pub fn build_mesh(wave: Rect, ppp: f32, peaks: &[(f32, f32, f32)], palette: &WaveformPalette) -> Mesh {
+pub(crate) fn build_mesh(wave: Rect, ppp: f32, peaks: &[(f32, f32, f32)], palette: &WaveformPalette) -> Mesh {
     let mut mesh = Mesh::default();
     let smoothed = smooth_levels(&levels(peaks), COLOR_SMOOTHING_PX);
     let (mid, half) = (wave.center().y, (wave.height() / 2.0 - 1.0).max(1.0));

@@ -383,7 +383,7 @@ fn main() -> eframe::Result {
     run(false)
 }
 
-pub fn run(legato: bool) -> eframe::Result {
+pub(crate) fn run(legato: bool) -> eframe::Result {
     eframe::run_native(
         "FretScribe note editor demo",
         eframe::NativeOptions::default(),

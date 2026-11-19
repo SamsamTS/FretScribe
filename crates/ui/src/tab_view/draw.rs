@@ -59,7 +59,7 @@ impl Ctx<'_> {
     }
 
     /// Number centred on `at`, on a background patch that masks the line behind it.
-    pub fn number(&self, at: Pos2, text: &str, scale: f32, color: Color32, halo: Option<Color32>) -> Rect {
+    pub(crate) fn number(&self, at: Pos2, text: &str, scale: f32, color: Color32, halo: Option<Color32>) -> Rect {
         let galley = self.p.layout_no_wrap(text.to_owned(), self.font(scale), color);
         let rect = Rect::from_center_size(at, galley.size());
         if let Some(halo) = halo {

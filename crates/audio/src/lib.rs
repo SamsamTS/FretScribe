@@ -21,7 +21,7 @@ mod testutil;
 pub use decode::{decode_file, DecodedAudio};
 pub use engine::{SpeedMode, MAX_SPEED, MIN_SPEED};
 pub use error::{AudioError, Result};
-pub use focus::{apply_focus_offline, focus_band, FocusBand};
+pub use focus::{focus_band, FocusBand};
 pub use metadata::{read_tags, Tags};
 pub use player::{Player, PreparedTrack};
 pub use resample::PreparedAudio;

@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021, I-029, I-030, I-031 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021, I-029, I-030, I-031, I-015, I-018 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -300,7 +300,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. Remove the now-unused `AudioError` variants if the compiler reports them (`Resample("prepared audio went missing")` path).
 **Risk:** low; `cargo test -p fretscribe-audio`. If a future UI wants a synchronous "load this file" call, `load` is 5 lines on top of `set_prepared_tracks`.
 
-### I-015 · Musical constants defined in several crates; unused offline focus filter · impact: low · saves ~35 lines · status: open
+### I-015 · Musical constants defined in several crates; unused offline focus filter · impact: low · saves ~35 lines · status: done (`MAX_FRET`/`A4_MIDI` come from core (re-exported by `notation::tab` for its callers); `apply_focus_offline`, its pad constant and tests removed: the docs say focus is a listening aid, never applied to analysis)
 **Where:** `MAX_FRET = 24`: `crates/core/src/links.rs:17` (re-exported by `core/src/lib.rs:25`), `crates/notation/src/tab/mod.rs:13`, `crates/audio/src/focus.rs:17`. `A4_MIDI = 69.0`: `crates/core/src/pitch.rs:7`, `crates/analysis/src/cqt.rs:20`. Dead: `crates/audio/src/focus.rs:302` `apply_focus_offline` (+ `OFFLINE_PAD_SEC` `:26`, ~25 lines, tests at `focus_tests.rs`).
 **Problem:** `notation`, `audio` and `analysis` all depend on `core` yet re-declare its constants. `apply_focus_offline` is exported but called by nothing except its own tests (the app applies focus only in the real-time engine).
 **Instructions:**
@@ -323,7 +323,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** split mechanically along the existing comment boundaries into private functions taking the already-computed locals (`ctx`, `geo`, `heads`, `response`): for `show_body` use `paint(..)`, `drag(..)`, `clicks(..)`, `marquee(..)`, `context_menu(..)`, `keys(..)`; for the lane, extract the wheel-row accumulator (`:206-218`) and the resize handle (`:220-234`). No behaviour change; do one file per commit.
 **Risk:** low; UI tests in `tab_view/tests.rs` and `tracks/tests.rs` cover event output.
 
-### I-018 · 61 `pub` items unreachable from the crate root; 5 clippy hints · impact: low · saves 0 lines, shrinks API surface · status: open
+### I-018 · 61 `pub` items unreachable from the crate root; 5 clippy hints · impact: low · saves 0 lines, shrinks API surface · status: done (step 1: every `unreachable_pub` item in `notation`/`ui` narrowed to `pub(crate)` (73 edits incl. test/example targets, no new warnings). Steps 2 and 3 left open: `needless_collect` in `quant.rs` is a false positive (the set dedupes and sorts), the by-value hints are minor)
 **Where (compiler `unreachable_pub`, `core`/`analysis` have none):** `ui/src/spectro/glyphs.rs` (19), `ui/src/staff_view/mod.rs` (7), `ui/src/tracks/icons.rs` (6), `ui/src/overview/waveform.rs` (6), `ui/src/tracks/geometry.rs` (3), `ui/src/overview/ruler.rs` (3), `ui/src/grid/popup.rs` (3), `notation/src/staff/value.rs` (3), `notation/src/staff/quant.rs` (3), `ui/src/spectro/pointer.rs` (2), `spectro/notes.rs` (2), `note_editor/draw.rs` (2), `tab_view/draw.rs` (1), `overview/logic.rs` (1). Clippy extras: `notation/src/staff/quant.rs:102` needless `collect`; by-value args never consumed at `notation/src/tab/solve.rs:400`, `ui/src/kit.rs:432`, `ui/src/note_editor/editor.rs:501` (take `&[NoteChange]`) and `:613`.
 **Problem:** items declared `pub` in private modules and never re-exported claim to be API; reviewers cannot tell what is used across crates. (Checked in a scratch copy: narrowing all 61 compiles, and exposes no additional dead code.)
 **Instructions:**

@@ -199,12 +199,12 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     }
 }
 
-pub fn draw_notes(painter: &Painter, notes: &NoteScene, selected: &[u64], opacity: f32, hovered: Option<u64>) {
+pub(crate) fn draw_notes(painter: &Painter, notes: &NoteScene, selected: &[u64], opacity: f32, hovered: Option<u64>) {
     let color_of = |id| if selected.contains(&id) { SELECTED_COLOR } else { NOTE_COLOR };
     draw_scene(painter, &notes.scene, &notes.items, &notes.metrics, &Look { dashed: false, opacity, names: true }, color_of, hovered);
 }
 
-pub fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostShape) {
+pub(crate) fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostShape) {
     let (m, items) = (geo.metrics(), ghost.items());
     let scene = layout(geo, &items, &m);
     draw_scene(painter, &scene, &items, &m, &Look { dashed: true, opacity: 0.8, names: false }, |_| Color32::WHITE, None);

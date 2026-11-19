@@ -17,7 +17,7 @@ const BAND_SEMITONES: usize = 6;
 const HOPS_PER_WINDOW: f64 = 8.0;
 const DB_CLIP_MARGIN: f32 = 30.0;
 const GRID_A4_HZ: f64 = 440.0;
-const A4_MIDI: f64 = 69.0;
+use fretscribe_core::A4_MIDI;
 const POWER_EPSILON: f32 = 1e-12;
 
 struct RowTap {
