@@ -194,7 +194,7 @@ impl Project {
         let mut note = Note::new(id, midi, main_note.start, main_note.end);
         note.grace_of = Some(GraceNote { main, kind });
         self.notes.push(note);
-        let times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
+        let times = self.note_times();
         let room = self
             .grace_room(&times, main, Some(id), kind, f64::NEG_INFINITY)
             .map_or(0.0, |r| r.1);
@@ -221,7 +221,7 @@ impl Project {
         kind: GraceKind,
         len_sec: f64,
     ) -> Result<(), GraceError> {
-        let after = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures))
+        let after = self.note_times()
             .start_sec(id)
             .unwrap_or(f64::NEG_INFINITY);
         self.place_grace(id, kind, len_sec, after)
@@ -229,7 +229,7 @@ impl Project {
 
     /// Switches between before the beat and on the beat, keeping the length.
     pub fn set_grace_kind(&mut self, id: u64, kind: GraceKind) -> Result<(), GraceError> {
-        let times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
+        let times = self.note_times();
         let len = times
             .end_sec(id)
             .zip(times.start_sec(id))
@@ -241,7 +241,7 @@ impl Project {
     pub fn grace_target(&self, id: u64) -> Option<u64> {
         grace_target_of(
             &self.notes,
-            &NoteTimes::build(&self.notes, &TempoMap::new(&self.measures)),
+            &self.note_times(),
             id,
         )
     }

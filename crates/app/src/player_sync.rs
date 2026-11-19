@@ -3,7 +3,7 @@
 use std::mem::{discriminant, Discriminant};
 
 use fretscribe_audio::{Player, SpeedMode};
-use fretscribe_core::{NoteTimes, PitchRef, Project, TempoMap, Tuning, UiState};
+use fretscribe_core::{PitchRef, Project, Tuning, UiState};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlayerCall {
@@ -63,7 +63,7 @@ pub fn full_sync(
         ]);
     }
     let notes = if overlay_mix > 0.0 {
-        let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
+        let times = project.note_times();
         project
             .notes
             .iter()

@@ -1,6 +1,7 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
-use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use std::collections::HashSet;
 use thiserror::Error;
 
 use super::clip::Clipboard;
@@ -106,6 +107,14 @@ fn step_preset(grid: &SnapGrid, by: i32) -> SnapGrid {
     presets[index as usize].grid.clone()
 }
 
+fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {
+    notes.iter().filter(|n| set.contains(&n.id))
+}
+
+fn selected_mut<'a>(notes: &'a mut [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a mut Note> {
+    notes.iter_mut().filter(|n| set.contains(&n.id))
+}
+
 pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &SnapGrid) -> Result<Applied, ActionError> {
     let tempo = TempoMap::new(&project.measures);
     let order = time_order(&project.notes, &tempo);
@@ -129,7 +138,6 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
     let ids: Vec<u64> = order.iter().copied().filter(|id| sel.contains(*id)).collect();
     let anchor = ids.first().copied().ok_or(ActionError::EmptySelection)?;
     let moved = with_graces(&project.notes, &ids);
-    let ctx_grid = grid;
 
     match action {
         NoteAction::SetStringFromTop(n) => {
@@ -151,12 +159,13 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
         }
         NoteAction::Transpose(by) => {
             let by = i32::from(by);
-            let ok = project.notes.iter().filter(|n| moved.contains(&n.id)).all(|n| (0..=127).contains(&(i32::from(n.midi) + by)));
+            let set: HashSet<u64> = moved.iter().copied().collect();
+            let ok = selected(&project.notes, &set).all(|n| (0..=127).contains(&(i32::from(n.midi) + by)));
             if !ok {
                 return Err(ActionError::OutOfRange);
             }
             let edit = project.edit_notes("Transpose", |p| {
-                for n in p.notes.iter_mut().filter(|n| moved.contains(&n.id)) {
+                for n in selected_mut(&mut p.notes, &set) {
                     n.midi = (i32::from(n.midi) + by) as u8;
                 }
                 p.resolve_overlaps(&moved);
@@ -169,7 +178,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             let delta = match action {
                 NoteAction::NudgeBeat(beats) => f64::from(beats),
                 NoteAction::Nudge { steps } => {
-                    let target = step_on_grid(&tempo, ctx_grid, first, steps);
+                    let target = step_on_grid(&tempo, grid, first, steps);
                     tempo.pos_to_beats(target).zip(tempo.pos_to_beats(first)).map_or(0.0, |(t, f)| t - f)
                 }
                 _ => 0.0,
@@ -177,18 +186,17 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             if delta == 0.0 {
                 return Ok(Applied::default());
             }
-            let view = EditCtx { project, tempo: &tempo, grid: ctx_grid, px_per_sec: 1.0, threshold_px: 0.0, onsets: None, alt: true };
-            let changes: Vec<_> = project.notes.iter().filter(|n| moved.contains(&n.id)).map(|n| shifted(&view, n, delta, 0)).collect();
+            let view = EditCtx { project, tempo: &tempo, grid, px_per_sec: 1.0, threshold_px: 0.0, onsets: None, alt: true };
+            let set: HashSet<u64> = moved.iter().copied().collect();
+            let changes: Vec<_> = selected(&project.notes, &set).map(|n| shifted(&view, n, delta, 0)).collect();
             let edit = super::modify::apply_changes(project, &changes, "Nudge")?;
             Ok(edited(edit, moved))
         }
         NoteAction::Resize { steps } => {
             let min = min_subdivision_beats(grid);
             let beats = |p| tempo.pos_to_beats(p).unwrap_or(0.0);
-            let new_ends: Vec<(u64, _)> = project
-                .notes
-                .iter()
-                .filter(|n| ids.contains(&n.id))
+            let set: HashSet<u64> = ids.iter().copied().collect();
+            let new_ends: Vec<(u64, _)> = selected(&project.notes, &set)
                 .map(|n| (n.id, step_on_grid(&tempo, grid, n.end, steps)))
                 .filter(|&(id, end)| project.note(id).is_some_and(|n| beats(end) - beats(n.start) >= min - 1e-9))
                 .collect();
@@ -208,13 +216,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
         }
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
         NoteAction::ForceLegato => {
-            let tempo = fretscribe_core::TempoMap::new(&project.measures);
-            let mut sorted = ids.clone();
-            sorted.sort_by(|&a, &b| {
-                let start = |id| project.note(id).map_or(0.0, |n| tempo.pos_to_beats(n.start).unwrap_or(0.0));
-                start(a).total_cmp(&start(b))
-            });
-            let targets = if sorted.len() > 1 { &sorted[1..] } else { &sorted[..] };
+            let targets = if ids.len() > 1 { &ids[1..] } else { &ids[..] };
             let sources: Vec<u64> = targets.iter().filter_map(|&id| project.incoming(id).filter(|l| l.1 == LinkType::Legato).map(|l| l.0)).collect();
             if sources.is_empty() || sources.len() < targets.len() {
                 return link_edit(project, ids, "Force legato", Project::force_legato_selection);
@@ -269,13 +271,14 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
                 let fret = midi.checked_sub(open)?;
                 (capo..=MAX_FRET).contains(&fret).then_some(fret)
             };
+            let set: HashSet<u64> = ids.iter().copied().collect();
             if let Some(s) = string {
-                if project.notes.iter().filter(|n| ids.contains(&n.id)).any(|n| fret_on(s, n.midi).is_none()) {
+                if selected(&project.notes, &set).any(|n| fret_on(s, n.midi).is_none()) {
                     return Err(ActionError::NoPlacement);
                 }
             }
             let edit = project.edit_notes("Lock string", |p| {
-                for n in p.notes.iter_mut().filter(|n| ids.contains(&n.id)) {
+                for n in selected_mut(&mut p.notes, &set) {
                     match string {
                         Some(s) => {
                             n.string_fret = fret_on(s, n.midi).map(|f| (s, f));

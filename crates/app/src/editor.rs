@@ -590,5 +590,5 @@ fn pitch_window(ctx: &Context, s: &mut Session) {
 }
 
 pub fn note_times(s: &Session) -> NoteTimes {
-    NoteTimes::build(&s.project.notes, &TempoMap::new(&s.project.measures))
+    s.project.note_times()
 }

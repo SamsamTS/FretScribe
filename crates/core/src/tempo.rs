@@ -43,6 +43,13 @@ pub struct TempoMap {
     ids: HashMap<u64, usize>,
 }
 
+impl crate::model::Project {
+    /// Start and end times of every note under the current grid.
+    pub fn note_times(&self) -> NoteTimes {
+        NoteTimes::build(&self.notes, &TempoMap::new(&self.measures))
+    }
+}
+
 impl TempoMap {
     pub fn new(measures: &[Measure]) -> Self {
         let beats: Vec<f64> = measures.iter().map(|m| m.time_sig.beats()).collect();

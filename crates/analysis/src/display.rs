@@ -2,7 +2,7 @@
 
 use crate::spectrogram::SpectrogramParams;
 
-use fretscribe_core::persist::{GAMMA_RANGE, LEVELS_MIN_GAP};
+use fretscribe_core::persist::{clamp_levels, GAMMA_RANGE, LEVELS_MIN_GAP};
 
 pub const MIN_LEVELS_GAP: f32 = LEVELS_MIN_GAP;
 pub const GAMMA_MIN: f32 = *GAMMA_RANGE.start();
@@ -33,27 +33,7 @@ impl Levels {
     }
 
     pub fn clamped(self) -> Self {
-        let default = Self::default();
-        let black = if self.black.is_nan() {
-            default.black
-        } else {
-            self.black.clamp(0.0, 1.0)
-        };
-        let mut white = if self.white.is_nan() {
-            default.white
-        } else {
-            self.white.clamp(0.0, 1.0)
-        };
-        if white - black >= MIN_LEVELS_GAP {
-            return Self { black, white };
-        }
-        white = black + MIN_LEVELS_GAP;
-        if white > 1.0 {
-            return Self {
-                black: 1.0 - MIN_LEVELS_GAP,
-                white: 1.0,
-            };
-        }
+        let (black, white) = clamp_levels(self.black, self.white);
         Self { black, white }
     }
 

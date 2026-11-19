@@ -8,7 +8,7 @@ use fretscribe_analysis::sync::SyncCandidate;
 use fretscribe_analysis::Levels;
 use fretscribe_audio::{Player, SpeedMode};
 use fretscribe_core::{
-    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, TempoMap, UiState, UndoPolicy, UndoStack,
+    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
 };
 use fretscribe_notation::staff::{self, StaffLayout, StaffOptions};
 use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
@@ -134,7 +134,7 @@ impl Session {
             .filter(|_| settings.keep_history_in_file)
             .map_or_else(|| UndoStack::with_policy(policy), |h| UndoStack::from_saved(h, &project, policy));
         let nav = ViewState { scroll_sec: ui.view.scroll_sec, scroll_y: ui.view.scroll_y, pixels_per_sec: ui.view.pixels_per_sec };
-        let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
+        let times = project.note_times();
         let audio_len_sec = project.measures.last().map_or(0.0, |m| m.start_sec);
         let (keymap, keymap_error) = crate::settings::settings_dir().map_or_else(
             || (Keymap::default(), None),
@@ -313,11 +313,15 @@ impl Session {
 
     /// Recomputes what depends on the project after any change (edit, undo, load).
     pub fn refresh(&mut self) {
-        self.times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        self.refresh_model();
+        self.player_resync(false);
+    }
+
+    fn refresh_model(&mut self) {
+        self.times = self.project.note_times();
         self.store.set_beat_times_from(&self.project);
         self.staff_dirty = true;
         self.revision += 1;
-        self.player_resync(false);
     }
 
     pub fn undo_redo(&mut self, redo: bool) {
@@ -333,7 +337,7 @@ impl Session {
         self.dirty = true;
         self.store_prune();
         self.push_tracks_to_player();
-        self.refresh();
+        self.refresh_model();
         self.player_resync(true);
     }
 
@@ -353,13 +357,13 @@ impl Session {
 
     /// Tab inference over everything (open, tuning/capo change).
     pub fn infer_all(&mut self) -> Vec<u64> {
-        let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        let times = self.project.note_times();
         assign_tabs(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts)
     }
 
     /// Re-run inference after note edits: the edited notes' neighbourhood only.
     pub fn infer_affected(&mut self, affected: &[u64]) {
-        let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        let times = self.project.note_times();
         let index: std::collections::HashMap<u64, usize> = self.project.notes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
         let edited: Vec<usize> = affected.iter().filter_map(|id| index.get(id).copied()).collect();
         assign_tabs_ranges(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, &edited, self.tab_state.propagate_backwards);
@@ -495,7 +499,7 @@ impl Session {
     pub fn reinfer_tab(&mut self) {
         let opts = self.tab_opts.clone();
         let unplaced = self.edit("Re-infer tab", |p| {
-            let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+            let times = p.note_times();
             let (tuning, capo) = (p.tuning.clone(), p.capo);
             Ok::<_, std::convert::Infallible>(assign_tabs(&mut p.notes, &times, &tuning, capo, &opts))
         });

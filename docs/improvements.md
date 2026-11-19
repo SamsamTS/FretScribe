@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -228,7 +228,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 2. In `analysis`, one `testkit::close(a, b, tol)` replacing the two f32 copies; same for `audio` (`focus.rs:341` is the generic form; move to `testutil`).
 **Risk:** none.
 
-### I-007 · `note_editor::action::apply` is a 187-line match with repeated patterns · impact: med · saves ~35 lines · status: open
+### I-007 · `note_editor::action::apply` is a 187-line match with repeated patterns · impact: med · saves ~35 lines · status: done (steps 1, 3 and the ForceLegato points: `ctx_grid`/inner `tempo` removed, `selected`/`selected_mut` over one `HashSet`, redundant re-sort dropped. Steps 2 and 4 (splitting the match into named functions) left open, the catch-all arm stays)
 **Where:** `crates/ui/src/note_editor/action.rs:109-295` (`apply`); `:132` `ctx_grid`; `:211` shadowed `tempo`; `:294` last arm.
 **Problem:** (a) `let ctx_grid = grid;` is a pointless alias; (b) `ForceLegato` rebuilds `TempoMap` that already exists as `tempo` in scope (`:211`); (c) the final arm returns `Ok(Applied::default())` for variants already handled by the early `return`s (`:294`); (d) the pattern `project.notes.iter(_mut)().filter(|n| set.contains(&n.id))` appears 6 times (`:154,159,181,191,273,278`), each an O(notes x selected) scan over a `Vec`; (e) `Transpose`, `Resize`, `SetString`, `Delete`, `Duplicate` bodies are inlined instead of named functions.
 (d) `moved.contains`/`ids.contains` (linear `Vec` scans) inside `project.notes.iter().filter(..)` at `:154,159,191,273,278` make Transpose/Resize/SetString O(notes × selection); build a `HashSet<u64>` once after `with_graces`. (e) `ForceLegato` re-sorts `ids`, which `:129` already produced in time order.
@@ -338,7 +338,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** delete `Settings::default_tuning` (old `settings.json` files keep loading: the struct does not use `deny_unknown_fields`), the three session fields, `Hints`, their initialisers, and the `LoadEvent::Progress` arm (`:245`) plus the `load_progress = None` at `:265` (keep the variant itself: `app.rs:250` uses it; replace the arm with `_ => {}` if the match must stay exhaustive).
 **Risk:** none; compile-checked by `cargo check -p fretscribe`.
 
-### I-020 · `NoteTimes::build(&p.notes, &TempoMap::new(&p.measures))` repeated 22 times; redundant double resync · impact: low · saves ~20 line-widths, one resync per undo · status: open
+### I-020 · `NoteTimes::build(&p.notes, &TempoMap::new(&p.measures))` repeated 22 times; redundant double resync · impact: low · saves ~20 line-widths, one resync per undo · status: done (`Project::note_times()` at 21 sites; `undo_redo` calls `refresh_model()` then one full resync)
 **Where:** `crates/app/src/session.rs:137,316,356,362,500`, `editor.rs:556`, `player_sync.rs:66`; `crates/ui/src/tab_view/edit.rs:92,168,236`, `note_editor/grace_entry.rs:209`; `crates/core/src/edit.rs:185,589`, `tracks.rs:144`, `grace.rs:197,224,232,244` (+ `examples`: `tab_demo.rs:35,55`, `note_editor_demo.rs:214`). Resync: `crates/app/src/session.rs:320` (inside `refresh`) then `:311`.
 **Problem:** the same two-call idiom builds a throwaway `TempoMap` just to build the times, in three crates. `undo_redo` calls `refresh()` (which ends in `player_resync(false)`) and immediately `player_resync(true)`, so the first is overwritten.
 **Instructions:**
@@ -588,7 +588,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** move `SpectroStyle` (levels, gamma, lut) to `analysis` (or add `analysis::RenderStyle`) and pass it as one parameter, dropping the `allow`; key the cache on `Arc::as_ptr(&lut) as usize` (or a LUT id) instead of the name `String`.
 **Risk:** low.
 
-### I-051 (low) · Level/gamma limits and clamping defined in both `core` and `analysis` · impact: low · saves ~25 lines · status: open
+### I-051 (low) · Level/gamma limits and clamping defined in both `core` and `analysis` · impact: low · saves ~25 lines · status: done (constants shared by I-012; now also `persist::clamp_levels`, used by `UiState::sanitise` and `analysis::Levels::clamped` (non-finite values now fall back to defaults in both). The error text still hardcodes 400..=480 (I-033))
 **Where:** `core/src/persist.rs:79-109` (`LEVELS_MIN_GAP` 0.02, `GAMMA_RANGE` 0.2..=5.0, inline levels clamp at 99-101) vs `analysis/src/display.rs:5-8,33-56` (`MIN_LEVELS_GAP` 0.02, `GAMMA_MIN/MAX`, `Levels::clamped`, `clamp_gamma`); `core/src/error.rs` `PitchRefOutOfRange` message hardcodes `400..=480` (I-033).
 **Problem:** the same two limits and the same clamping logic exist twice and must be kept in sync by hand; `analysis` already depends on `core`.
 **Instructions:** keep the constants in `core` (`persist` or a new `display_limits`), have `analysis::display` re-use them (`pub use`), and make `UiState::sanitise` call the shared clamp (move a tiny `Levels::clamped` to `core`, `analysis::Levels` re-exports it). Build the error message from `PitchRef::MIN/MAX` (I-033).

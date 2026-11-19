@@ -15,7 +15,7 @@ use crate::error::{CoreError, EditError, UndoError};
 use crate::measures::{self, recompute_starts, valid_tempo, Propagation};
 use crate::model::{Measure, Project, Technique, TimePos, TimeSignature, MAX_BPM, MIN_BPM};
 use crate::pitch::PitchRef;
-use crate::tempo::{NoteTimes, TempoMap};
+use crate::tempo::TempoMap;
 
 const MIN_MEASURE_SEC: f64 = 1e-3;
 
@@ -175,7 +175,7 @@ impl Project {
     where
         F: FnOnce(&mut Project) -> Result<(), EditError>,
     {
-        let old_times = NoteTimes::build(&self.notes, &TempoMap::new(&self.measures));
+        let old_times = self.note_times();
         f(self)?;
         let map = TempoMap::new(&self.measures);
         for note in &mut self.notes {

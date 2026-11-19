@@ -211,7 +211,7 @@ impl Demo {
     }
 
     fn changed(&mut self) {
-        self.times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        self.times = self.project.note_times();
         self.revision += 1;
     }
 

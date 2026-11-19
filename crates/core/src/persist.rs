@@ -88,18 +88,23 @@ fn finite_or(v: f32, default: f32) -> f32 {
     }
 }
 
+/// Black and white display levels in 0..=1 (non-finite values fall back to 0 and 1), at least `LEVELS_MIN_GAP` apart.
+pub fn clamp_levels(black: f32, white: f32) -> (f32, f32) {
+    let mut black = finite_or(black, 0.0).clamp(0.0, 1.0);
+    let mut white = finite_or(white, 1.0).clamp(0.0, 1.0);
+    if white - black < LEVELS_MIN_GAP {
+        white = (black + LEVELS_MIN_GAP).min(1.0);
+        black = black.min(white - LEVELS_MIN_GAP);
+    }
+    (black, white)
+}
+
 impl UiState {
     /// Clamps the display and focus fields to their valid ranges (levels keep their minimum gap).
     pub fn sanitise(&mut self) {
         self.focus_strength = finite_or(self.focus_strength, 0.5).clamp(0.0, 1.0);
-        let mut black = finite_or(self.spectro_black, 0.0).clamp(0.0, 1.0);
-        let mut white = finite_or(self.spectro_white, 1.0).clamp(0.0, 1.0);
-        if white - black < LEVELS_MIN_GAP {
-            white = (black + LEVELS_MIN_GAP).min(1.0);
-            black = black.min(white - LEVELS_MIN_GAP);
-        }
-        self.spectro_black = black;
-        self.spectro_white = white;
+        let (black, white) = clamp_levels(self.spectro_black, self.spectro_white);
+        (self.spectro_black, self.spectro_white) = (black, white);
         self.spectro_gamma =
             finite_or(self.spectro_gamma, 1.0).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
         self.view.scroll_y = if self.view.scroll_y.is_finite() { self.view.scroll_y.max(0.0) } else { 0.0 };

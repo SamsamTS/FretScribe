@@ -3,7 +3,7 @@
 //! click the left column for the tuning popup. Ctrl+Z / Ctrl+Y undo and redo.
 
 use eframe::egui;
-use fretscribe_core::{next_note_id, LinkType, Note, NoteTimes, Project, TempoMap, TimePos, TimeSignature, Track, TrackRole, UndoStack};
+use fretscribe_core::{next_note_id, LinkType, Note, Project, TempoMap, TimePos, TimeSignature, Track, TrackRole, UndoStack};
 use fretscribe_notation::staff::{layout, StaffOptions};
 use fretscribe_notation::tab::{assign_tabs, TabOptions};
 use fretscribe_ui::tab_view::{apply, TabEdit, TabStyle, TabView, TabViewEvent, TabViewState};
@@ -32,7 +32,7 @@ fn project() -> Project {
     let _ = p.link_notes(6, 7, LinkType::Bend);
     let _ = p.link_notes(10, 11, LinkType::Slide);
     let _ = p.link_notes(2, 3, LinkType::Legato);
-    let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+    let times = p.note_times();
     assign_tabs(&mut p.notes, &times, &p.tuning, p.capo, &TabOptions::default());
     p
 }
@@ -52,7 +52,7 @@ impl eframe::App for Demo {
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+            let times = self.project.note_times();
             let staff = layout(&self.project.notes, &self.project.measures, &StaffOptions::default());
             let out = TabView { project: &self.project, times: &times, staff: Some(&staff), selected: &self.selected.ids, playhead: None, style: &self.style, opts: &self.opts, grid: &Default::default(), timeline_offset: 90.0 }.show(ui, &self.view, &mut self.state);
             let now = ctx.input(|i| i.time);

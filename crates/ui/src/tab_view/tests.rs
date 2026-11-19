@@ -1,5 +1,5 @@
 use egui::{pos2, vec2, Context, CentralPanel, Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect};
-use fretscribe_core::{LinkType, NoteTimes, Project, TempoMap, Tuning};
+use fretscribe_core::{LinkType, Project, Tuning};
 use fretscribe_notation::tab::{assign_tabs, TabOptions};
 
 use super::*;
@@ -21,7 +21,7 @@ fn solved(midis: &[u8]) -> Project {
 }
 
 fn solve(p: &mut Project) {
-    let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+    let times = p.note_times();
     assign_tabs(&mut p.notes, &times, &p.tuning, p.capo, &TabOptions::default());
 }
 
@@ -196,7 +196,7 @@ impl Harness {
             _ => None,
         });
         let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 400.0))), modifiers: modifiers.unwrap_or_default(), events, time: Some(f64::from(self.frame) * 0.02), ..Default::default() };
-        let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+        let times = p.note_times();
         let (opts, style) = (TabOptions::default(), TabStyle::default());
         let mut out = (Vec::new(), Rect::NOTHING);
         let _ = self.ctx.run(input, |ctx| {
@@ -351,7 +351,7 @@ fn draws_every_technique_unassigned_notes_and_the_stems_without_panicking() {
     p.notes[8].grace_of = Some(GraceNote { main: ids[9], kind: GraceKind::Acciaccatura });
     add(&mut p, 10, 6.0, 6.5);
     solve(&mut p);
-    let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+    let times = p.note_times();
     let staff = layout(&p.notes, &p.measures, &StaffOptions::default());
     let mut state = TabViewState { show_stems: true, string_colors: true, ..Default::default() };
     state.flash(&[1, 2], 0.0);

@@ -63,6 +63,7 @@ Modules are not re-exported at the crate root.
 - `core`: `links` (invariants, `link_notes`, `unlink`, `cycle_link`, `link_selection`, bridging delete), `snap_note` (`snap_note`, `snap_resized`, `SnapOpts`), `TempoMap::{pos_to_beats, beats_to_pos}`, `Project::edit_notes`, `ProjectEdit::merge`. `analysis::notes::refine_pitch`.
 - `core` re-exports `Uuid` (`project_id`); `app` no longer depends on `uuid`. Decoding is limited to mp3, wav, flac, ogg/vorbis, mp4/m4a, aac, aiff, pcm.
 - `core::testkit` (`project(secs)`, `band(secs)`, `add(p, midi, start, end)`) is compiled for core tests and with feature `test-support` (enabled by the dev-dependencies of `ui` and `app`).
+- `Project::note_times()`; `persist::clamp_levels(black, white)` (shared by `UiState::sanitise` and `analysis::Levels::clamped`).
 - `Project::resolve_overlaps(placed)` keeps same-pitch notes from overlapping: the placed notes win, the others are cut (and unlinked on the cut side), split (the tail is a new note that takes over the outgoing links) or removed when under `MIN_PIECE_BEATS`; a grace note overlapped by another note is removed. Every note editor edit calls it inside its undo step; other code that places notes must do the same.
 
 ## 2026-11-09 - legato, grace notes, tied links
