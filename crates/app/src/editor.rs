@@ -193,7 +193,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
 
     // ---- events -------------------------------------------------------------------------
     for e in overview_events {
-        handle_overview(s, e, &mut requests);
+        handle_overview(s, e);
     }
     for e in lane_events {
         handle_track_event(s, e, &mut requests);
@@ -250,8 +250,7 @@ fn click_note(s: &mut Session, id: u64, ctrl: bool, shift: bool) {
     }
 }
 
-fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request>) {
-    let _ = requests;
+fn handle_overview(s: &mut Session, e: OverviewEvent) {
     match e {
         OverviewEvent::SeekRequested(sec) => s.seek(sec),
         OverviewEvent::RegionChanged(r) => {
@@ -279,36 +278,31 @@ fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request
     }
 }
 
+/// Applies a mixer change (volume, mute, solo) outside the undo history and updates the player.
+fn mix_changed(s: &mut Session, change: impl FnOnce(&mut Project)) {
+    change(&mut s.project);
+    s.dirty = true;
+    s.player_resync(false);
+}
+
 fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request>) {
     match e {
-        TrackEvent::VolumeChanged { id, volume } => {
-            if let Some(t) = track_mut(&mut s.project, id) {
-                t.volume = volume;
-            }
-            s.dirty = true;
-            s.player_resync(false);
-        }
-        TrackEvent::MuteToggled(id) => {
-            if let Some(t) = track_mut(&mut s.project, id) {
-                t.muted = !t.muted;
-            }
-            s.dirty = true;
-            s.player_resync(false);
-        }
+        TrackEvent::VolumeChanged { id, volume } => mix_changed(s, |p| track_mut(p, id).map(|t| t.volume = volume).unwrap_or_default()),
+        TrackEvent::MuteToggled(id) => mix_changed(s, |p| track_mut(p, id).map(|t| t.muted = !t.muted).unwrap_or_default()),
         TrackEvent::SoloToggled { id, exclusive } => {
             let on = s.project.track(id).is_some_and(|t| !t.solo);
-            for t in &mut s.project.tracks {
-                if t.id == id {
-                    t.solo = on;
-                } else if exclusive {
-                    t.solo = false;
+            mix_changed(s, |p| {
+                for t in &mut p.tracks {
+                    if t.id == id {
+                        t.solo = on;
+                    } else if exclusive {
+                        t.solo = false;
+                    }
                 }
-            }
-            s.dirty = true;
-            s.player_resync(false);
+            });
         }
         TrackEvent::NoteAction(a) => s.tool_actions.push(a),
-        TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r), requests),
+        TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r)),
         TrackEvent::CollapseToggled(id) => {
             if let Some(t) = track_mut(&mut s.project, id) {
                 t.spectrogram_collapsed = !t.spectrogram_collapsed;
@@ -370,13 +364,7 @@ fn handle_tab(s: &mut Session, e: TabViewEvent) {
         },
         TabViewEvent::ReinferRequested => s.reinfer_tab(),
         TabViewEvent::Marquee { ids, add } => {
-            let mut all = if add { s.editor.selection.ids.clone() } else { Vec::new() };
-            for id in ids {
-                if !all.contains(&id) {
-                    all.push(id);
-                }
-            }
-            s.editor.selection.set(all);
+            s.editor.selection.marquee(&ids, add);
         }
         TabViewEvent::ClearSelection => s.editor.selection.clear(),
     }

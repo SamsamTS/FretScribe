@@ -64,23 +64,19 @@ pub struct LaneState {
     pub cache: SpectroCache,
 }
 
+/// The caller's lane inputs plus what `TrackLanes::show` derives from the frame; derefs to the inputs.
 pub struct LaneShared<'a> {
-    pub project: &'a Project,
-    pub source: &'a dyn LaneSource,
-    pub style: &'a SpectroStyle,
-    pub times: &'a NoteTimes,
-    pub selected: &'a [u64],
-    pub ghost: Option<&'a GhostShape>,
+    pub inputs: super::lanes::TrackLanes<'a>,
     pub view: TimelineView,
     pub pitch: PitchView,
-    pub reference_track: u64,
-    pub focus: Option<(f32, f32, f32)>,
     pub audible: &'a HashSet<u64>,
-    pub tools: Option<&'a HeaderTools>,
-    pub region: Option<RegionSelection>,
-    pub region_snap: &'a [f64],
-    pub region_snapping: bool,
-    pub audio_len_sec: f64,
+}
+
+impl<'a> std::ops::Deref for LaneShared<'a> {
+    type Target = super::lanes::TrackLanes<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.inputs
+    }
 }
 
 pub struct TrackLane<'a> {

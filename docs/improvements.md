@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021, I-029, I-030, I-031, I-015, I-018, I-028, I-036, I-037 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021, I-029, I-030, I-031, I-015, I-018, I-028, I-036, I-037, I-055, I-041 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -516,7 +516,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. Optional: store `PitchView` as `PitchRange` converted with a single `From` (already present) and drop the `f32` mirror where only `midi_to_y` is needed.
 **Risk:** low; mechanical, compile-driven; `cargo test -p fretscribe-ui`. Do after I-018 (visibility tightening) to avoid rename churn.
 
-### I-041 · `TrackLanes` copies 14 of its 16 fields into `LaneShared` every frame · impact: low · saves ~25 lines · status: open
+### I-041 · `TrackLanes` copies 14 of its 16 fields into `LaneShared` every frame · impact: low · saves ~25 lines · status: done (step 1: `LaneShared { inputs: TrackLanes, view, pitch, audible }` derefs to the inputs, the 16-field copy is gone. Step 2 (add-track button) left to I-017)
 **Where:** `crates/ui/src/tracks/lanes.rs:105-122` (`TrackLanes`), `:141-158` (the copy), `crates/ui/src/tracks/lane.rs:66-83` (`LaneShared`); callers build `TrackLanes {..}` in `ui/examples/tracks_demo.rs` and `app/src/editor.rs`.
 **Problem:** the public input struct and the internal shared struct declare the same fields (project, source, style, times, selected, ghost, reference_track, focus, tools, region, region_snap, region_snapping, audio_len_sec) and `show` re-spells them one by one; adding a lane option means editing three places. `show` (`:135-219`) also draws the "Add track" button inline (about 15 lines, see I-017).
 **Instructions:**
@@ -611,7 +611,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** `enum Choice { Save, Discard, Cancel }`; `match &self.screen { Screen::Creating(c) => .., Screen::Home => .., Screen::Form(_) => .., Screen::Editor(_) => .. }`; extract `fn dialog(ctx, title) -> egui::Window` in `theme` (`dialog_frame` + collapsible(false) + centre anchor) and use it for the three windows; give `reveal` one `cfg` body per OS returning `Command` so no dummy binding is needed.
 **Risk:** low.
 
-### I-055 (low-med) · `app/editor.rs`: per-frame onset sort and Vec rebuilds, selection logic duplicated, repeated track-event boilerplate · impact: low-med · saves ~40 lines · status: open
+### I-055 (low-med) · `app/editor.rs`: per-frame onset sort and Vec rebuilds, selection logic duplicated, repeated track-event boilerplate · impact: low-med · saves ~40 lines · status: done (steps 3, 4 and the marquee half of 2: `mix_changed` for volume/mute/solo, `requests` dropped from `handle_overview`, Marquee uses `Selection::marquee`. Step 1 was mostly covered by I-008 (lazy onsets/grid); `click_note` kept because the tab view's shift-click adds one note rather than a range; `edit_track` helper not added)
 **Where:** `editor.rs:407-408` `onset_targets` (`flat_map` + sort of every track's onsets) and `snap_grid.clone()` run every frame while snapping is on, even with no input; `:143` `measure_starts` and `:144` `header_tools` rebuilt per frame; `click_note` (231-251) and `handle_tab` `Marquee` (372-380) re-implement `ui::note_editor::Selection::click`/`marquee`; `handle_overview(.., requests)` takes an unused `requests` (`let _ = requests`); `handle_track_event` repeats `if let Some(t) = track_mut(..) {..}; s.dirty = true; s.player_resync(false)` three times and `track_mut(..).map(..).ok_or(UnknownTrack)` three times.
 **Instructions:** (1) cache `onset_list` in `Session` keyed on `store.revision` + track offsets/`use_for_beats` (recompute in `shift_track`/load), and only clone the grid when `collected.inputs` is non-empty; (2) call `s.editor.selection.click(id, ctrl, shift, &order)` / `.marquee(ids, add)` (needs the cached time order from I-043) instead of the local copies; (3) add `Session::edit_track(id, label, |t| ..)` and `Session::mix_changed(|t| ..)` (sets dirty + resync) to collapse the Volume/Mute/Solo/Collapse/Role/UseForBeats arms; (4) drop the `requests` parameter from `handle_overview`.
 **Risk:** low; cache invalidation of onsets is the only subtle part.
