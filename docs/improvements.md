@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -393,7 +393,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. If lookups remain hot after I-010, add the id index discussed there; do not add it first.
 **Risk:** none; `cargo test -p fretscribe-ui -p fretscribe-notation`.
 
-### I-026 · Small `core` simplifications: tempo prefix sums, scoped setters, snap aliases · impact: low-med · saves ~30 lines · status: open
+### I-026 · Small `core` simplifications: tempo prefix sums, scoped setters, snap aliases · impact: low-med · saves ~30 lines · status: done (steps 1, 2, 3 partly, 4: prefix sums in `TempoMap`, shared `set_scoped`, `division_label` renamed `division_name`, `snap_to_pos` computes the nearest multiple; `UNITS_PER_BEAT` kept as the single named constant)
 **Where:** `crates/core/src/tempo.rs:146,153` (`pos_to_beats`, `pos_to_ticks`); `crates/core/src/measures.rs:115-158` (`set_tempo_scoped`, `set_time_sig_scoped`); `crates/core/src/snap.rs:16,31,142-165`.
 **Problem:** (a) `pos_to_beats`/`pos_to_ticks` re-sum `self.beats[..i]`/`self.ticks[..i]` on every call (O(measures)); they are called per note in loops (`ui/note_editor/action.rs:173,187,214`, `clip.rs:29`, `modify.rs:18,163,177`, `notation/staff/quant.rs:53`), so a drag over a long song is O(notes x measures). (b) The two `_scoped` setters are the same function with a different field (range computation, filter, assign, `recompute_starts`). (c) `division_name` (`snap.rs:31`) only forwards to private `division_label`; `UNITS_PER_BEAT` (`:16`) is `TICKS_PER_BEAT` re-cast to `u32`. (d) `snap_to_pos` scans every multiple of every division (`0..=limit/step`) when the nearest one is `round(at/step)*step`.
 **Instructions:**

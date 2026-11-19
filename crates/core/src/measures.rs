@@ -122,12 +122,18 @@ pub fn set_tempo_scoped(
     if !valid_tempo(new_bpm) {
         return Err(EditError::InvalidTempo(new_bpm));
     }
+    Ok(set_scoped(measures, index, propagation, |m| m.tempo_bpm != new_bpm, |m| m.tempo_bpm = new_bpm))
+}
+
+/// Applies `assign` to the measures in scope that `differs`, dropping their anchor, then refits the starts.
+fn set_scoped(measures: &mut [Measure], index: usize, propagation: Propagation, differs: impl Fn(&Measure) -> bool, assign: impl Fn(&mut Measure)) -> Range<usize> {
     let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in measures[index..end].iter_mut().filter(|m| m.tempo_bpm != new_bpm) {
-        (m.tempo_bpm, m.anchored) = (new_bpm, false);
+    for m in measures[index..end].iter_mut().filter(|m| differs(m)) {
+        assign(m);
+        m.anchored = false;
     }
     recompute_starts(measures, index);
-    Ok(index..end)
+    index..end
 }
 
 /// Same propagation rule as `set_tempo`, applied to the time signature. A manual change of either drops the fit (anchor) of every measure it changes.
@@ -149,12 +155,7 @@ pub fn set_time_sig_scoped(
     if !new_sig.is_valid() {
         return Err(EditError::InvalidTimeSignature(new_sig));
     }
-    let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in measures[index..end].iter_mut().filter(|m| m.time_sig != new_sig) {
-        (m.time_sig, m.anchored) = (new_sig, false);
-    }
-    recompute_starts(measures, index);
-    Ok(index..end)
+    Ok(set_scoped(measures, index, propagation, |m| m.time_sig != new_sig, |m| m.time_sig = new_sig))
 }
 
 #[cfg(test)]

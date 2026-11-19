@@ -23,7 +23,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 
 ## 2026-11-03 - core: measure grid
 
-- `Propagation { Following (default), Single }`, `set_tempo_scoped`, `set_time_sig_scoped` (functions and `Project` methods); `set_tempo` / `set_time_sig` use `Following`.
+- `Propagation { Following (default), Single }`, `set_tempo_scoped`, `set_time_sig_scoped` (functions and `Project` methods) (the unscoped `set_tempo` / `set_time_sig` methods were removed).
 - `UndoStack` (`undo` module, `DEFAULT_UNDO_LIMIT = 200`) over `ProjectEdit`: `push`, `push_merged`, `undo`, `redo`, `can_undo`, `can_redo`, `undo_label`, `redo_label`, `clear`, `with_limit`.
 - `ProjectEdit` is a delta (see 2026-11-12); `tuning` and `capo` are undoable.
 

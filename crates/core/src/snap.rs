@@ -28,10 +28,6 @@ pub struct SnapPreset {
 }
 
 /// Label of one division, as shown in the grid dropdowns.
-pub fn division_name(division: u8) -> &'static str {
-    division_label(division)
-}
-
 const PRESETS: [(&str, &[u8]); 10] = [
     ("1/4", &[1]),
     ("1/8", &[2]),
@@ -45,7 +41,7 @@ const PRESETS: [(&str, &[u8]); 10] = [
     ("1/16 + 1/16T", &[4, 6]),
 ];
 
-fn division_label(division: u8) -> &'static str {
+pub fn division_name(division: u8) -> &'static str {
     match division {
         1 => "1/4",
         2 => "1/8",
@@ -79,7 +75,7 @@ impl SnapGrid {
     pub fn label(&self) -> String {
         self.divisions
             .iter()
-            .map(|&d| division_label(d))
+            .map(|&d| division_name(d))
             .collect::<Vec<_>>()
             .join(" + ")
     }
@@ -159,7 +155,7 @@ impl TempoMap {
         consider(len);
         for division in grid.sorted_divisions() {
             let step = TICKS_PER_BEAT / i64::from(division);
-            (0..=limit / step).for_each(|k| consider(k * step));
+            consider(((at / step as f64).round() as i64).clamp(0, limit / step) * step);
         }
         self.normalise(TimePos::new(self.measures[i].id, best.1))
     }
