@@ -362,3 +362,11 @@ fn suggested_levels_put_white_on_the_strongest_value() {
         Levels::new(0.0, crate::APP_WHITE)
     );
 }
+
+#[test]
+fn q_changes_the_spectrogram() {
+    let rate = 22050;
+    let mono: Vec<f32> = (0..rate as usize * 2).map(|i| (i as f32 * 0.05).sin() * 0.5 + (i as f32 * 0.31).sin() * 0.2).collect();
+    let at = |q: f32| compute_spectrogram(&mono, rate, &SpectrogramParams { q, ..SpectrogramParams::default() });
+    assert_ne!(at(10.0).data, at(60.0).data);
+}

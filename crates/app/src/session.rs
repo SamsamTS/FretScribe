@@ -626,18 +626,14 @@ impl Session {
     }
 
     /// Recomputes the loaded spectrograms with the Q in `ui`, in the background.
+    /// Recomputes every loaded spectrogram with the new Q, replacing a recompute still running.
+    /// Waits (the toolbar asks again each frame) while the initial load is running.
     pub fn q_changed(&mut self) {
+        if !self.loads.is_empty() {
+            return;
+        }
         self.q_applied = self.ui.spectro_q;
-        let tracks: Vec<_> = self
-            .store
-            .tracks
-            .iter_mut()
-            .filter(|(_, t)| t.spectrogram_ready)
-            .map(|(id, t)| {
-                t.spectrogram_ready = false;
-                (*id, t.mono.clone(), t.sample_rate)
-            })
-            .collect();
+        let tracks = self.store.tracks.iter().map(|(id, t)| (*id, t.mono.clone(), t.sample_rate)).collect();
         self.requant = Some(LoadJob::requantise(tracks, self.ui.spectro_q));
     }
 
@@ -648,5 +644,36 @@ impl Session {
 
     pub fn speed_mode(&self) -> SpeedMode {
         if self.keep_pitch { SpeedMode::PreservePitch } else { SpeedMode::ChangePitch }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::loader::tests::{clicks, write_wav};
+
+    #[test]
+    fn q_change_recomputes_the_stored_spectrogram() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("a.wav");
+        write_wav(&wav, 22_050, &clicks(22_050, 2.0, 0.5));
+        let mut store = AudioStore::default();
+        let mut job = LoadJob::spawn(vec![(1, wav)], 48_000, 40.0);
+        while !job.is_finished() {
+            job.poll(&mut store);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let file = ProjectFile::new(fretscribe_core::testkit::project(2.0));
+        let mut s = Session::new(file, None, store, &Settings::default(), LutSet::scan(None));
+        let (before, revision) = (s.store.tracks[&1].spectrogram.data.clone(), s.store.revision);
+        for q in [8.0, 12.0] {
+            s.ui.spectro_q = q;
+            s.q_changed();
+        }
+        while s.poll_loads() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_ne!(s.store.tracks[&1].spectrogram.data, before);
+        assert!(s.store.revision > revision);
     }
 }

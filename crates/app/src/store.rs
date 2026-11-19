@@ -18,7 +18,6 @@ pub struct TrackData {
     pub sample_rate: u32,
     pub duration_sec: f64,
     pub spectrogram: Spectrogram,
-    pub spectrogram_ready: bool,
     pub pyramid: Arc<WaveformPyramid>,
     pub envelope: OnsetEnvelope,
     pub onsets: Vec<f64>,
@@ -143,7 +142,6 @@ pub(crate) mod tests {
                 max_midi: 41.0,
                 bins_per_semitone: 1,
             }),
-            spectrogram_ready: false,
             envelope: OnsetEnvelope { values: vec![0.0, 1.0], hop_sec: 0.01 },
             onsets,
         }
