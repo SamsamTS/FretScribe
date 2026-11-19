@@ -5,18 +5,15 @@ use std::rc::Rc;
 
 use egui::{pos2, vec2, Color32, Context, Event, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
 use fretscribe_analysis::Spectrogram;
-use fretscribe_core::{NoteTimes, Project, Track};
+use fretscribe_core::Track;
 
 use super::events::TrackEvent;
 use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::nav::{notches, ViewTuning};
-use crate::note_editor::HeaderTools;
-use crate::view::RegionSelection;
 use crate::spectro::{
-    place_readout, white, GhostShape, HitZone, NoteScene, Peak, SpectroCache, SpectroEvent, SpectroGeometry,
-    SpectroStyle, SpectrogramView, WaveformView,
+    place_readout, white, HitZone, NoteScene, Peak, SpectroCache, SpectroEvent, SpectroGeometry, SpectrogramView, WaveformView,
 };
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
