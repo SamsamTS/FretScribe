@@ -123,6 +123,14 @@ pub fn discover_luts(dir: &Path) -> Vec<Lut> {
 }
 
 #[cfg(test)]
+impl Lut {
+    /// Black to white: the palette index is the grey level.
+    pub(crate) fn grey() -> Self {
+        Self::from_stops("Grey", &[(0.0, [0, 0, 0]), (1.0, [255, 255, 255])])
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 

@@ -290,12 +290,6 @@ fn render_with_smoothing(peaks: &[Peak], height: u32, lut: &Lut, smoothing_px: u
 mod tests {
     use super::*;
 
-    fn grey_lut() -> Lut {
-        let mut lut = Lut::from_stops("Grey", &[(0.0, [0, 0, 0]), (1.0, [255, 255, 255])]);
-        lut.name = "Grey".to_owned();
-        lut
-    }
-
     fn pixel(buffer: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
         let at = (y * width + x) * 4;
         [buffer[at], buffer[at + 1], buffer[at + 2], buffer[at + 3]]
@@ -470,7 +464,7 @@ mod tests {
 
     #[test]
     fn silence_leaves_only_background_and_centre_line() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let (width, height) = (5, 9);
         let buffer = render_rgba(&vec![(0.0, 0.0, 0.0); width], height, &lut);
         let centre = lut.color(CENTRE_LINE_LEVEL);
@@ -489,7 +483,7 @@ mod tests {
 
     #[test]
     fn full_scale_reaches_top_and_bottom_rows() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         for height in [8, 9, 300] {
             let buffer = render_rgba(&[(-1.0, 1.0, 0.7), (0.0, 0.0, 0.0)], height, &lut);
             let last = height as usize - 1;
@@ -501,7 +495,7 @@ mod tests {
 
     #[test]
     fn envelope_is_limited_to_min_max_and_the_centre_is_brighter() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let height = 100;
         let buffer = render_rgba(&[(-0.5, 0.5, 0.2)], height, &lut);
         let at = |y| pixel(&buffer, 1, 0, y)[0];
@@ -515,7 +509,7 @@ mod tests {
 
     #[test]
     fn louder_columns_are_brighter() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let buffer = render_with_smoothing(&[(-0.2, 0.2, 0.1), (-0.8, 0.8, 0.1)], 100, &lut, 0);
         let top_of = |x: usize| (0..100).find(|&y| pixel(&buffer, 2, x, y)[0] > 0).unwrap();
         assert!(top_of(1) < top_of(0));
@@ -524,7 +518,7 @@ mod tests {
 
     #[test]
     fn garbage_peaks_do_not_panic() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let peaks = [
             (f32::NAN, f32::INFINITY, -3.0),
             (5.0, -5.0, 9.0),
@@ -567,7 +561,7 @@ mod tests {
 
     #[test]
     fn smoothing_changes_colours_but_not_the_contour() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let peaks = alternating(60);
         let sharp = render_with_smoothing(&peaks, 80, &lut, 0);
         let smooth = render_with_smoothing(&peaks, 80, &lut, 15);
@@ -577,7 +571,7 @@ mod tests {
 
     #[test]
     fn smoothing_evens_out_neighbouring_columns() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let peaks = alternating(60);
         let row = 40;
         let spread = |smoothing| {
@@ -594,7 +588,7 @@ mod tests {
 
     #[test]
     fn smoothing_of_zero_or_one_pixel_is_the_identity() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let peaks = alternating(20);
         let off = render_with_smoothing(&peaks, 50, &lut, 0);
         assert_eq!(render_with_smoothing(&peaks, 50, &lut, 1), off);
@@ -602,7 +596,7 @@ mod tests {
 
     #[test]
     fn silence_does_not_dim_the_edges_of_a_note() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let mut peaks = vec![(0.0, 0.0, 0.0); 20];
         peaks.extend(vec![(-0.6, 0.6, 0.3); 20]);
         peaks.extend(vec![(0.0, 0.0, 0.0); 20]);
@@ -613,7 +607,7 @@ mod tests {
 
     #[test]
     fn default_smoothing_applies_to_render_rgba() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let peaks = alternating(60);
         assert_eq!(
             render_rgba(&peaks, 80, &lut),
@@ -622,7 +616,7 @@ mod tests {
     }
     #[test]
     fn envelope_and_body_each_fade_from_the_centre_to_their_tips() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let buffer = render_with_smoothing(&[(-0.8, 0.8, 0.4)], 100, &lut, 0);
         let at = |y: usize| i32::from(pixel(&buffer, 1, 0, y)[0]);
         // Body rows 30..=69, envelope-only rows 10..=29 and 70..=89.
@@ -637,7 +631,7 @@ mod tests {
 
     #[test]
     fn body_and_envelope_stay_distinct_where_they_meet() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         for (peak, rms) in [(0.8, 0.4), (1.0, 0.5), (0.3, 0.1)] {
             let buffer = render_with_smoothing(&[(-peak, peak, rms)], 200, &lut, 0);
             let at = |y: usize| i32::from(pixel(&buffer, 1, 0, y)[0]);
@@ -649,7 +643,7 @@ mod tests {
 
     #[test]
     fn one_sided_columns_do_not_misbehave() {
-        let lut = grey_lut();
+        let lut = Lut::grey();
         let buffer = render_rgba(&[(0.2, 0.7, 0.4), (-0.7, -0.2, 0.4)], 64, &lut);
         assert_eq!(buffer.len(), 2 * 64 * 4);
     }

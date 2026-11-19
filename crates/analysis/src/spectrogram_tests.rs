@@ -254,14 +254,6 @@ fn degenerate_inputs_do_not_panic() {
     assert!(compute_spectrogram(&tone(440.0, 0.1), 22_050, &odd).n_rows > 0);
 }
 
-fn grey_lut() -> Lut {
-    let mut lut = Lut::builtin();
-    for (i, c) in lut.colors.iter_mut().enumerate() {
-        *c = [i as u8, i as u8, i as u8, 255];
-    }
-    lut
-}
-
 fn one_pixel(spec: &Spectrogram, lut: &Lut, levels: Levels, gamma: f32) -> u8 {
     let frames = spec.n_frames as f64 * spec.hop_sec;
     let range = (spec.min_midi - 0.05, spec.min_midi + 0.05);
@@ -321,7 +313,7 @@ fn black_point_above_value_gives_first_colour() {
 
 #[test]
 fn gamma_is_applied_after_downsampling() {
-    let lut = grey_lut();
+    let lut = Lut::grey();
     let spec = hand_made(&[0.0, 1.0]);
     for gamma in [0.5, 2.0, 3.0] {
         let got = one_pixel(&spec, &lut, Levels::default(), gamma);
@@ -335,7 +327,7 @@ fn gamma_is_applied_after_downsampling() {
 #[test]
 fn render_places_pitch_with_y_up_and_follows_reference_pitch() {
     let spec = compute_spectrogram(&tone(440.0, 1.0), RATE, &SpectrogramParams::default());
-    let lut = grey_lut();
+    let lut = Lut::grey();
     let bright_midi = |reference: &PitchRef| {
         let image = spec.render_rgba(
             (0.4, 0.6),
