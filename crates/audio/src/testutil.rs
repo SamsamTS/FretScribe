@@ -8,11 +8,12 @@ use crate::resample::PreparedAudio;
 
 pub const RATE: u32 = 48_000;
 
+pub fn sine_frames(freq: f64, rate: u32, frames: usize, amp: f32) -> Vec<f32> {
+    (0..frames).map(|i| amp * (TAU * freq * i as f64 / f64::from(rate)).sin() as f32).collect()
+}
+
 pub fn sine(freq: f64, rate: u32, seconds: f64, amp: f32) -> Vec<f32> {
-    let frames = (seconds * f64::from(rate)).round() as usize;
-    (0..frames)
-        .map(|i| amp * (TAU * freq * i as f64 / f64::from(rate)).sin() as f32)
-        .collect()
+    sine_frames(freq, rate, (seconds * f64::from(rate)).round() as usize, amp)
 }
 
 pub fn mono_audio(rate: u32, samples: Vec<f32>) -> Arc<DecodedAudio> {

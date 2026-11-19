@@ -252,18 +252,7 @@ pub(crate) mod tests {
     use std::path::Path;
 
     pub fn write_wav(path: &Path, rate: u32, samples: &[f32]) {
-        let data: Vec<u8> = samples.iter().flat_map(|s| ((s * 32767.0) as i16).to_le_bytes()).collect();
-        let mut out = Vec::new();
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        for v in [16u32, 0x0001_0001, rate, rate * 2, 0x0010_0002] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        out.extend_from_slice(&data);
-        std::fs::write(path, out).unwrap();
+        std::fs::write(path, fretscribe_audio::wav::encode_mono_f32(rate, samples)).unwrap();
     }
 
     /// Decaying noise-free clicks (short sine bursts) every `period` seconds.

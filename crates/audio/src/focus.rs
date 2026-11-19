@@ -326,6 +326,7 @@ pub fn apply_focus_offline(mono: &[f32], rate: u32, band: &FocusBand, strength: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::sine_frames;
 
     fn tuning(open: &[u8]) -> Tuning {
         Tuning {
@@ -464,10 +465,6 @@ mod tests {
         assert!(filter.incoming.is_none());
     }
 
-    fn sine(freq: f64, rate: u32, frames: usize) -> Vec<f32> {
-        (0..frames).map(|i| (TAU * freq * i as f64 / f64::from(rate)).sin() as f32).collect()
-    }
-
     fn amplitude(x: &[f32], freq: f64, rate: u32) -> f64 {
         let (mut re, mut im) = (0.0, 0.0);
         for (i, &s) in x.iter().enumerate() {
@@ -494,7 +491,7 @@ mod tests {
         let rate = 48_000;
         let window = 8_000..40_000;
         let through = |freq: f64| {
-            let x = sine(freq, rate, 48_000);
+            let x = sine_frames(freq, rate, 48_000, 1.0);
             let y = apply_focus_offline(&x, rate, &band, 1.0);
             20.0 * (amplitude(&y[window.clone()], freq, rate) / amplitude(&x[window.clone()], freq, rate)).log10()
         };
@@ -505,7 +502,7 @@ mod tests {
 
     #[test]
     fn offline_filter_without_strength_is_a_copy() {
-        let x = sine(100.0, 48_000, 1_000);
+        let x = sine_frames(100.0, 48_000, 1_000, 1.0);
         assert_eq!(apply_focus_offline(&x, 48_000, &FocusBand::default(), 0.0), x);
         assert_eq!(apply_focus_offline(&x, 48_000, &FocusBand::default(), f32::NAN), x);
         assert!(apply_focus_offline(&[], 48_000, &FocusBand::default(), 1.0).is_empty());

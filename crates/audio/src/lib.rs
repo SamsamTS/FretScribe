@@ -10,6 +10,7 @@ mod ramp;
 mod resample;
 mod stretch;
 mod synth;
+pub mod wav;
 #[cfg(test)]
 mod focus_tests;
 #[cfg(test)]

@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -212,7 +212,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. `snap_to_grid` (`core/src/snap.rs:167`, ~25 test refs) and `NoteSynth::render_offline` (`audio/src/synth.rs:238`, tests only): keep as `#[cfg(test)]` helpers or move into the test modules.
 **Risk:** low; `cargo test --workspace` and `cargo check --all-targets`. Confirm no planned feature needs them before deleting.
 
-### I-005 · Duplicate WAV writers and sine generators · impact: med · saves ~60 lines · status: open
+### I-005 · Duplicate WAV writers and sine generators · impact: med · saves ~60 lines · status: done (`audio::wav::{encode, encode_mono_f32}` replace the three WAV writers; audio tests share `testutil::sine_frames`; `analysis`'s `tone` left (separate crate, 1 helper))
 **Where:** WAV: `crates/audio/src/decode.rs:158` `wav_bytes`, `crates/app/src/loader.rs:254` `write_wav`, `crates/app/examples/demo_project.rs:12` `wav`. Sine: `crates/audio/src/testutil.rs:10`, `crates/audio/src/focus.rs:467`, `crates/audio/src/resample.rs:240`, `crates/audio/src/decode.rs` `sine_i16`, `crates/analysis/src/spectrogram_tests.rs:14` `tone`.
 **Problem:** same RIFF header and same sine formula written 3 and 5 times.
 **Instructions:**
@@ -220,7 +220,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 2. In `audio`, make `focus.rs` and `resample.rs` tests use `testutil::sine` (add a `frames` variant or call with seconds); drop the local copies.
 **Risk:** none; `cargo test -p fretscribe-audio -p fretscribe`.
 
-### I-006 · Duplicate test helpers in `core` and elsewhere · impact: low · saves ~50 lines · status: open
+### I-006 · Duplicate test helpers in `core` and elsewhere · impact: low · saves ~50 lines · status: done (core: `secs` once in `measures::tests`, grace tests reuse `near`/`secs`; the f32 tolerance helpers in `analysis`/`audio`/`ui` left as they are (3 lines each, different tolerances and signatures))
 **Where:** `secs` ×3: `crates/core/src/edit.rs:588`, `crates/core/src/grace/tests.rs:26`, `crates/core/src/tracks.rs:143` (identical bodies). `close`/`near` (f64 tolerance asserts): `crates/core/src/measures.rs:164,169` (already `pub(crate)`), `crates/core/src/grace/tests.rs:31`, `crates/ui/src/nav/maths.rs:222`, `crates/ui/src/tracks/offset.rs:78`, `crates/ui/src/spectro/glyphs/tests.rs:60`, `crates/ui/src/note_editor/testkit.rs:33`, `crates/audio/src/focus.rs:341`, `crates/analysis/src/waveform.rs:304`, `crates/analysis/src/notes.rs:84`.
 **Problem:** ten near-identical tolerance asserts and three `secs`.
 **Instructions:**

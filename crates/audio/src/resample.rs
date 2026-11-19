@@ -236,12 +236,7 @@ fn resample_to_stereo(audio: &DecodedAudio, to: u32) -> Result<Vec<f32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sine(freq: f64, rate: u32, frames: usize) -> Vec<f32> {
-        (0..frames)
-            .map(|i| (std::f64::consts::TAU * freq * i as f64 / f64::from(rate)).sin() as f32)
-            .collect()
-    }
+    use crate::testutil::sine_frames;
 
     pub(crate) fn zero_crossing_freq(x: &[f32], rate: u32) -> f64 {
         let mut crossings = Vec::new();
@@ -341,7 +336,7 @@ mod tests {
 
     #[test]
     fn resampling_keeps_length_and_pitch() {
-        let mono = sine(440.0, 44_100, 44_100);
+        let mono = sine_frames(440.0, 44_100, 44_100, 1.0);
         let audio = DecodedAudio::from_interleaved(44_100, 1, mono).unwrap();
         let prepared = Prepared::from_decoded(&audio, 48_000).unwrap();
         assert_eq!(prepared.frames(), 48_000);

@@ -170,6 +170,12 @@ pub(crate) mod tests {
         assert!((a - b).abs() < 0.011, "{a} != {b}");
     }
 
+    /// Start and end seconds of a note.
+    pub fn secs(p: &crate::model::Project, id: u64) -> (f64, f64) {
+        let times = crate::tempo::NoteTimes::build(&p.notes, &crate::tempo::TempoMap::new(&p.measures));
+        (times.start_sec(id).unwrap(), times.end_sec(id).unwrap())
+    }
+
     pub fn grid(tempos: &[f64]) -> Vec<Measure> {
         let mut ms: Vec<Measure> = tempos
             .iter()

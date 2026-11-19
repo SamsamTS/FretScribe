@@ -115,7 +115,7 @@ Modules are not re-exported at the crate root.
 
 ## 2026-11-13 - audio: tag reading (Prompt 11)
 
-- `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
+- `audio::wav::{encode, encode_mono_f32}` (16-bit PCM WAV bytes, for fixtures and examples). `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
 
 ## 2026-11-14 - app crate (Prompt 11)
 

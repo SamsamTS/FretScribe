@@ -111,7 +111,7 @@ pub fn shift_track(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measures::tests::{close, near};
+    use crate::measures::tests::{close, near, secs};
     use crate::model::{
         GraceKind, GraceNote, Legato, LegatoLink, Note, Technique, TimePos, TimeSignature,
         TrackRole,
@@ -138,11 +138,6 @@ mod tests {
             TimePos::at(end.0, end.1),
         ));
         id
-    }
-
-    fn secs(p: &Project, id: u64) -> (f64, f64) {
-        let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
-        (times.start_sec(id).unwrap(), times.end_sec(id).unwrap())
     }
 
     #[test]
