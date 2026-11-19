@@ -266,7 +266,7 @@ impl<'a> Field<'a> {
 
     /// Sizes the field for the widest of `samples` (and its own text) so it never changes width.
     pub fn fit(mut self, ui: &Ui, samples: &[impl AsRef<str>]) -> Self {
-        self.sample = Some(samples.iter().map(|s| text_width(ui, s.as_ref())).fold(0.0, f32::max));
+        self.sample = Some(longest(samples).map_or(0.0, |s| text_width(ui, s)));
         self
     }
 
@@ -339,6 +339,11 @@ pub fn popup<R>(ui: &Ui, id: Id, anchor: &Response, right: bool, contents: impl 
     Some(area.inner)
 }
 
+/// The item with the most characters: the one to measure when sizing a menu (one layout call, not one per item).
+fn longest<S: AsRef<str>>(items: &[S]) -> Option<&str> {
+    items.iter().map(AsRef::as_ref).max_by_key(|t| t.chars().count())
+}
+
 /// The rows of a dropdown list: as wide as the widest item, the selected one dotted and bold.
 /// Returns the clicked index.
 pub fn menu_rows(ui: &mut Ui, items: &[String], selected: Option<usize>, min_width: f32) -> Option<usize> {
@@ -346,7 +351,7 @@ pub fn menu_rows(ui: &mut Ui, items: &[String], selected: Option<usize>, min_wid
     const TEXT_X: f32 = 26.0;
     let bold = FontId::new(13.0, theme::medium());
     let regular = FontId::new(13.0, egui::FontFamily::Proportional);
-    let widest = items.iter().map(|t| ui.painter().layout_no_wrap(t.clone(), bold.clone(), theme::TEXT).size().x).fold(0.0, f32::max);
+    let widest = longest(items).map_or(0.0, |t| ui.painter().layout_no_wrap(t.to_owned(), bold.clone(), theme::TEXT).size().x);
     ui.spacing_mut().item_spacing = Vec2::ZERO;
     ui.set_width((widest + TEXT_X + 12.0).max(min_width));
     let mut picked = None;

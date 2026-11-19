@@ -62,7 +62,7 @@ impl Default for StaffStyle {
             space: 7.0,
             ink: Color32::from_rgb(235, 235, 235),
             selected: Color32::from_rgb(110, 180, 255),
-            playhead: Color32::from_rgb(255, 90, 80),
+            playhead: crate::theme::PLAYHEAD,
             background: crate::theme::WINDOW_BG,
             top_extra: 0.0,
         }

@@ -36,8 +36,7 @@ const BAND_HIGHLIGHT_ALPHA: u8 = 32;
 pub(crate) fn white(alpha: u8) -> Color32 {
     Color32::from_rgba_premultiplied(alpha, alpha, alpha, alpha)
 }
-const OPEN_STRING: Color32 = Color32::from_rgb(255, 200, 90);
-const PLAYHEAD: Color32 = Color32::from_rgb(255, 90, 80);
+use crate::theme::{ACCENT_AMBER as OPEN_STRING, PLAYHEAD};
 
 /// Global display parameters, identical for every spectrogram of the application.
 #[derive(Clone, Debug)]
@@ -86,7 +85,7 @@ struct CacheKey {
     a4: u32,
     levels: [u32; 2],
     gamma: u32,
-    lut: String,
+    lut: usize,
     data: (usize, usize, usize),
     revision: u64,
     offset: u64,
@@ -207,7 +206,7 @@ impl<'a> SpectrogramView<'a> {
             a4: self.pitch_ref.a4_hz().to_bits(),
             levels: [self.style.levels.black.to_bits(), self.style.levels.white.to_bits()],
             gamma: self.style.gamma.to_bits(),
-            lut: self.style.lut.name.clone(),
+            lut: Arc::as_ptr(&self.style.lut) as usize,
             data: (s.data.as_ptr() as usize, s.n_frames, s.n_rows),
             revision: self.revision,
             offset: self.audio_offset_sec.to_bits(),
@@ -337,7 +336,7 @@ impl<'a> SpectrogramView<'a> {
 mod tests;
 
 const REGION_FILL: Color32 = Color32::from_rgba_premultiplied(40, 30, 11, 40);
-const REGION_EDGE: Color32 = Color32::from_rgb(255, 200, 90);
+use crate::theme::ACCENT_AMBER as REGION_EDGE;
 
 /// The selected region over `rect` (whose left edge is x = 0 of `view`): a faint fill and two edge lines.
 pub fn paint_region(painter: &Painter, rect: Rect, view: &TimelineView, start: f64, end: f64) {

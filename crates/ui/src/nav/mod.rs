@@ -44,7 +44,7 @@ impl ViewState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PitchView {
+pub struct PitchAnimation {
     pub target: PitchRange,
     pub current: PitchRange,
     pub full: PitchRange,
@@ -61,7 +61,7 @@ struct Pivot {
 pub struct ViewController {
     pub target: ViewState,
     pub current: ViewState,
-    pub pitch: PitchView,
+    pub pitch: PitchAnimation,
     pub tuning: ViewTuning,
     geo: Geometry,
     y_pitch: f64,
@@ -76,7 +76,7 @@ impl ViewController {
         Self {
             target: state,
             current: state,
-            pitch: PitchView { target: full_pitch, current: full_pitch, full: full_pitch },
+            pitch: PitchAnimation { target: full_pitch, current: full_pitch, full: full_pitch },
             tuning: *tuning,
             geo: Geometry { width: 1.0, audio_len_sec: 0.0 },
             y_pitch: 0.0,

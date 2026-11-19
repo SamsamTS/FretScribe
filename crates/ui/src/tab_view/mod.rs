@@ -52,7 +52,7 @@ impl Default for TabStyle {
             selected: Color32::from_rgb(110, 180, 255),
             error: Color32::from_rgb(235, 80, 80),
             background: crate::theme::WINDOW_BG,
-            playhead: Color32::from_rgb(255, 90, 80),
+            playhead: crate::theme::PLAYHEAD,
             flash: Color32::from_rgb(255, 200, 70),
             stem_height: 36.0,
         }
