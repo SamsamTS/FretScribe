@@ -441,22 +441,6 @@ mod mixer {
     }
 
     #[test]
-    fn peak_levels_report_audible_output_per_track() {
-        let (player, mut engine) = dc_mix();
-        render_sec(&player, &mut engine, 0.1);
-        let peaks = player.track_peak_levels();
-        assert_eq!(peaks.iter().map(|p| p.0).collect::<Vec<_>>(), [1, 2, 3]);
-        for (peak, expected) in peaks.iter().zip([0.1, 0.2, 0.4]) {
-            assert!((peak.1 - expected).abs() < 1e-4, "{peaks:?}");
-        }
-        player.set_track_mute(3, true);
-        render_sec(&player, &mut engine, 2.0);
-        let peaks = player.track_peak_levels();
-        assert!(peaks[2].1 < 0.01, "{peaks:?}");
-        assert!((peaks[1].1 - 0.2).abs() < 1e-4);
-    }
-
-    #[test]
     fn set_prepared_tracks_rejects_duplicate_ids_and_replaces_the_mix() {
         let (player, _engine) = setup(vec![track(1, dc(1.0, 0.1))]);
         let err = player.set_prepared_tracks(vec![track(5, dc(1.0, 0.1)), track(5, dc(1.0, 0.1))]);

@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -281,7 +281,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. `Change::new(before: &T, after: &T, same) -> Option<Self> where T: Clone` (clone only when different); pass `&before.tracks`, `&after.tracks`, etc.; same for the `grid` closure. This also lets `same_tracks` take `&[Track]` and drops the `#[allow(clippy::ptr_arg)]` at `:93`.
 **Risk:** none; `cargo test -p fretscribe-core -p fretscribe-analysis`. Verify 3 with the existing round-trip test `random_mixed_edits_round_trip_and_merge` (`delta.rs:442`).
 
-### I-013 · Per-track peak metering runs on the audio thread but nothing reads it · impact: med · saves ~40 lines incl. tests · perf: removes a per-sample `max` per track and a `try_lock` + `Vec` rebuild per 64-frame block · status: open
+### I-013 · Per-track peak metering runs on the audio thread but nothing reads it · impact: med · saves ~40 lines incl. tests · perf: removes a per-sample `max` per track and a `try_lock` + `Vec` rebuild per 64-frame block · status: done (no meter planned in CONTEXT.md or docs: removed `peak`, decay, `Shared::peaks`, `publish` lock block, `Player::track_peak_levels`, its test and the `play` example column)
 **Where:** `crates/audio/src/engine.rs:29` `PEAK_RELEASE_SEC`, `:46,55` `Shared::peaks`, `:109,133` `TrackState::peak`, `:249,283,288` `peak_block_decay`, `:332`, `:350-353` (`publish`), `:377`, `:671-680` (mix loop); `crates/audio/src/player.rs:373` `track_peak_levels`; consumers: `crates/audio/src/mixer_tests.rs:465-479`, `crates/audio/examples/play.rs:282`.
 **Problem:** no code in `app` or `ui` calls `track_peak_levels`; only a test and the CLI example do. The engine still updates `peak` for every sample of every audible track, decays it every block, and publishes a `Vec<(u64, f32)>` under a `Mutex` about 750 times per second at 48 kHz (`BLOCK_FRAMES` = 64).
 **Instructions:**
@@ -356,7 +356,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. Add `Toast::new(text, error)` in `session.rs` and use it in both `toast` methods (or give `App` a `Vec<Toast>` helper shared via a small `Toasts` struct).
 **Risk:** low; manual check: create a project from the form with audio and confirm playback starts.
 
-### I-022 · Toolbar: LUT folder re-decoded every frame while the colour-map dropdown is open; leftovers · impact: med (perf) · saves ~6 lines · status: open
+### I-022 · Toolbar: LUT folder re-decoded every frame while the colour-map dropdown is open; leftovers · impact: med (perf) · saves ~6 lines · status: done (rescan only on the closed-to-open transition; `LutSet::names()` returns cached `&[String]`; `project` no longer takes `s`; tooltip reworded)
 **Where:** `crates/app/src/toolbar.rs:274-277` (rescan), `:206` (names), `:47` (`let _ = s;`), `:60` (tooltip); `crates/app/src/luts.rs:40` `names`; `crates/analysis/src/lut.rs:100` `discover_luts`.
 **Problem:** `kit::is_open(ui, "lut")` is true on every frame while the popup is open, so each frame runs `LutSet::scan`: `read_dir` plus a PNG decode of every palette file (`Lut::from_png`), and rebuilds `Arc<Lut>`s. That is disk I/O and image decoding at 60 fps for as long as the menu is shown. Also: `project(ui, s: &Session, ..)` ignores `s` (`let _ = s;`); the disabled export button's tooltip reads "Export arrives with Prompt 12", an internal planning reference visible to users; `LutSet::names()` exists but only tests use it, while the toolbar rebuilds a `Vec<String>` of names each frame.
 **Instructions:**
@@ -558,7 +558,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 **Instructions:** drop the `alt` param from `snap_offset` (caller passes an empty slice); read the drag once at the top of `show`; cache the palette; extract `drive_rows` and `paint_drag`.
 **Risk:** low.
 
-### I-046 (med) · Spectrogram note layout built 3x per frame per lane, quadratic `items()` · impact: med on long songs · perf: O(n²) per call · status: open
+### I-046 (med) · Spectrogram note layout built 3x per frame per lane, quadratic `items()` · impact: med on long songs · perf: O(n²) per call · status: done (mostly done by I-024; here: `dot_x` via a `HashMap`, grace lookup via a `HashSet` in `draw_notes`. Step 5 (test-only `note_glyphs`/`link_points` exports) left to I-004, `Scene::hit`/`link_points` cloning left open)
 **Where:** `ui/src/spectro/glyphs.rs` `items` (117-137: `tie_of` does a linear `notes.iter().find` per note, `legato_sources.contains` is linear, `grace_target_of` scans notes), `spectro/notes.rs` `hit_test` / `draw_notes` (each calls `items` + `layout` over ALL notes), `spectro/mod.rs` `show` (hover `hit_test` at ~299, `draw_notes` at ~316, and the `pointer::events` closure at ~327 calling `hit_test` again), `notes.rs:124` (`items.iter().any(|it| it.id == *id && it.grace)` inside the per-note loop).
 **Problem:** every frame the full note list is turned into glyph items and laid out two to three times (and once per lane with `show_notes_on_all`), with O(n²) lookups, no culling to the visible time/pitch window.
 **Instructions:** (1) build `items` once per frame in `show` (or cache by project revision + times) with `HashSet`/`HashMap` indexes (`legato_sources`, `tie_of`) and keep only notes intersecting the view; (2) compute `layout` once into a `Scene` and pass it to `draw_notes`, hover `hit` and the pointer closure (`Scene::hit` already exists); (3) carry `grace` in the `Glyph::Note` data instead of searching `items`. Pairs with I-037/I-043.

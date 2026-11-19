@@ -69,7 +69,7 @@ pub enum LinkKind {
     Dashed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Side {
     Left,
     Right,
@@ -407,7 +407,8 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
     for id in attach_left {
         attached.entry(id).or_default()[Side::Left as usize] = true;
     }
-    let dot_x = |id: u64, side: Side| dots.iter().find(|d| d.note_id == id && d.side == side).map(|d| d.pos.x);
+    let dot_at: HashMap<(u64, Side), f32> = dots.iter().map(|d| ((d.note_id, d.side), d.pos.x)).collect();
+    let dot_x = |id: u64, side: Side| dot_at.get(&(id, side)).copied();
     let name_areas = (0..n)
         .filter(|&i| on_beat[i])
         .filter_map(|i| {

@@ -27,7 +27,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 0.0);
         ui.horizontal_top(|ui| {
             ui.set_width(ui.available_width());
-            project(ui, s, &mut requests);
+            project(ui, &mut requests);
             history(ui, s);
             tuning(ui, s);
             kit::right_aligned(ui, "display", |ui| display(ui, s));
@@ -44,8 +44,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     requests
 }
 
-fn project(ui: &mut Ui, s: &Session, requests: &mut Vec<Request>) {
-    let _ = s;
+fn project(ui: &mut Ui, requests: &mut Vec<Request>) {
     group(ui, "Project", |ui| {
         let mut push = |ui: &mut Ui, icon, request, tip| {
             if ibtn(ui, icon, tip, false).clicked() {
@@ -62,7 +61,7 @@ fn project(ui: &mut Ui, s: &Session, requests: &mut Vec<Request>) {
         push(ui, "open", Request::Open, "Open a project");
         push(ui, "save", Request::Save, "Save (Ctrl+S)");
         push(ui, "save-as", Request::SaveAs, "Save under a new name");
-        ui.add_enabled_ui(false, |ui| ibtn(ui, "export", "Export arrives with Prompt 12", false));
+        ui.add_enabled_ui(false, |ui| ibtn(ui, "export", "Export is not available yet", false));
     });
 }
 
@@ -271,11 +270,12 @@ fn display(ui: &mut Ui, s: &mut Session) {
         if s.ui.spectro_q != s.q_applied && !ui.input(|i| i.pointer.any_down()) {
             s.q_changed();
         }
-        if kit::is_open(ui, "lut") {
-            let dir = s.luts.dir.clone();
-            s.luts = crate::luts::LutSet::scan(dir.as_deref());
+        let (open_id, open) = (egui::Id::new("lut_menu_was_open"), kit::is_open(ui, "lut"));
+        if open && !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
+            s.luts = crate::luts::LutSet::scan(s.luts.dir.clone().as_deref());
         }
-        let names: Vec<String> = s.luts.luts.iter().map(|l| l.name.clone()).collect();
+        ui.data_mut(|d| d.insert_temp(open_id, open));
+        let names = s.luts.names().to_vec();
         let current = s.luts.index_of(&s.ui.lut_name);
         let (_, picked) = Field::new(&names[current], "Spectrogram colour map").dropdown(ui, "lut", &names, Some(current));
         if let Some(i) = picked {

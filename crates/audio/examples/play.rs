@@ -278,16 +278,10 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         if !player.is_playing() && !paused {
             break;
         }
-        let levels: Vec<String> = player
-            .track_peak_levels()
-            .iter()
-            .map(|(id, peak)| format!("#{id} {peak:.2}"))
-            .collect();
         println!(
-            "{:8.3} / {duration:.3} s   [{}]   {}",
+            "{:8.3} / {duration:.3} s   [{}]",
             player.position_sec(),
-            view.describe(),
-            levels.join("  ")
+            view.describe()
         );
 
         let line = if input_open {

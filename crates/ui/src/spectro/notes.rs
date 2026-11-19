@@ -1,5 +1,7 @@
 //! Drawing and hit-testing of the note glyphs over the spectrogram; the geometry is in `glyphs`.
 
+use std::collections::HashSet;
+
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke};
 use fretscribe_core::{midi_to_name, Note, NoteTimes};
 
@@ -138,6 +140,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     let halo = Stroke::new(m.stroke() + 2.0, faded(BACKING, 0.6));
     let clip = painter.clip_rect();
 
+    let graces: HashSet<u64> = items.iter().filter(|it| it.grace).map(|it| it.id).collect();
     for g in &scene.glyphs {
         let Glyph::Note(r, id) = g else { continue };
         if !r.intersects(clip) {
@@ -148,7 +151,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         painter.rect_filled(*r, radius, faded(BACKING, 0.4));
         painter.rect_filled(*r, radius, faded(color, 0.3));
         painter.rect_stroke(r.expand(1.0), radius, Stroke::new(1.0_f32, faded(BACKING, 0.85)), egui::StrokeKind::Outside);
-        if look.dashed || items.iter().any(|it| it.id == *id && it.grace) {
+        if look.dashed || graces.contains(id) {
             let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
             stroke_path(painter, corners.to_vec(), Stroke::new(1.5_f32, faded(color, 0.95)), true);
         } else {

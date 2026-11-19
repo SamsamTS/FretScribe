@@ -292,15 +292,6 @@ impl Player {
         self.send(Command::TrackOffset(id, offset));
     }
 
-    /// Smoothed output level (peak, 300 ms release) of every track after mute, solo and volume.
-    pub fn track_peak_levels(&self) -> Vec<(u64, f32)> {
-        self.shared
-            .peaks
-            .lock()
-            .map(|peaks| peaks.clone())
-            .unwrap_or_default()
-    }
-
     /// The transcription as one extra synth channel, independent of the tracks' mute and solo.
     /// Notes are `(midi, start_sec, end_sec)` in project time; `mix` is its level.
     pub fn set_note_overlay(&self, notes: Vec<(u8, f64, f64)>, mix: f32) {
