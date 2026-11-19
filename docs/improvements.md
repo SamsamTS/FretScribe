@@ -546,7 +546,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 5. In `stems`, skip beams whose first/last event are both outside `view.x_to_sec(-20.0 .. width + 20.0)` before the level loop.
 **Risk:** low-med; step 2 needs a correct invalidation key. Steps 1, 4, 5 are local. `cargo test -p fretscribe-ui tab_view` (tests render rects and links with the same `Ctx`).
 
-### I-044 (low) · Staff view: duplicated beam/bezier/head code, unculled links · impact: low · saves ~30 lines, small perf · status: open
+### I-044 (low) · Staff view: duplicated beam/bezier/head code, unculled links · impact: low · saves ~30 lines, small perf · status: partial: steps 2-4 done (`Paint::bezier`, links `Anchor`, off-screen links skipped); step 1 (`BeamLine`) left
 **Where:** `ui/src/staff_view/mod.rs` (`BeamLine::y_at` vs the `at` closure in `beam_line`; `arc` vs the bezier built inline in `links.rs` Bend; `Paint::fill`/`snap` helpers), `links.rs` (`draw` loops every link in the layout, no culling; private `Head` struct shadows `mod.rs`'s `Head`; `head()` called 4x per link), `mod.rs` `ties` (forward `find` per tie).
 **Problem:** same line interpolation and quadratic-bezier construction written twice; links are drawn for the whole song each frame; two unrelated `Head` types in one module tree.
 **Instructions:** (1) build the `BeamLine` first and use `line.y_at` for the shift computation; (2) make `Paint::arc` take an optional control point (or add `bezier(a, ctrl, b, w, color)`) and use it in Bend; (3) rename links' `Head` to `Anchor`; resolve `from`/`to` anchors once per link; (4) skip links whose x-range is outside the visible range (reuse `first..last` event indices via `note_ref`).

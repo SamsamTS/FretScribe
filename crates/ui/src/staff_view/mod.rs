@@ -413,7 +413,10 @@ impl Paint<'_> {
     }
 
     pub(crate) fn arc(&self, a: Pos2, b: Pos2, bulge: f32, width: f32, color: Color32) {
-        let ctrl = pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0 + bulge * 2.0);
+        self.bezier(a, pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0 + bulge * 2.0), b, width, color);
+    }
+
+    pub(crate) fn bezier(&self, a: Pos2, ctrl: Pos2, b: Pos2, width: f32, color: Color32) {
         self.p.add(Shape::QuadraticBezier(egui::epaint::QuadraticBezierShape::from_points_stroke([a, ctrl, b], false, Color32::TRANSPARENT, Stroke::new(width, color))));
     }
 
