@@ -3,6 +3,7 @@
 
 pub mod beatfit;
 mod cqt;
+mod dsp;
 mod display;
 mod error;
 pub mod lut;
@@ -23,6 +24,6 @@ pub use error::AnalysisError;
 pub use lut::{discover_luts, Lut, LUT_SIZE};
 pub use spectrogram::{
     compute_spectrogram, compute_spectrogram_streaming, Spectrogram, SpectrogramChunk,
-    SpectrogramInfo, SpectrogramParams, SpectrogramStream, WindowKind,
+    SpectrogramInfo, SpectrogramParams, SpectrogramStream,
 };
 pub use waveform::{render_rgba as render_waveform_rgba, WaveformPyramid, WAVEFORM_GAMMA};

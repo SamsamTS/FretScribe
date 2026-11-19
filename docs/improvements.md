@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021, I-029, I-030, I-031 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -419,7 +419,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. Merge the two `use crate::model::...` lines.
 **Risk:** low; snapping has dense tests (`snap_note/tests`, `snap.rs`): `cargo test -p fretscribe-core snap`. Item 2 does not change results (candidates outside the radius are already filtered by `choose`).
 
-### I-029 · `resample.rs`: duplicated channel-copy loop and double wrapper; `DecodedAudio` keeps two full copies · impact: low-med · saves ~15 lines, up to ~1/3 of decoded RAM for mono files · status: open
+### I-029 · `resample.rs`: duplicated channel-copy loop and double wrapper; `DecodedAudio` keeps two full copies · impact: low-med · saves ~15 lines, up to ~1/3 of decoded RAM for mono files · status: done (step 1 only: shared `load` copy loop in `resample.rs`. Steps 2 and 3 (single `Prepared` type, `Arc::from(decoded.mono)`) left open)
 **Where:** `crates/audio/src/resample.rs:192-199` vs `:209-216` (identical copy loop and "unexpected channel count" error), `:60-68`/`:34-41` (`Prepared::from_decoded` + `PreparedAudio::new`), `:129-141` (`to_stereo`) and `:173` (same `right = width.min(2) - 1` rule); `crates/audio/src/decode.rs:26-27,52-58` (`mono` and `interleaved`).
 **Problem:** (a) the two branches of `resample_to_stereo` fill `input` from an interleaved chunk with the same 5-line loop and the same let-else; (b) `Prepared` (samples) is wrapped in `Arc` inside `PreparedAudio` (rate) so every accessor is a forwarder; (c) for 1-channel files `interleaved` and `mono` are equal copies (`from_interleaved` always builds `mono`), and each stereo decode holds `mono` (4 B/frame) plus `interleaved` (8 B/frame) after `Prepared` was already built from it (`app/src/loader.rs:218` copies `mono` again into an `Arc<[f32]>`).
 **Instructions:**
@@ -428,7 +428,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. In `LoadJob` (`app/src/loader.rs:218`) build the `Arc<[f32]>` from `decoded.mono` by value (`Arc::from(decoded.mono)`) and drop `interleaved` as soon as `PreparedAudio::new` returns (it is already dropped with `decoded`; just confirm no clone of `DecodedAudio` is held in `Session`/`store`).
 **Risk:** low; `cargo test -p fretscribe-audio` (resample tests cover ratios and tails).
 
-### I-030 · Hann window written four times; `estimate_offset` computes the onset envelope twice · impact: low-med · perf: one full-track STFT less per sync with a grid hint · saves ~12 lines · status: open
+### I-030 · Hann window written four times; `estimate_offset` computes the onset envelope twice · impact: low-med · perf: one full-track STFT less per sync with a grid hint · saves ~12 lines · status: done (steps 1, 2 and 4: `dsp::hann` replaces the four windows (f64 formulation), the onset envelope of `other` is computed once, `tempos` takes an envelope, pitchref sum hoisted. Steps 3 and 5 (presorted onsets in `grid_score`, splitting `estimate_offset`) left open)
 **Where:** Hann: `crates/analysis/src/sync.rs:285`, `cqt.rs:232`, `beatfit/mod.rs:98`, `pitchref.rs:122`. Envelope: `sync.rs:144` (`onset_envelope(other, ..)` inside the `grid_hint` branch) and `:215-218` (`tempos(other, ..)` recomputes it); `estimate_offset` (`:108-209`) is a 100-line function.
 **Problem:** (a) four copies of the same window, with three different formulations (f32 vs f64 `PI`/`TAU`, one casts only the `cos`); (b) `onset_envelope` is a full STFT of the track and runs twice for `other` (and `tempos` always runs it for `reference`), on the background sync job; (c) `grid_score` clones and sorts all onsets per candidate (`:255-257`) although the order does not depend on the candidate.
 **Instructions:**
@@ -439,7 +439,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 5. Split `estimate_offset` into `correlate` (peaks + refine), `disambiguate` (the `[a, b]` block, `:170-190`) and `drift_note` (`:192-197`) to bring it under ~40 lines.
 **Risk:** low; `cargo test -p fretscribe-analysis` (sync tests assert offsets and notes). Step 1 changes window values at the 1e-7 level only (f64 formulation kept for all).
 
-### I-031 · Inert `WindowKind`/`window` parameter; `Spectrogram` repeats `SpectrogramInfo` field by field · impact: low · saves ~25 lines (incl. 6 hand-built literals) · status: open
+### I-031 · Inert `WindowKind`/`window` parameter; `Spectrogram` repeats `SpectrogramInfo` field by field · impact: low · saves ~25 lines (incl. 6 hand-built literals) · status: done (`WindowKind`/`window` removed; `Spectrogram { data, info }` with `Deref<Target = SpectrogramInfo>`, the five literals updated)
 **Where:** `crates/analysis/src/spectrogram.rs:12-15,24,39` (`WindowKind`, `SpectrogramParams::window`), re-exported at `analysis/src/lib.rs:26`; `spectrogram.rs:67-89,106-116` (`SpectrogramInfo` vs `Spectrogram`); literals at `ui/src/spectro/tests.rs:23`, `ui/examples/tracks_demo.rs:58`, `ui/examples/note_editor_demo.rs:45`, `analysis/src/notes.rs:61`, `analysis/src/spectrogram_tests.rs:272`.
 **Problem:** (a) `WindowKind` has one variant and nothing reads `params.window`: `cqt.rs` always builds a Hann window; (b) `Spectrogram` holds the same six fields as `SpectrogramInfo` plus `data`, so `Spectrogram::empty` copies them one by one and every test/example literal spells all seven fields.
 **Instructions:**

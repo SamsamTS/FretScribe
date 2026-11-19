@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use fretscribe_core::{freq_to_midi_float, PitchRef};
 
+use crate::SpectrogramInfo;
 use crate::lut::Lut;
 use crate::{
     apply_gamma, apply_levels, compute_spectrogram, compute_spectrogram_streaming, Levels,
@@ -261,15 +262,8 @@ fn one_pixel(spec: &Spectrogram, lut: &Lut, levels: Levels, gamma: f32) -> u8 {
 }
 
 fn hand_made(values: &[f32]) -> Spectrogram {
-    Spectrogram {
-        data: values.to_vec(),
-        n_frames: values.len(),
-        n_rows: 1,
-        hop_sec: 0.01,
-        min_midi: 60.0,
-        max_midi: 60.0,
-        bins_per_semitone: 4,
-    }
+    let info = SpectrogramInfo { n_frames: values.len(), n_rows: 1, hop_sec: 0.01, min_midi: 60.0, max_midi: 60.0, bins_per_semitone: 4 };
+    Spectrogram { data: values.to_vec(), info }
 }
 
 #[test]

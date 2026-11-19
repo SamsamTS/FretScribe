@@ -140,10 +140,11 @@ pub fn estimate_offset(
         &band_signals(other, sample_rate, &bands),
         sig_lag,
     );
+    let envelope = onset_envelope(other, sample_rate);
     let onsets = opts.grid_hint.filter(|g| !g.is_empty()).map(|g| {
-        let env = onset_envelope(other, sample_rate);
+        let env = &envelope;
         (
-            detect_onsets(&env).into_iter().map(|t| (t, f64::from(env.at(t)))).collect::<Vec<_>>(),
+            detect_onsets(env).into_iter().map(|t| (t, f64::from(env.at(t)))).collect::<Vec<_>>(),
             grid_lines(g),
         )
     });
@@ -163,7 +164,7 @@ pub fn estimate_offset(
         })
         .collect();
 
-    let (tempos_r, tempos_o) = (tempos(reference, sample_rate), tempos(other, sample_rate));
+    let (tempos_r, tempos_o) = (tempos(&onset_envelope(reference, sample_rate)), tempos(&envelope));
     let mut notes: Vec<Vec<String>> = vec![Vec::new(); cands.len()];
     let mut conf: Vec<f32> = cands.iter().map(|c| confidence(c.height / noise)).collect();
 
@@ -212,9 +213,8 @@ fn confidence(ratio: f32) -> f32 {
     1.0 - (-(ratio - CONFIDENCE_FLOOR).max(0.0) / CONFIDENCE_SCALE).exp()
 }
 
-fn tempos(x: &[f32], sample_rate: u32) -> Vec<f64> {
-    let candidates = estimate_tempo(&onset_envelope(x, sample_rate), TEMPO_RANGE_BPM);
-    candidates.into_iter().map(|t| t.0).collect()
+fn tempos(envelope: &crate::beatfit::OnsetEnvelope) -> Vec<f64> {
+    estimate_tempo(envelope, TEMPO_RANGE_BPM).into_iter().map(|t| t.0).collect()
 }
 
 /// Ratio of the closest pair of tempo candidates (other / reference), folded for double and half time.
@@ -282,10 +282,6 @@ fn bands(sample_rate: u32) -> Vec<(f64, f64)> {
     BANDS_HZ.iter().map(|&(lo, hi)| (lo, hi.min(nyquist))).filter(|b| b.0 < 0.8 * b.1).collect()
 }
 
-fn hann(n: usize) -> Vec<f32> {
-    (0..n).map(|i| (0.5 - 0.5 * (2.0 * PI * i as f64 / n as f64).cos()) as f32).collect()
-}
-
 /// One normalised flux envelope per band; frame `k` is at `k * HOP` samples.
 fn envelopes(x: &[f32], sample_rate: u32, bands: &[(f64, f64)]) -> Vec<Vec<f32>> {
     let frames = x.len() / HOP + 1;
@@ -303,7 +299,7 @@ fn envelopes(x: &[f32], sample_rate: u32, bands: &[(f64, f64)]) -> Vec<Vec<f32>>
 
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(FFT_SIZE);
     let (window, mut input, mut spectrum) =
-        (hann(FFT_SIZE), fft.make_input_vec(), fft.make_output_vec());
+        (crate::dsp::hann(FFT_SIZE), fft.make_input_vec(), fft.make_output_vec());
     let mut previous: Option<Vec<f32>> = None;
     for t in 0..frames {
         let first = (t * HOP) as isize - (FFT_SIZE / 2) as isize;

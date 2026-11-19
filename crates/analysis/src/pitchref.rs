@@ -22,7 +22,6 @@
 use fretscribe_core::{cents_off, ref_from_cents, PitchRef};
 use rayon::prelude::*;
 use realfft::RealFftPlanner;
-use std::f64::consts::PI;
 
 pub const HISTOGRAM_BINS: usize = 100;
 
@@ -118,9 +117,7 @@ pub fn estimate_reference(
 
     let frames = if samples.len() < window { 1 } else { (samples.len() - window) / hop + 1 };
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(fft_len);
-    let taper: Vec<f32> = (0..window)
-        .map(|i| (0.5 - 0.5 * (2.0 * PI * i as f64 / window as f64).cos()) as f32)
-        .collect();
+    let taper = crate::dsp::hann(window);
     let peaks: Vec<Vec<Peak>> = (0..frames)
         .into_par_iter()
         .map_init(
@@ -254,16 +251,18 @@ fn summarise(points: &[(f64, f64)]) -> PitchRefEstimate {
         .map(|p| p.1)
         .sum::<f64>()
         / total;
-    let prominence = smooth[mode] / (smooth.iter().sum::<f64>() / n as f64);
+    let total_smooth = smooth.iter().sum::<f64>();
+    let prominence = smooth[mode] / (total_smooth / n as f64);
     let by_share = ((share - FLAT_SHARE) / (1.0 - FLAT_SHARE)).clamp(0.0, 1.0);
     let by_prominence = ((prominence - 1.0) / (PROMINENCE_FULL - 1.0)).clamp(0.0, 1.0);
-    let histogram = smooth.iter().map(|v| (v / smooth.iter().sum::<f64>()) as f32).collect();
+    let histogram = smooth.iter().map(|v| (v / total_smooth) as f32).collect();
     PitchRefEstimate::at(cents, (by_share * by_prominence).sqrt(), histogram)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f64::consts::PI;
 
     const SR: u32 = 44_100;
 

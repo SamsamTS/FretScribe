@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use eframe::egui::{self, pos2, vec2, Color32, Rect, Sense, Stroke};
-use fretscribe_analysis::{clamp_gamma, discover_luts, Levels, Lut, Spectrogram, SpectrogramParams, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
+use fretscribe_analysis::{clamp_gamma, discover_luts, Levels, Lut, Spectrogram, SpectrogramInfo, SpectrogramParams, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
 use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{Legato, LegatoLink, Note, NoteTimes, PitchRef, Project, SnapGrid, TempoMap, TimeSignature, Technique, Track, TrackRole, UndoStack};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env, NoteEditor};
@@ -42,7 +42,7 @@ fn synthetic() -> Spectrogram {
             }
         }
     }
-    Spectrogram { data, n_frames, n_rows, hop_sec: hop, min_midi: min, max_midi: max, bins_per_semitone: bins }
+    Spectrogram { data, info: SpectrogramInfo { n_frames, n_rows, hop_sec: hop, min_midi: min, max_midi: max, bins_per_semitone: bins } }
 }
 
 fn levels_slider(ui: &mut egui::Ui, levels: &mut Levels) {
