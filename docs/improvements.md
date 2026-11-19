@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -535,7 +535,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 5. Turn `TrackHeader::show` into a free `pub fn show_header(..)` (re-export name unchanged for callers).
 **Risk:** low; `cargo test -p fretscribe-ui tracks` (header tests cover `volume_text`, `opacity_for`; layout is visual, so check once in `tracks_demo`).
 
-### I-043 (med) · Tab view rebuilds whole-project link/id tables and grace layout on every frame · impact: med on long songs · perf: ~6 hash builds over all notes + text layout per grace note per frame · status: open
+### I-043 (med) · Tab view rebuilds whole-project link/id tables and grace layout on every frame · impact: med on long songs · perf: ~6 hash builds over all notes + text layout per grace note per frame · status: done (steps 1, 3, 5: notes culled first; link tables keep only links touching a visible note, `by_id` and grace layout limited to visible notes/groups, beams outside the view skipped. Steps 2 and 4 left open: the remaining per-frame cost is one O(n) field scan, no hashing of off-screen notes)
 **Where:** `crates/ui/src/tab_view/draw.rs:185-230` (`notes`), `:22-38` (`links`), `:161-182` (`grace_xs`), `:233-277` (`stems`); `:199-200` (`c.selected.contains`, `flashes.iter().find` per visible note).
 **Problem:** only the first loop of `notes` skips off-screen notes. Before it, every frame builds `links(&notes)` (a `Vec`), `bend_ends`, `has_incoming`, `has_outgoing` (3 `HashSet`s) and `grace_xs` (a `HashMap<u64, Vec<&Note>>`, a sort and 2 `layout_no_wrap` calls per grace note, plus a linear `find` for each main note at `:169`), and after it a `by_id` `HashMap` of **all** notes. `stems` walks all beams/events with no culling in its first loop. A 2000-note song therefore allocates and hashes ~12 000 entries per repaint (every mouse move and playback frame), although the screen shows ~50 notes.
 **Instructions:**

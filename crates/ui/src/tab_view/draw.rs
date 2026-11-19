@@ -158,11 +158,11 @@ fn fret_text(n: &Note) -> String {
 
 /// Grace notes that start on (or just before) their main note would print on top of it: each one
 /// is moved left until its number clears the main note's number and the graces after it.
-fn grace_xs(c: &Ctx) -> HashMap<u64, f32> {
+fn grace_xs(c: &Ctx, mains: &HashSet<u64>) -> HashMap<u64, f32> {
     const GAP: f32 = 2.5;
     let mut by_main: HashMap<u64, Vec<&Note>> = HashMap::new();
-    for n in c.project.notes.iter().filter(|n| n.grace_of.is_some()) {
-        by_main.entry(n.grace_of.map_or(0, |g| g.main)).or_default().push(n);
+    for n in c.project.notes.iter().filter_map(|n| n.grace_of.filter(|g| mains.contains(&g.main)).map(|g| (g.main, n))) {
+        by_main.entry(n.0).or_default().push(n.1);
     }
     let mut out = HashMap::new();
     for (main, mut graces) in by_main {
@@ -184,18 +184,17 @@ fn grace_xs(c: &Ctx) -> HashMap<u64, f32> {
 /// Draws every note and link in view; returns the hit rectangle of each fret number.
 pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
     let (t0, t1) = (c.view.x_to_sec(-40.0), c.view.x_to_sec(c.width + 40.0));
-    let all = links(&c.project.notes);
+    let visible: Vec<(&Note, f64)> = c.project.notes.iter().filter_map(|n| Some((n, c.times.start_sec(n.id)?)).filter(|&(n, s)| s <= t1 && c.times.end_sec(n.id).is_some_and(|e| e >= t0))).collect();
+    let ids: HashSet<u64> = visible.iter().map(|(n, _)| n.id).collect();
+    let mains: HashSet<u64> = visible.iter().flat_map(|(n, _)| n.grace_of.map(|g| g.main).into_iter().chain([n.id])).collect();
+    let all: Vec<Link> = links(&c.project.notes).into_iter().filter(|l| ids.contains(&l.from) || ids.contains(&l.to)).collect();
     let bend_ends: HashSet<u64> = all.iter().filter(|l| l.kind == LinkType::Bend).map(|l| l.to).collect();
     let has_incoming: HashSet<u64> = all.iter().map(|l| l.to).collect();
     let has_outgoing: HashSet<u64> = all.iter().map(|l| l.from).collect();
     let mut rects: HashMap<u64, Rect> = HashMap::new();
     let mut order = Vec::new();
-    let graces = grace_xs(c);
-    for n in &c.project.notes {
-        let (Some(s), Some(e)) = (c.times.start_sec(n.id), c.times.end_sec(n.id)) else { continue };
-        if e < t0 || s > t1 {
-            continue;
-        }
+    let graces = grace_xs(c, &mains);
+    for &(n, s) in &visible {
         let selected = c.selected.contains(&n.id);
         let flash = flashes.iter().find(|f| f.0 == n.id && f.1 > c.now).map(|f| c.st.flash.gamma_multiply(((f.1 - c.now) / FLASH_SEC) as f32));
         let x = graces.get(&n.id).copied().unwrap_or_else(|| c.geo.x(c.view, s));
@@ -216,7 +215,7 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
         rects.insert(n.id, rect);
         order.push((n.id, rect));
     }
-    let by_id: HashMap<u64, &Note> = c.project.notes.iter().map(|n| (n.id, n)).collect();
+    let by_id: HashMap<u64, &Note> = visible.iter().map(|&(n, _)| (n.id, n)).collect();
     for link in &all {
         let (Some(&a), Some(&b)) = (rects.get(&link.from), rects.get(&link.to)) else { continue };
         if let (Some(&from), Some(&to)) = (by_id.get(&link.from), by_id.get(&link.to)) {
@@ -237,11 +236,15 @@ pub(super) fn stems(c: &Ctx, layout: &StaffLayout) {
     let stroke = Stroke::new(1.0_f32, color);
     let flags = |i: usize| (layout.events[i].duration.base as usize).saturating_sub(2);
     let x = |i: usize| c.geo.x(c.view, layout.events[i].x_sec);
+    let (lo, hi) = (c.view.x_to_sec(-20.0), c.view.x_to_sec(c.width + 20.0));
     let mut beamed = HashSet::new();
     for beam in &layout.beams {
         let ev = &beam.events;
         beamed.extend(ev.iter().copied());
-        let Some(&first) = ev.first() else { continue };
+        let Some((&first, &last)) = ev.first().zip(ev.last()) else { continue };
+        if layout.events[last].x_end_sec < lo || layout.events[first].x_sec > hi {
+            continue;
+        }
         for level in 1..=3 {
             let y = bottom - 4.0 * (level - 1) as f32;
             for (k, &i) in ev.iter().enumerate().filter(|&(_, &i)| flags(i) >= level) {
@@ -258,7 +261,7 @@ pub(super) fn stems(c: &Ctx, layout: &StaffLayout) {
     }
     for (i, e) in layout.events.iter().enumerate() {
         let xi = x(i);
-        if e.rest || e.x_end_sec < c.view.x_to_sec(-20.0) || e.x_sec > c.view.x_to_sec(c.width + 20.0) {
+        if e.rest || e.x_end_sec < lo || e.x_sec > hi {
             continue;
         }
         if e.duration.base as usize > 0 {
