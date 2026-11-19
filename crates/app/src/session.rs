@@ -35,6 +35,12 @@ pub struct Toast {
     pub born: Instant,
 }
 
+impl Toast {
+    pub fn new(text: impl Into<String>, error: bool) -> Self {
+        Self { text: text.into(), error, born: Instant::now() }
+    }
+}
+
 pub struct SyncDialog {
     pub track: u64,
     pub candidates: Vec<SyncCandidate>,
@@ -203,7 +209,7 @@ impl Session {
     }
 
     pub fn toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toasts.push(Toast { text: text.into(), error, born: Instant::now() });
+        self.toasts.push(Toast::new(text, error));
     }
 
     pub fn name(&self) -> String {

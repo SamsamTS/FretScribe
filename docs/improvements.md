@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035, I-009, I-011, I-012, I-026, I-020, I-007, I-051, I-033, I-019, I-053, I-054, I-021 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -346,7 +346,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 2. In `session.rs`, split `refresh()` into `refresh_model()` (without the resync) and `refresh()` = `refresh_model()` + `player_resync(false)`; call `refresh_model()` in `undo_redo` before the full resync.
 **Risk:** none; `cargo test --workspace`.
 
-### I-021 · `app.rs`: repeated file dialogs, audio device opened twice when creating a project · impact: low · saves ~12 lines · status: open
+### I-021 · `app.rs`: repeated file dialogs, audio device opened twice when creating a project · impact: low · saves ~12 lines · status: done (`pick_audio`/`project_dialog`; the output device opened by `start_creating` is handed to the new session through `NewProject { job, sync_ids, player }`; `toasts.append`; `Toast::new`. Not tried against a real audio device)
 **Where:** `crates/app/src/app.rs:222,397,446` (audio picker), `:346,357` (project picker), `:240` and `:292` (`Player::new()`), `:482-483` (toast drain).
 **Problem:** (a) the same `rfd::FileDialog::new().set_title(..).add_filter("Audio", &AUDIO_EXTS).pick_file()` chain appears 3 times, and the project filter twice. (b) `start_creating` builds a whole `Player` (opens the output stream) only to read `output_rate()`, drops it, and `open_file_with` builds another when the project opens: two device initialisations per new project (tens to hundreds of ms on some drivers). (c) `s.toasts.drain(..).collect::<Vec<_>>()` then `extend` is an `append`. (d) `App::toast` (`:132`) and `Session::toast` (`session.rs:189`) have identical bodies.
 **Instructions:**

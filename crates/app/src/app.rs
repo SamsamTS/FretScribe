@@ -28,6 +28,13 @@ const PROJECT_EXT: &str = "fretscribe";
 const AUDIO_EXTS: [&str; 7] = ["mp3", "wav", "flac", "ogg", "m4a", "aac", "aiff"];
 const TOAST_SECS: f32 = 6.0;
 
+/// What a freshly created project hands to its session: the running load, tracks to sync and the opened output.
+struct NewProject {
+    job: Option<LoadJob>,
+    sync_ids: Vec<u64>,
+    player: Option<Player>,
+}
+
 struct Creating {
     job: LoadJob,
     store: AudioStore,
@@ -35,6 +42,8 @@ struct Creating {
     main_role: fretscribe_core::TrackRole,
     ids: Vec<(u64, PathBuf)>,
     progress: (f32, String),
+    /// The output device opened to read its rate, reused by the new session.
+    player: Option<Player>,
 }
 
 struct FormScreen {
@@ -134,7 +143,7 @@ impl App {
     }
 
     fn toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toasts.push(Toast { text: text.into(), error, born: Instant::now() });
+        self.toasts.push(Toast::new(text, error));
     }
 
     fn save_settings(&mut self) {
@@ -222,7 +231,7 @@ impl App {
     }
 
     fn start_form(&mut self, main: Option<PathBuf>) {
-        let main = main.or_else(|| rfd::FileDialog::new().set_title("Main audio file").add_filter("Audio", &AUDIO_EXTS).pick_file());
+        let main = main.or_else(|| pick_audio("Main audio file"));
         let Some(main) = main else {
             self.screen = Screen::Home;
             return;
@@ -241,7 +250,8 @@ impl App {
     fn start_creating(&mut self, v: Validated, main_role: fretscribe_core::TrackRole) {
         let mut ids = vec![(1, v.main_path.clone())];
         ids.extend(v.extra.iter().enumerate().map(|(i, (p, _))| (i as u64 + 2, p.clone())));
-        let rate = Player::new().map_or(48_000, |p| p.output_rate());
+        let player = Player::new().ok();
+        let rate = player.as_ref().map_or(48_000, Player::output_rate);
         self.screen = Screen::Creating(Box::new(Creating {
             job: LoadJob::spawn(
                 ids.clone(),
@@ -253,6 +263,7 @@ impl App {
             main_role,
             ids,
             progress: (0.0, "Reading audio".into()),
+            player,
         }));
     }
 
@@ -276,7 +287,7 @@ impl App {
         }
         let Some(duration) = duration else { return };
         let Screen::Creating(c) = std::mem::replace(&mut self.screen, Screen::Home) else { return };
-        let Creating { job, store, form, main_role, ids, .. } = *c;
+        let Creating { job, store, form, main_role, ids, player, .. } = *c;
         let mut project = build_project(&form, duration);
         if let Some(t) = project.tracks.first_mut() {
             t.role = main_role;
@@ -284,7 +295,7 @@ impl App {
         let mut file = ProjectFile::new(project);
         file.ui = self.settings.new_project_ui();
         let extras: Vec<u64> = ids.iter().skip(1).map(|(id, _)| *id).collect();
-        self.open_file_with(file, None, true, store, Some(job), extras);
+        self.open_file_with(file, None, true, store, Some(NewProject { job: Some(job), sync_ids: extras, player }));
     }
 
     fn open_project(&mut self, path: &Path) {
@@ -298,13 +309,13 @@ impl App {
     }
 
     fn open_file(&mut self, file: ProjectFile, path: Option<PathBuf>, dirty: bool) {
-        self.open_file_with(file, path, dirty, AudioStore::default(), None, Vec::new());
+        self.open_file_with(file, path, dirty, AudioStore::default(), None);
     }
 
-    fn open_file_with(&mut self, file: ProjectFile, path: Option<PathBuf>, dirty: bool, store: AudioStore, job: Option<LoadJob>, sync_ids: Vec<u64>) {
-        let fresh = job.is_some();
+    fn open_file_with(&mut self, file: ProjectFile, path: Option<PathBuf>, dirty: bool, store: AudioStore, new: Option<NewProject>) {
+        let (fresh, NewProject { job, sync_ids, player }) = (new.is_some(), new.unwrap_or(NewProject { job: None, sync_ids: Vec::new(), player: None }));
         let mut s = Session::new(file, path.clone(), store, &self.settings, self.luts.clone());
-        s.attach_player(Player::new().map_err(|e| self.toast(format!("No audio output: {e}"), true)).ok());
+        s.attach_player(player.map_or_else(Player::new, Ok).map_err(|e| self.toast(format!("No audio output: {e}"), true)).ok());
         s.loads.extend(job);
         if !fresh {
             s.load_project_audio();
@@ -366,7 +377,7 @@ impl App {
     }
 
     fn pick_project(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT]).pick_file() {
+        if let Some(p) = project_dialog().pick_file() {
             self.go(Next::Open(p));
         }
     }
@@ -377,7 +388,7 @@ impl App {
             (Some(p), false) => p.clone(),
             _ => {
                 let start = s.name();
-                match rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT]).set_file_name(format!("{start}.{PROJECT_EXT}")).save_file() {
+                match project_dialog().set_file_name(format!("{start}.{PROJECT_EXT}")).save_file() {
                     Some(p) => p.with_extension(PROJECT_EXT),
                     None => return,
                 }
@@ -397,7 +408,7 @@ impl App {
 
     fn add_track(&mut self, path: Option<PathBuf>) {
         let Screen::Editor(s) = &mut self.screen else { return };
-        let Some(path) = path.or_else(|| rfd::FileDialog::new().set_title("Add audio track").add_filter("Audio", &AUDIO_EXTS).pick_file()) else { return };
+        let Some(path) = path.or_else(|| pick_audio("Add audio track")) else { return };
         let stem = path.file_stem().map_or_else(String::new, |x| x.to_string_lossy().into_owned());
         let role = guess_role(&stem);
         let mut track = Track::new(0, stem, role);
@@ -446,7 +457,7 @@ impl App {
         match action {
             Some(FormAction::Cancel) => self.screen = Screen::Home,
             Some(FormAction::AddTrackRequested) => {
-                if let Some(p) = rfd::FileDialog::new().set_title("Add audio track").add_filter("Audio", &AUDIO_EXTS).pick_file() {
+                if let Some(p) = pick_audio("Add audio track") {
                     if let Screen::Form(fs) = &mut self.screen {
                         fs.state.add_track(p);
                     }
@@ -508,8 +519,7 @@ impl App {
             s.last_autosave = Instant::now();
             s.edits_since_autosave = 0;
         }
-        let drained: Vec<Toast> = s.toasts.drain(..).collect();
-        self.toasts.extend(drained);
+        self.toasts.append(&mut s.toasts);
         for r in requests {
             self.request(r);
         }
@@ -608,6 +618,14 @@ enum Choice {
     Cancel,
 }
 
+fn pick_audio(title: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new().set_title(title).add_filter("Audio", &AUDIO_EXTS).pick_file()
+}
+
+fn project_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT])
+}
+
 fn reveal(path: &Path) {
     #[cfg(target_os = "windows")]
     let mut command = std::process::Command::new("explorer");
@@ -663,7 +681,7 @@ fn missing_audio_dialog(ctx: &Context, s: &mut Session) {
                 ui.label(s.project.track(*id).map_or("track", |t| t.name.as_str()));
                 ui.label(egui::RichText::new(path.display().to_string()).family(theme::mono()));
                 if ui.button("Locate...").clicked() {
-                    located = rfd::FileDialog::new().add_filter("Audio", &AUDIO_EXTS).pick_file().map(|p| (*id, p));
+                    located = pick_audio("Locate audio file").map(|p| (*id, p));
                 }
             });
         }
