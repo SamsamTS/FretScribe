@@ -70,12 +70,10 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
 
     let mut cancelled = false;
     for event in spectro_events {
-        let event = match event {
-            SpectroEvent::DrawBegan { midi, exact_midi_float, time_sec } => SpectroEvent::DrawBegan { midi: *midi, exact_midi_float: refine(*time_sec, *exact_midi_float), time_sec: *time_sec },
-            SpectroEvent::DrawMoved { midi, exact_midi_float, time_sec } => SpectroEvent::DrawMoved { midi: *midi, exact_midi_float: refine(*time_sec, *exact_midi_float), time_sec: *time_sec },
-            SpectroEvent::DrawEnded { midi, exact_midi_float, time_sec } => SpectroEvent::DrawEnded { midi: *midi, exact_midi_float: refine(*time_sec, *exact_midi_float), time_sec: *time_sec },
-            other => other.clone(),
-        };
+        let mut event = event.clone();
+        if let SpectroEvent::DrawBegan { exact_midi_float, time_sec, .. } | SpectroEvent::DrawMoved { exact_midi_float, time_sec, .. } | SpectroEvent::DrawEnded { exact_midi_float, time_sec, .. } = &mut event {
+            *exact_midi_float = refine(*time_sec, *exact_midi_float);
+        }
         cancelled |= event == SpectroEvent::DrawCancelled;
         inputs.push(Input::Spectro(event, mods));
     }

@@ -56,12 +56,9 @@ pub fn drag_delta_sec(dx_points: f32, pixels_per_sec: f64, fine: bool) -> f64 {
     f64::from(dx_points) / pixels_per_sec.max(f64::EPSILON) * if fine { FINE_DRAG_FACTOR } else { 1.0 }
 }
 
-/// The candidate within `SNAP_TOLERANCE_PX` of `raw` (nearest first), or `raw` itself; Alt disables
-/// snapping. The flag tells whether it snapped.
-pub fn snap_offset(raw: f64, candidates: &[f64], pixels_per_sec: f64, alt: bool) -> (f64, bool) {
-    if alt {
-        return (raw, false);
-    }
+/// The candidate within `SNAP_TOLERANCE_PX` of `raw` (nearest first), or `raw` itself (Alt: the
+/// caller passes no candidates). The flag tells whether it snapped.
+pub fn snap_offset(raw: f64, candidates: &[f64], pixels_per_sec: f64) -> (f64, bool) {
     let reach = SNAP_TOLERANCE_PX / pixels_per_sec.max(f64::EPSILON);
     candidates
         .iter()
@@ -136,16 +133,15 @@ mod tests {
     }
 
     #[test]
-    fn snaps_to_the_nearest_candidate_within_eight_pixels_unless_alt() {
+    fn snaps_to_the_nearest_candidate_within_eight_pixels() {
         let pps = 100.0;
         let candidates = [0.30, 0.52, 0.55, 2.0];
-        assert_eq!(snap_offset(0.54, &candidates, pps, false), (0.55, true));
-        assert_eq!(snap_offset(0.52 + 0.004, &candidates, pps, false), (0.52, true));
-        assert_eq!(snap_offset(0.54, &candidates, pps, true), (0.54, false));
-        assert_eq!(snap_offset(1.0, &candidates, pps, false), (1.0, false));
-        assert_eq!(snap_offset(0.54, &[], pps, false), (0.54, false));
-        assert_eq!(snap_offset(0.3 + 0.0799, &candidates, pps, false), (0.3, true));
+        assert_eq!(snap_offset(0.54, &candidates, pps), (0.55, true));
+        assert_eq!(snap_offset(0.52 + 0.004, &candidates, pps), (0.52, true));
+        assert_eq!(snap_offset(1.0, &candidates, pps), (1.0, false));
+        assert_eq!(snap_offset(0.54, &[], pps), (0.54, false));
+        assert_eq!(snap_offset(0.3 + 0.0799, &candidates, pps), (0.3, true));
         let just_out = 0.3 + 0.0801;
-        assert_eq!(snap_offset(just_out, &candidates, pps, false), (just_out, false));
+        assert_eq!(snap_offset(just_out, &candidates, pps), (just_out, false));
     }
 }

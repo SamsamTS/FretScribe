@@ -130,7 +130,7 @@ impl TrackLane<'_> {
                 let (alt, fine) = ctx.input(|i| (i.modifiers.alt, i.modifiers.shift));
                 drag.raw = clamp_offset(drag.raw + drag_delta_sec(response.drag_delta().x, pps, fine));
                 let candidates = if alt { Vec::new() } else { self.shared.source.snap_candidates(id, drag.raw, SNAP_TOLERANCE_PX / pps) };
-                let (shown, snapped) = snap_offset(drag.raw, &candidates, pps, alt);
+                let (shown, snapped) = snap_offset(drag.raw, &candidates, pps);
                 (drag.shown, drag.snapped) = (clamp_offset(shown), snapped);
                 ctx.data_mut(|d| d.insert_temp(key, drag));
                 events.push(TrackEvent::OffsetChanged { id, offset_sec: drag.shown, move_notes });
