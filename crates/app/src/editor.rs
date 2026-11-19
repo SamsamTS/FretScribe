@@ -404,13 +404,16 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
         ne::collect(ctx, &src, &events, &s.editor, &s.keymap, &refine)
     };
     let px_per_sec = s.ctl.current.pixels_per_sec;
-    let onset_list: Vec<f64> = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
-    let grid = if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } };
+    let mut snap_targets: Option<(Vec<f64>, fretscribe_core::SnapGrid)> = None;
     let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
     for input in tool_inputs.chain(collected.inputs) {
+        let (onset_list, grid) = snap_targets.get_or_insert_with(|| {
+            let onsets = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
+            (onsets, if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } })
+        });
         let mut effects = {
             let onsets = (!onset_list.is_empty()).then_some(onset_list.as_slice());
-            let mut env = Env { project: &mut s.project, grid: &grid, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
+            let mut env = Env { project: &mut s.project, grid, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
             s.editor.handle(&mut env, input)
         };
         for effect in effects.drain(..) {

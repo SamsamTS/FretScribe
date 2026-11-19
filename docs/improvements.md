@@ -1,5 +1,5 @@
 # Improvements
-_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059 done) · base commit 14ed048_
+_Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-002, I-003, I-013, I-022, I-046, I-005, I-006, I-059, I-008, I-016, I-025, I-035 done) · base commit 14ed048_
 
 ## Progress
 | File | Lines | Status | Notes |
@@ -239,7 +239,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. Extract one function per large arm (`transpose`, `nudge`, `resize`, `force_legato`, `set_string`) so `apply` is a dispatch of about 40 lines.
 **Risk:** none for 1-3; run `cargo test -p fretscribe-ui note_editor`. Behaviour must stay identical (existing tests in `action.rs` and `editor_tests.rs`).
 
-### I-008 · Per-frame allocations in the editor panel · impact: low-med · perf: removes one `Vec<f64>` collect + sort per frame when "snap to onsets" is on · status: open
+### I-008 · Per-frame allocations in the editor panel · impact: low-med · perf: removes one `Vec<f64>` collect + sort per frame when "snap to onsets" is on · status: done (onset list and snap grid are built lazily, only when an editor input arrives; the selection clone left as is)
 **Where:** `crates/app/src/editor.rs:407` (`onset_targets(s)` at `:402`), `:375` (`snap_grid.clone()`), `:66` (`selection.ids.clone()`).
 **Problem:** `onset_list` gathers every onset of every beat track and sorts them (`O(N log N)`) on every frame, even when `collected.inputs` is empty (the usual case). The grid and selection ids are cloned per frame too.
 **Instructions:**
@@ -308,7 +308,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 2. Remove `apply_focus_offline`, `OFFLINE_PAD_SEC`, its `lib.rs` export and tests, unless an analysis feature that needs a zero-phase focused signal is planned (then keep and cite where).
 **Risk:** none for 1; 2 needs a product decision.
 
-### I-016 · Per-frame work in the track lanes that could be cached or culled · impact: low-med · perf: ~1 KB alloc per lane per frame, O(all onsets) shapes per lane per frame, one sort of all targets per drag frame · status: open
+### I-016 · Per-frame work in the track lanes that could be cached or culled · impact: low-med · perf: ~1 KB alloc per lane per frame, O(all onsets) shapes per lane per frame, one sort of all targets per drag frame · status: done (step 2: lane note/onset ticks limited to the visible range (binary search on onsets). Steps 1 (palette per frame, ~1 KB) and 3 (sorted snap targets per drag) left open)
 **Where:** `crates/ui/src/tracks/lane.rs:267` (`WaveformPalette::from_rgba` per lane per frame; also `crates/app/src/editor.rs:49`), `:262-267` (loops over every note start and every onset), `crates/app/src/store.rs:112-119` `snap_candidates` (+ `crates/analysis/src/sync.rs:91-92` `snap_offsets` sorts again).
 **Problem:** (a) the 256-colour waveform palette is rebuilt (`Vec<Color32>` of 256) for every lane on every frame from a LUT that only changes with `display_changed`. (b) `show` emits one `vline` per onset/note for the whole track even when off-screen; the onsets are sorted, so only the visible slice is needed. (c) every pointer move of an offset drag clones `beat_times`, appends all reference onsets and sorts the union inside `snap_offsets`.
 **Instructions:**
@@ -384,7 +384,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 3. Cache the `Scene` in `SpectroCache` keyed by `(revision, view window, pitch window, size)`, as the texture already is, so a static view does zero layout work.
 **Risk:** medium (hit-testing and link drawing must stay identical); run `cargo test -p fretscribe-ui spectro` and compare screenshots with a few links at the window edge. Verify the gain with 5000 notes: time `layout` (expected: a few ms down to well under 1 ms when zoomed in).
 
-### I-025 · Linear `find`-by-id inside loops (per frame and per edit) · impact: low-med · perf: O(k·n) where O(n) is enough · status: open
+### I-025 · Linear `find`-by-id inside loops (per frame and per edit) · impact: low-med · perf: O(k·n) where O(n) is enough · status: done (`staff::links` uses an id map; `session.rs` and `solve.rs` were fixed by I-023 and `grace_xs` by I-043; `staff_view::links` searches one event only; no global id index added)
 **Where:** `crates/ui/src/tab_view/draw.rs:169` (`grace_xs`, runs every frame: for each main note of a grace group, `project.notes.iter().find(..)`); `crates/notation/src/staff/mod.rs:368-375` (`links`: `find` per link, on every layout); `crates/ui/src/staff_view/links.rs:19`; `crates/app/src/session.rs:364`; `crates/notation/src/tab/solve.rs:481`; `crates/core/src/model.rs:308` `Project::note` (124 call sites).
 **Problem:** there is no id index and notes are not kept sorted by id (`validate` only checks uniqueness), so each lookup is O(n). `grace_xs` does it per grace group on every frame; `staff::links` does it per link on every re-layout.
 **Instructions:**
@@ -469,7 +469,7 @@ First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`a
 4. In `show_home` also drop the per-frame `recents.sort_by_key` by keeping `settings.recent` sorted in `push_recent` (it already inserts at index 0).
 **Risk:** low; behaviour change is only staleness of the warning badge for up to 3 s. `cargo test -p fretscribe` (home tests use `TileStatus` directly).
 
-### I-035 · `staff::layout` scans every note for every time cut (O(cuts x notes)) on each refresh · impact: low-med · perf: ~5 M comparisons per refresh for a 1500-note song · status: open
+### I-035 · `staff::layout` scans every note for every time cut (O(cuts x notes)) on each refresh · impact: low-med · perf: ~5 M comparisons per refresh for a 1500-note song · status: done (sweep over notes sorted by start with a running active set, same output order; notation tests pass)
 **Where:** `crates/notation/src/staff/mod.rs:183-186` (`let active: Vec<_> = q.notes.iter().filter(|n| n.s <= a && n.e >= b).collect();` inside `for pair in cuts.windows(2)`); caller `crates/app/src/session.rs:350` (every edit); also `:368` `links` (see I-025).
 **Problem:** `cuts` holds every note start/end plus bar lines (about 2 per note), and each window re-filters all notes, so the cost grows quadratically with song length, on the UI thread after each edit.
 **Instructions:** sort `q.notes` by `s` once (`quantise` can return them sorted), keep a running `Vec<&QNote>` of notes whose `s <= a`, drop those with `e < b` as the window advances (`active.retain(|n| n.e >= b)` after pushing newly started ones with an index pointer). Keep output order identical (by `q.notes` order: sort by `(s, original index)` and re-sort `active` by original index, or keep `active` as a `BTreeMap<usize, &QNote>` keyed by original index).

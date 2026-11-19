@@ -275,15 +275,18 @@ impl TrackLane<'_> {
         }
         painter.rect_filled(Rect::from_min_max(pos2(wave_rect.left(), wave_rect.bottom() - px(BORDER_PX)), wave_rect.max), 0.0, BORDER_COLOR);
         let x_of = |sec: f64| timeline_left + view.sec_to_x(sec);
+        let visible = view.visible_range(wave_rect.width());
         if self.shown_rows == 0 && is_source {
             for note in &shared.project.notes {
-                if let Some(start) = shared.times.start_sec(note.id) {
+                if let Some(start) = shared.times.start_sec(note.id).filter(|s| visible.contains(s)) {
                     painter.vline(x_of(start), wave_rect.top()..=wave_rect.top() + TICK_PT, Stroke::new(1.5_f32, NOTE_TICK));
                 }
             }
         }
         if options.show_onsets && !is_source {
-            for &onset in shared.source.onsets(id) {
+            let onsets = shared.source.onsets(id);
+            let (lo, hi) = (onsets.partition_point(|o| o + offset < visible.start), onsets.partition_point(|o| o + offset <= visible.end));
+            for &onset in &onsets[lo..hi] {
                 painter.vline(x_of(onset + offset), wave_rect.bottom() - TICK_PT..=wave_rect.bottom(), Stroke::new(1.0_f32, ONSET_TICK));
             }
         }
