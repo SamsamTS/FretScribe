@@ -1659,13 +1659,11 @@ version = "0.1.0"
 name = "fretscribe-ui"
 version = "0.1.0"
 dependencies = [
- "eframe",
  "egui",
  "egui_extras",
  "fretscribe-analysis",
  "fretscribe-core",
  "fretscribe-notation",
- "image",
  "serde",
  "serde_json",
  "tempfile",

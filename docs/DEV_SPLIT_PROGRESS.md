@@ -23,7 +23,8 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 (none yet)
 
 ## Removed (pruning)
-(none yet)
+Demos/export tests (commit "prune demos"): analysis/examples/spectrogram_png.rs, analysis/tests/export_spectrogram_png.rs, analysis/tests/export_waveform_png.rs (PNG export tools); ui/examples/{grid,legato,nav,note_editor,overview,staff,tab,tracks}_demo.rs (widgets already in the app); ui dev-deps eframe + image dropped (demo-only); analysis `[[test]]` entries dropped.
+Kept and flagged (unsure): analysis/examples/waveform_peaks.rs, app/examples/{demo_project,ui_preview}.rs.
 
 ## Test counts
 BEFORE pruning (cargo test -p <crate> --release): core 221, audio 94, analysis 80, notation 47, ui 338, app TBD (run timed out, see below).
