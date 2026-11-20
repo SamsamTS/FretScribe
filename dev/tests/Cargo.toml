@@ -1,0 +1,9 @@
+[package]
+name = "fretscribe-tests"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
