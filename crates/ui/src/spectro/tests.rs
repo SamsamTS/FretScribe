@@ -1,5 +1,5 @@
 use egui::{CentralPanel, Context, Event, PointerButton, Pos2, RawInput, Rect};
-use fretscribe_analysis::Spectrogram;
+use fretscribe_analysis::{Spectrogram, SpectrogramInfo};
 use fretscribe_core::{generate_measures, TempoMap, TimeSignature};
 
 use super::*;
@@ -20,15 +20,8 @@ struct Harness {
 impl Harness {
     fn new() -> Self {
         let (n_rows, n_frames) = (240, 400);
-        let spectrogram = Spectrogram {
-            data: (0..n_rows * n_frames).map(|i| (i % 97) as f32 / 97.0).collect(),
-            n_frames,
-            n_rows,
-            hop_sec: 0.01,
-            min_midi: 28.0,
-            max_midi: 88.0,
-            bins_per_semitone: 4,
-        };
+        let info = SpectrogramInfo { n_frames, n_rows, hop_sec: 0.01, min_midi: 28.0, max_midi: 88.0, bins_per_semitone: 4 };
+        let spectrogram = Spectrogram { data: (0..n_rows * n_frames).map(|i| (i % 97) as f32 / 97.0).collect(), info };
         let mut next = 1;
         let map = TempoMap::new(&generate_measures(0.0, 10.0, 120.0, TimeSignature::COMMON, &mut next));
         let note = Note::new(1, 52, map.sec_to_pos(1.0), map.sec_to_pos(2.0));

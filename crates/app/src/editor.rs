@@ -193,7 +193,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
 
     // ---- events -------------------------------------------------------------------------
     for e in overview_events {
-        handle_overview(s, e, &mut requests);
+        handle_overview(s, e);
     }
     for e in lane_events {
         handle_track_event(s, e, &mut requests);
@@ -250,8 +250,7 @@ fn click_note(s: &mut Session, id: u64, ctrl: bool, shift: bool) {
     }
 }
 
-fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request>) {
-    let _ = requests;
+fn handle_overview(s: &mut Session, e: OverviewEvent) {
     match e {
         OverviewEvent::SeekRequested(sec) => s.seek(sec),
         OverviewEvent::RegionChanged(r) => {
@@ -279,36 +278,31 @@ fn handle_overview(s: &mut Session, e: OverviewEvent, requests: &mut Vec<Request
     }
 }
 
+/// Applies a mixer change (volume, mute, solo) outside the undo history and updates the player.
+fn mix_changed(s: &mut Session, change: impl FnOnce(&mut Project)) {
+    change(&mut s.project);
+    s.dirty = true;
+    s.player_resync(false);
+}
+
 fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request>) {
     match e {
-        TrackEvent::VolumeChanged { id, volume } => {
-            if let Some(t) = track_mut(&mut s.project, id) {
-                t.volume = volume;
-            }
-            s.dirty = true;
-            s.player_resync(false);
-        }
-        TrackEvent::MuteToggled(id) => {
-            if let Some(t) = track_mut(&mut s.project, id) {
-                t.muted = !t.muted;
-            }
-            s.dirty = true;
-            s.player_resync(false);
-        }
+        TrackEvent::VolumeChanged { id, volume } => mix_changed(s, |p| track_mut(p, id).map(|t| t.volume = volume).unwrap_or_default()),
+        TrackEvent::MuteToggled(id) => mix_changed(s, |p| track_mut(p, id).map(|t| t.muted = !t.muted).unwrap_or_default()),
         TrackEvent::SoloToggled { id, exclusive } => {
             let on = s.project.track(id).is_some_and(|t| !t.solo);
-            for t in &mut s.project.tracks {
-                if t.id == id {
-                    t.solo = on;
-                } else if exclusive {
-                    t.solo = false;
+            mix_changed(s, |p| {
+                for t in &mut p.tracks {
+                    if t.id == id {
+                        t.solo = on;
+                    } else if exclusive {
+                        t.solo = false;
+                    }
                 }
-            }
-            s.dirty = true;
-            s.player_resync(false);
+            });
         }
         TrackEvent::NoteAction(a) => s.tool_actions.push(a),
-        TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r), requests),
+        TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r)),
         TrackEvent::CollapseToggled(id) => {
             if let Some(t) = track_mut(&mut s.project, id) {
                 t.spectrogram_collapsed = !t.spectrogram_collapsed;
@@ -370,13 +364,7 @@ fn handle_tab(s: &mut Session, e: TabViewEvent) {
         },
         TabViewEvent::ReinferRequested => s.reinfer_tab(),
         TabViewEvent::Marquee { ids, add } => {
-            let mut all = if add { s.editor.selection.ids.clone() } else { Vec::new() };
-            for id in ids {
-                if !all.contains(&id) {
-                    all.push(id);
-                }
-            }
-            s.editor.selection.set(all);
+            s.editor.selection.marquee(&ids, add);
         }
         TabViewEvent::ClearSelection => s.editor.selection.clear(),
     }
@@ -400,17 +388,21 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let collected = {
         let spec = s.store.tracks.get(&source_id).map(|t| &t.spectrogram);
         let refine = |sec: f64, midi: f32| spec.map_or(midi, |sp| refine_pitch(sp, &pitch_ref, sec, midi));
-        let src = ne::SourcePointer { geometry: pointer.geometry, hovered_note: pointer.hovered_note, pitch_ruler: pointer.pitch_ruler, notes: &s.project.notes, times: &s.times };
+        let src = ne::SourcePointer { geometry: pointer.geometry, scene: &pointer.scene, hovered_note: pointer.hovered_note, pitch_ruler: pointer.pitch_ruler, notes: &s.project.notes, times: &s.times };
         ne::collect(ctx, &src, &events, &s.editor, &s.keymap, &refine)
     };
     let px_per_sec = s.ctl.current.pixels_per_sec;
-    let onset_list: Vec<f64> = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
-    let grid = if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } };
+    let mut snap_targets: Option<(Vec<f64>, fretscribe_core::SnapGrid)> = None;
     let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
+    let tempo = fretscribe_core::TempoMap::new(&s.project.measures);
     for input in tool_inputs.chain(collected.inputs) {
+        let (onset_list, grid) = snap_targets.get_or_insert_with(|| {
+            let onsets = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
+            (onsets, if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } })
+        });
         let mut effects = {
             let onsets = (!onset_list.is_empty()).then_some(onset_list.as_slice());
-            let mut env = Env { project: &mut s.project, grid: &grid, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
+            let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
             s.editor.handle(&mut env, input)
         };
         for effect in effects.drain(..) {
@@ -457,7 +449,7 @@ pub fn dialogs(ctx: &Context, s: &mut Session) {
 fn exact_window(ctx: &Context, s: &mut Session) {
     let Some(mut f) = s.exact.take() else { return };
     let (mut keep, mut apply) = (true, false);
-    egui::Window::new("Exact edit").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).open(&mut keep).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Exact edit").open(&mut keep).show(ctx, |ui| {
         egui::Grid::new("exact").show(ui, |ui| {
             for (label, (bar, beat)) in [("Start bar / beat", &mut f.start), ("End bar / beat", &mut f.end)] {
                 ui.label(label);
@@ -496,7 +488,7 @@ fn exact_window(ctx: &Context, s: &mut Session) {
 fn confirm_delete(ctx: &Context, s: &mut Session) {
     let Some(event) = s.pending_delete else { return };
     let mut choice = None;
-    egui::Window::new("Delete measure?").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Delete measure?").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
         ui.label("This measure contains notes. Deleting it removes them too.");
         ui.horizontal(|ui| {
             if ui.button("Delete").clicked() {
@@ -525,7 +517,7 @@ fn sync_window(ctx: &Context, s: &mut Session) {
     let Some(d) = s.sync_dialog.take() else { return };
     let name = s.project.track(d.track).map_or_else(String::new, |t| t.name.clone());
     let (mut apply, mut close) = (None, false);
-    egui::Window::new(format!("Align '{name}'")).frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, format!("Align '{name}'")).show(ctx, |ui| {
         ui.label("The alignment is uncertain. Pick an offset:");
         for c in &d.candidates {
             ui.horizontal(|ui| {
@@ -549,7 +541,7 @@ fn tempo_window(ctx: &Context, s: &mut Session) {
         return;
     }
     let (mut pick, mut close) = (None, false);
-    egui::Window::new("Detected tempo").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Detected tempo").show(ctx, |ui| {
         ui.label("Pick the tempo that matches the beat (the detector may find half or double):");
         for &(bpm, conf) in s.tempo_choices.iter().take(5) {
             if ui.button(format!("{bpm:.1} BPM  ({:.0}%)", conf * 100.0)).clicked() {
@@ -570,7 +562,7 @@ fn tempo_window(ctx: &Context, s: &mut Session) {
 fn pitch_window(ctx: &Context, s: &mut Session) {
     let Some(est) = s.pitch_result.clone() else { return };
     let (mut apply, mut close) = (false, false);
-    egui::Window::new("Reference pitch").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Reference pitch").show(ctx, |ui| {
         ui.label(format!("Estimated A = {:.1} Hz ({:+.0} cents, confidence {:.0}%)", est.a4_hz, est.cents, est.confidence * 100.0));
         ui.small("The detector only resolves offsets within +/-50 cents of A = 440. A recording a half step down, or played with a capo, reads about 0 cents: use the tuning presets and the capo for that.");
         ui.horizontal(|ui| {
@@ -587,5 +579,5 @@ fn pitch_window(ctx: &Context, s: &mut Session) {
 }
 
 pub fn note_times(s: &Session) -> NoteTimes {
-    NoteTimes::build(&s.project.notes, &TempoMap::new(&s.project.measures))
+    s.project.note_times()
 }

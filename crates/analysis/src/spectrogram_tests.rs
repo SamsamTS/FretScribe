@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use fretscribe_core::{freq_to_midi_float, PitchRef};
 
+use crate::SpectrogramInfo;
 use crate::lut::Lut;
 use crate::{
     apply_gamma, apply_levels, compute_spectrogram, compute_spectrogram_streaming, Levels,
@@ -254,14 +255,6 @@ fn degenerate_inputs_do_not_panic() {
     assert!(compute_spectrogram(&tone(440.0, 0.1), 22_050, &odd).n_rows > 0);
 }
 
-fn grey_lut() -> Lut {
-    let mut lut = Lut::builtin();
-    for (i, c) in lut.colors.iter_mut().enumerate() {
-        *c = [i as u8, i as u8, i as u8, 255];
-    }
-    lut
-}
-
 fn one_pixel(spec: &Spectrogram, lut: &Lut, levels: Levels, gamma: f32) -> u8 {
     let frames = spec.n_frames as f64 * spec.hop_sec;
     let range = (spec.min_midi - 0.05, spec.min_midi + 0.05);
@@ -269,15 +262,8 @@ fn one_pixel(spec: &Spectrogram, lut: &Lut, levels: Levels, gamma: f32) -> u8 {
 }
 
 fn hand_made(values: &[f32]) -> Spectrogram {
-    Spectrogram {
-        data: values.to_vec(),
-        n_frames: values.len(),
-        n_rows: 1,
-        hop_sec: 0.01,
-        min_midi: 60.0,
-        max_midi: 60.0,
-        bins_per_semitone: 4,
-    }
+    let info = SpectrogramInfo { n_frames: values.len(), n_rows: 1, hop_sec: 0.01, min_midi: 60.0, max_midi: 60.0, bins_per_semitone: 4 };
+    Spectrogram { data: values.to_vec(), info }
 }
 
 #[test]
@@ -321,7 +307,7 @@ fn black_point_above_value_gives_first_colour() {
 
 #[test]
 fn gamma_is_applied_after_downsampling() {
-    let lut = grey_lut();
+    let lut = Lut::grey();
     let spec = hand_made(&[0.0, 1.0]);
     for gamma in [0.5, 2.0, 3.0] {
         let got = one_pixel(&spec, &lut, Levels::default(), gamma);
@@ -335,7 +321,7 @@ fn gamma_is_applied_after_downsampling() {
 #[test]
 fn render_places_pitch_with_y_up_and_follows_reference_pitch() {
     let spec = compute_spectrogram(&tone(440.0, 1.0), RATE, &SpectrogramParams::default());
-    let lut = grey_lut();
+    let lut = Lut::grey();
     let bright_midi = |reference: &PitchRef| {
         let image = spec.render_rgba(
             (0.4, 0.6),
@@ -375,4 +361,12 @@ fn suggested_levels_put_white_on_the_strongest_value() {
         hand_made(&[]).suggested_levels(),
         Levels::new(0.0, crate::APP_WHITE)
     );
+}
+
+#[test]
+fn q_changes_the_spectrogram() {
+    let rate = 22050;
+    let mono: Vec<f32> = (0..rate as usize * 2).map(|i| (i as f32 * 0.05).sin() * 0.5 + (i as f32 * 0.31).sin() * 0.2).collect();
+    let at = |q: f32| compute_spectrogram(&mono, rate, &SpectrogramParams { q, ..SpectrogramParams::default() });
+    assert_ne!(at(10.0).data, at(60.0).data);
 }

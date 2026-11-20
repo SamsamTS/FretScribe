@@ -44,15 +44,10 @@ pub fn dragged_start(pointer_sec: f64, grab_offset_sec: f64, limits: (f64, f64))
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fretscribe_core::{generate_measures, NotePolicy, Project, TimeSignature, Track, TrackRole};
+    use fretscribe_core::{generate_measures, NotePolicy, Project, TimeSignature};
 
     fn project(measures: usize) -> Project {
-        let mut p = Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            measures as f64 * 2.0,
-            120.0,
-            TimeSignature::COMMON,
-        );
+        let mut p = fretscribe_core::testkit::project(measures as f64 * 2.0);
         let mut next = 1;
         p.measures = generate_measures(0.0, measures as f64 * 2.0, 120.0, TimeSignature::COMMON, &mut next);
         p

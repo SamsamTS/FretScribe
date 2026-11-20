@@ -9,11 +9,6 @@ use crate::display::{Levels, APP_WHITE, MIN_LEVELS_GAP};
 
 const BLOCK_FRAMES: usize = 128;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WindowKind {
-    Hann,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpectrogramParams {
     /// Constant-Q quality factor: a window lasts about `q / frequency` seconds.
@@ -21,7 +16,6 @@ pub struct SpectrogramParams {
     pub min_window_sec: f32,
     pub max_window_sec: f32,
     pub hop_size: usize,
-    pub window: WindowKind,
     pub min_midi: f32,
     pub max_midi: f32,
     pub bins_per_semitone: u8,
@@ -36,7 +30,6 @@ impl Default for SpectrogramParams {
             min_window_sec: 0.04,
             max_window_sec: 0.55,
             hop_size: 512,
-            window: WindowKind::Hann,
             min_midi: 36.0,
             max_midi: 100.0,
             bins_per_semitone: 4,
@@ -80,12 +73,14 @@ pub struct SpectrogramInfo {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spectrogram {
     pub data: Vec<f32>,
-    pub n_frames: usize,
-    pub n_rows: usize,
-    pub hop_sec: f64,
-    pub min_midi: f32,
-    pub max_midi: f32,
-    pub bins_per_semitone: u8,
+    pub info: SpectrogramInfo,
+}
+
+impl std::ops::Deref for Spectrogram {
+    type Target = SpectrogramInfo;
+    fn deref(&self) -> &SpectrogramInfo {
+        &self.info
+    }
 }
 
 /// Frames `start_frame..start_frame + n_frames` for every row, row-major within the chunk.
@@ -104,15 +99,7 @@ pub struct SpectrogramStream {
 
 impl Spectrogram {
     pub fn empty(info: &SpectrogramInfo) -> Self {
-        Self {
-            data: vec![0.0; info.n_rows * info.n_frames],
-            n_frames: info.n_frames,
-            n_rows: info.n_rows,
-            hop_sec: info.hop_sec,
-            min_midi: info.min_midi,
-            max_midi: info.max_midi,
-            bins_per_semitone: info.bins_per_semitone,
-        }
+        Self { data: vec![0.0; info.n_rows * info.n_frames], info: info.clone() }
     }
 
     pub fn apply_chunk(&mut self, chunk: &SpectrogramChunk) {
@@ -121,7 +108,7 @@ impl Spectrogram {
         }
         for row in 0..self.n_rows {
             let source = &chunk.data[row * chunk.n_frames..][..chunk.n_frames];
-            self.data[row * self.n_frames + chunk.start_frame..][..chunk.n_frames]
+            self.data[row * self.info.n_frames + chunk.start_frame..][..chunk.n_frames]
                 .copy_from_slice(source);
         }
     }

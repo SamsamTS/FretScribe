@@ -239,7 +239,7 @@ mod tests {
     use crate::persist::ProjectFile;
 
     fn tempo_edit(p: &mut Project, bpm: f64) -> ProjectEdit {
-        p.set_tempo(0, bpm, NotePolicy::FollowGrid).unwrap()
+        p.set_tempo_scoped(0, bpm, crate::measures::Propagation::Following, NotePolicy::FollowGrid).unwrap()
     }
 
     fn first_tempo(p: &Project) -> f64 {
@@ -480,7 +480,7 @@ mod tests {
         let mut stack = UndoStack::new();
         capo_run(&mut p, &mut stack, 30);
         stack.push(add_note(&mut p, 60));
-        stack.push(p.set_tempo(1, 90.0, NotePolicy::FollowGrid).unwrap());
+        stack.push(p.set_tempo_scoped(1, 90.0, crate::measures::Propagation::Following, NotePolicy::FollowGrid).unwrap());
         stack.push(crate::tracks::shift_track(&mut p, 2, 0.25, false).unwrap());
         stack.push(p.remove_notes(&[1]));
         (original, p, stack)

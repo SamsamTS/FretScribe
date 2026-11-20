@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use crate::tempo::EPS;
 use crate::model::{Note, Technique};
 use crate::tempo::TempoMap;
 use crate::tracks::next_note_id;
@@ -9,7 +10,6 @@ use crate::Project;
 
 /// Shortest piece of a note that survives being run over (one lattice unit).
 pub const MIN_PIECE_BEATS: f64 = 1.0 / 24.0;
-const EPS: f64 = 1e-9;
 
 impl Project {
     /// First re-ties the links of the `placed` notes (`tie_links`; the notes they link to count as
@@ -107,27 +107,12 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{TimePos, TimeSignature, Track, TrackRole};
+    use crate::testkit::add;
+    
     use crate::LinkType;
 
     fn project() -> Project {
-        Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            8.0,
-            120.0,
-            TimeSignature::COMMON,
-        )
-    }
-
-    fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
-        let id = next_note_id(p);
-        p.notes.push(Note::new(
-            id,
-            midi,
-            TimePos::at(1, start),
-            TimePos::at(1, end),
-        ));
-        id
+        crate::testkit::project(8.0)
     }
 
     fn spans(p: &Project, midi: u8) -> Vec<(f64, f64)> {
@@ -202,5 +187,22 @@ mod tests {
         assert_eq!(spans(&p, 60), [(0.0, 3.0)]);
         assert_eq!(p.outgoing(a), None);
         assert!(p.note(b).is_some());
+    }
+
+    #[test]
+    fn resolving_one_note_of_a_huge_linked_project_stays_linear() {
+        let mut p = project();
+        let n = 20_000;
+        for i in 0..n {
+            let id = add(&mut p, 30 + (i % 60) as u8, i as f64, i as f64 + 0.5);
+            if i + 1 < n {
+                let note = p.notes.last_mut().unwrap();
+                (note.link_to, note.technique) = (Some(id + 1), Some(Technique::Slide));
+            }
+        }
+        let start = std::time::Instant::now();
+        p.resolve_overlaps(&[1]);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1), "{:?}", start.elapsed());
+        assert_eq!(p.note(2).unwrap().start, p.note(1).unwrap().end);
     }
 }

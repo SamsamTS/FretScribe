@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, pos2, vec2, Rect, UiBuilder};
-use fretscribe_analysis::{sync::snap_offsets, Levels, Lut, Spectrogram, APP_GAMMA, APP_WHITE};
+use fretscribe_analysis::{sync::snap_offsets, Levels, Lut, Spectrogram, SpectrogramInfo, APP_GAMMA, APP_WHITE};
 use fretscribe_core::{shift_track, Note, NoteTimes, Project, TempoMap, TimeSignature, Track, TrackRole};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::spectro::{show_time_ruler, Peak};
@@ -55,7 +55,7 @@ fn synth(onsets: &[f64], role: TrackRole) -> Spectrogram {
             }
         }
     }
-    Spectrogram { data, n_frames, n_rows, hop_sec: hop, min_midi: min, max_midi: max, bins_per_semitone: bins }
+    Spectrogram { data, info: SpectrogramInfo { n_frames, n_rows, hop_sec: hop, min_midi: min, max_midi: max, bins_per_semitone: bins } }
 }
 
 struct Audio {

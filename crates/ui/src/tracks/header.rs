@@ -12,6 +12,7 @@ use crate::note_editor::{HeaderTools, NoteAction};
 use crate::view::LANE_HEADER_WIDTH;
 use crate::{kit, theme};
 
+static STRING_ITEMS: std::sync::LazyLock<[String; 9]> = std::sync::LazyLock::new(|| std::array::from_fn(|i| format!("String {}", i + 1)));
 const PAD: f32 = 4.0;
 const ICON: f32 = 16.0;
 const NOT_AUDIBLE_OPACITY: f32 = 0.45;
@@ -278,7 +279,7 @@ fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut
     let mut row = row_at(ui, 0);
     let mut lock = None;
     for b in &tools.buttons {
-        if b.label == "String" {
+        if matches!(b.action, NoteAction::SetString(_)) {
             lock = Some(b);
         } else if row.add_enabled_ui(b.enabled, |ui| kit::ibtn(ui, b.icon, &b.tooltip, false)).inner.clicked() {
             events.push(TrackEvent::NoteAction(b.action));
@@ -288,16 +289,14 @@ fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &HeaderTools, events: &mut
         return;
     }
     let mut row = row_at(ui, 1);
-    let items: Vec<String> = (1..=tools.strings.min(9))
-        .map(|n| format!("String {n}"))
-        .collect();
+    let items = &STRING_ITEMS[..tools.strings.min(9)];
     let text = tools.locked.map_or("Auto string".to_owned(), |n| format!("String {n}"));
     let (field, picked) = kit::Field::new(&text, &tools.string_tip)
         .icon(if tools.locked.is_some() { "lock" } else { "unlock" })
         .dropdown(
             &mut row,
             &format!("tool-string-{id}"),
-            &items,
+            items,
             tools.locked.map(|n| n - 1).filter(|n| *n < items.len()),
         );
     if let Some(n) = picked {

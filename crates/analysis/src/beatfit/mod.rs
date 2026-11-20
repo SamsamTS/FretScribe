@@ -19,7 +19,6 @@ pub mod synth;
 #[cfg(test)]
 mod tests;
 
-use std::f32::consts::PI;
 
 use fretscribe_core::{Track, TrackRole};
 use rayon::prelude::*;
@@ -94,9 +93,7 @@ pub fn onset_envelope(mono: &[f32], sample_rate: u32) -> OnsetEnvelope {
     }
     let hop_sec = HOP as f64 / f64::from(sample_rate);
     let frames = mono.len().div_ceil(HOP);
-    let window: Vec<f32> = (0..FFT_SIZE)
-        .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f32 / FFT_SIZE as f32).cos())
-        .collect();
+    let window = crate::dsp::hann(FFT_SIZE);
     let bin_hz = sample_rate as f32 / FFT_SIZE as f32;
     let top = FFT_SIZE / 2;
     let hi = ((BAND_HZ.1 / bin_hz) as usize).min(top);

@@ -138,24 +138,7 @@ impl TrackLanes<'_> {
         let (strips, content_px) = state.strips(&ctx, self.project);
         let audible = audible_set(self.project);
         state.slide(&ctx, self.project, &strips);
-        let shared = LaneShared {
-            project: self.project,
-            source: self.source,
-            style: self.style,
-            times: self.times,
-            selected: self.selected,
-            ghost: self.ghost,
-            view: *view,
-            pitch: *pitch,
-            reference_track: self.reference_track,
-            focus: self.focus,
-            tools: self.tools,
-            region: self.region,
-            region_snap: self.region_snap,
-            region_snapping: self.region_snapping,
-            audio_len_sec: self.audio_len_sec,
-            audible: &audible,
-        };
+        let (project, shared) = (self.project, LaneShared { inputs: self, view: *view, pitch: *pitch, audible: &audible });
         let mut area = ui.new_child(UiBuilder::new().max_rect(lanes));
         area.set_clip_rect(lanes.intersect(ui.clip_rect()));
         area.painter().rect_filled(lanes, 0.0, crate::theme::TITLE_BG);
@@ -164,7 +147,7 @@ impl TrackLanes<'_> {
         let mut rects = Vec::new();
         let mut grip_drag: Option<(usize, egui::Response)> = None;
 
-        for (index, (track, strip)) in self.project.tracks.iter().zip(&strips).enumerate() {
+        for (index, (track, strip)) in project.tracks.iter().zip(&strips).enumerate() {
             let rect = Rect::from_min_size(pos2(lanes.left(), lanes.top() - scroll_y_pt + (strip.top_px as f32 + state.slide_px.get(&track.id).copied().unwrap_or(0.0)) / ppp), vec2(lanes.width(), strip.height_px() as f32 / ppp));
             rects.push(rect);
             if !rect.intersects(lanes) {
@@ -212,7 +195,7 @@ impl TrackLanes<'_> {
             let y = others.get(target).map_or_else(|| others.last().map_or(lanes.top(), |r| r.bottom()), |r| r.top());
             area.painter_at(lanes).hline(lanes.x_range(), y, Stroke::new(2.0_f32, white(220)));
             if grip.drag_stopped() && target != index {
-                events.push(TrackEvent::ReorderRequested { id: self.project.tracks[index].id, new_index: target });
+                events.push(TrackEvent::ReorderRequested { id: project.tracks[index].id, new_index: target });
             }
         }
         TrackLanesOutput { source_pointer, events, spectro }

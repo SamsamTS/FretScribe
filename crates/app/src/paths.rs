@@ -46,7 +46,7 @@ pub fn fill_relative_paths(project: &mut Project, project_file: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fretscribe_core::{TimeSignature, TrackRole};
+    
 
     fn rel(base: &str, target: &str) -> Option<String> {
         relative_to(Path::new(base), Path::new(target)).map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -69,9 +69,9 @@ mod tests {
     }
 
     fn project(audio: Option<PathBuf>) -> Project {
-        let mut track = Track::new(1, "t", TrackRole::Guitar);
-        track.audio_path = audio;
-        Project::new(track, 10.0, 120.0, TimeSignature::COMMON)
+        let mut p = fretscribe_core::testkit::project(10.0);
+        p.tracks[0].audio_path = audio;
+        p
     }
 
     #[test]

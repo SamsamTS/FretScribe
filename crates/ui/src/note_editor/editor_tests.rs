@@ -35,7 +35,8 @@ impl H {
     }
 
     fn send(&mut self, input: Input) -> Vec<Effect> {
-        let mut env = Env { project: &mut self.p, grid: &self.grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, now: self.now, hovered: self.hovered };
+        let tempo = TempoMap::new(&self.p.measures);
+        let mut env = Env { project: &mut self.p, grid: &self.grid, tempo: &tempo, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, now: self.now, hovered: self.hovered };
         self.ed.handle(&mut env, input)
     }
 

@@ -82,13 +82,13 @@ impl MeasureSettings {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SettingsPopup {
+pub(crate) struct SettingsPopup {
     pub settings: MeasureSettings,
     pub anchor: Pos2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PopupOutcome {
+pub(crate) enum PopupOutcome {
     Open,
     Confirm,
     Cancel,
@@ -96,7 +96,7 @@ pub enum PopupOutcome {
     AutoFit,
 }
 
-pub fn show(ctx: &Context, id: Id, popup: &mut SettingsPopup) -> PopupOutcome {
+pub(crate) fn show(ctx: &Context, id: Id, popup: &mut SettingsPopup) -> PopupOutcome {
     let mut outcome = PopupOutcome::Open;
     // Full-screen catcher under the popup (a lower layer, so it can never be raised over it): a left or right click anywhere else cancels and is not
     // seen by the rest of the app.

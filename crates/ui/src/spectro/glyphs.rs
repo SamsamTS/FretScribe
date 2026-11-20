@@ -1,21 +1,21 @@
 //! Pure geometry of the note glyphs: rectangles, slide lines, bend arrows, legato arcs and link
 //! points. Every size is a multiple of the note height `h` (one pitch row).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use egui::{pos2, vec2, Pos2, Rect};
 use fretscribe_core::{grace_target_of, Note, NoteTimes, Technique};
 
 use super::SpectroGeometry;
 
-pub const MIN_NOTE_PX: f32 = 3.0;
+pub(crate) const MIN_NOTE_PX: f32 = 3.0;
 /// Grace notes are short but must stay visible.
-pub const MIN_GRACE_PX: f32 = 6.0;
-pub const EDGE_PX: f32 = 8.0;
+pub(crate) const MIN_GRACE_PX: f32 = 6.0;
+pub(crate) const EDGE_PX: f32 = 8.0;
 /// How far past its ends a note can be grabbed to resize it.
-pub const EDGE_OVERSHOOT_PX: f32 = 4.0;
-pub const DOT_HIT_PX: f32 = 7.0;
-pub const PATH_HIT_PX: f32 = 6.0;
+pub(crate) const EDGE_OVERSHOOT_PX: f32 = 4.0;
+pub(crate) const DOT_HIT_PX: f32 = 7.0;
+pub(crate) const PATH_HIT_PX: f32 = 6.0;
 const MIN_NAME_HEIGHT_PX: f32 = 9.0;
 const CURVE_SEGMENTS: usize = 16;
 const NAME_FIT: f32 = 0.9;
@@ -69,7 +69,7 @@ pub enum LinkKind {
     Dashed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Side {
     Left,
     Right,
@@ -104,7 +104,7 @@ pub struct LinkPoint {
 
 /// What the layout needs of a note, so that real notes and ghost previews share one geometry.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GlyphItem {
+pub(crate) struct GlyphItem {
     pub id: u64,
     pub midi: u8,
     pub start_sec: f64,
@@ -114,11 +114,47 @@ pub struct GlyphItem {
     pub grace: bool,
 }
 
-pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
-    let legato_sources: Vec<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
-    let tie_of = |id: u64| notes.iter().find(|n| n.link_to == Some(id) && n.technique == Some(Technique::Tie)).map(|n| n.id);
+pub(crate) fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
+    items_in(notes, times, None)
+}
+
+/// The ids to lay out for the visible `(from_sec, to_sec)` window: the notes that touch it, their link
+/// partners in both directions, and the other members of their grace group, so that every drawn link
+/// has both ends.
+fn kept_in_window(notes: &[Note], times: &NoteTimes, (from, to): (f64, f64)) -> HashSet<u64> {
+    let group = |n: &Note| n.grace_of.map_or(n.id, |g| g.main);
+    let visible: HashSet<u64> = notes
+        .iter()
+        .filter(|n| matches!((times.start_sec(n.id), times.end_sec(n.id)), (Some(s), Some(e)) if e >= from && s <= to))
+        .map(|n| n.id)
+        .collect();
+    let groups: HashSet<u64> = notes.iter().filter(|n| visible.contains(&n.id)).map(group).collect();
+    let mut keep = visible.clone();
+    for n in notes {
+        if visible.contains(&n.id) {
+            keep.extend(n.link_to);
+            keep.extend(n.legato.map(|l| l.from));
+        }
+        if n.link_to.is_some_and(|t| visible.contains(&t)) || n.legato.is_some_and(|l| visible.contains(&l.from)) || groups.contains(&group(n)) {
+            keep.insert(n.id);
+        }
+    }
+    keep
+}
+
+/// [`items`] restricted to what [`kept_in_window`] keeps when a window is given.
+pub(crate) fn items_in(notes: &[Note], times: &NoteTimes, window: Option<(f64, f64)>) -> Vec<GlyphItem> {
+    let keep = window.map(|w| kept_in_window(notes, times, w));
+    let legato_sources: HashSet<u64> = notes.iter().filter_map(|n| n.legato.map(|l| l.from)).collect();
+    let mut tie_source: HashMap<u64, u64> = HashMap::new();
+    for n in notes.iter().filter(|n| n.technique == Some(Technique::Tie)) {
+        if let Some(to) = n.link_to {
+            tie_source.entry(to).or_insert(n.id);
+        }
+    }
     notes
         .iter()
+        .filter(|n| keep.as_ref().is_none_or(|k| k.contains(&n.id)))
         .filter_map(|n| {
             let kind = if matches!(n.technique, Some(Technique::Bend)) { LinkKind::Bend } else { LinkKind::Slide };
             let tied = n.technique == Some(Technique::Tie);
@@ -129,24 +165,24 @@ pub fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
                 start_sec: times.start_sec(n.id)?,
                 end_sec: times.end_sec(n.id)?,
                 link: n.link_to.filter(|_| !tied).map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
-                legato_from: n.legato.map(|l| l.from).or_else(|| tie_of(n.id)),
+                legato_from: n.legato.map(|l| l.from).or_else(|| tie_source.get(&n.id).copied()),
                 grace: n.grace_of.is_some(),
             })
         })
         .collect()
 }
 
-pub fn corner_radius(m: &NoteMetrics, drawn_width: f32) -> f32 {
+pub(crate) fn corner_radius(m: &NoteMetrics, drawn_width: f32) -> f32 {
     m.corner_cap().min(0.25 * drawn_width)
 }
 
 /// Approximate text box of a pitch name centred in `rect` (monospace).
-pub fn name_box(rect: Rect, chars: usize, m: &NoteMetrics) -> Rect {
+pub(crate) fn name_box(rect: Rect, chars: usize, m: &NoteMetrics) -> Rect {
     let font = m.font_px();
     Rect::from_center_size(rect.center(), vec2(chars as f32 * NAME_CHAR_WIDTH * font, font))
 }
 
-pub fn label_visible(rect: Rect, chars: usize, dots: &[Pos2], m: &NoteMetrics) -> bool {
+pub(crate) fn label_visible(rect: Rect, chars: usize, dots: &[Pos2], m: &NoteMetrics) -> bool {
     let text = name_box(rect, chars, m);
     m.height_px >= MIN_NAME_HEIGHT_PX && rect.width() >= NAME_FIT * m.height_px && !dots.iter().any(|d| dist_to_rect(*d, text) <= m.dot_radius())
 }
@@ -157,7 +193,7 @@ fn dist_to_rect(p: Pos2, r: Rect) -> f32 {
     dx.hypot(dy)
 }
 
-pub fn dist_to_path(p: Pos2, path: &[Pos2]) -> f32 {
+pub(crate) fn dist_to_path(p: Pos2, path: &[Pos2]) -> f32 {
     path.windows(2)
         .map(|w| {
             let (a, b) = (w[0], w[1]);
@@ -170,7 +206,7 @@ pub fn dist_to_path(p: Pos2, path: &[Pos2]) -> f32 {
 }
 
 /// Open chevron of the bend arrowhead: arms of `0.2 h` going back from the tip.
-pub fn chevron(tip: Pos2, up: bool, m: &NoteMetrics) -> [Pos2; 3] {
+pub(crate) fn chevron(tip: Pos2, up: bool, m: &NoteMetrics) -> [Pos2; 3] {
     let a = HEAD * m.height_px;
     let back = if up { a } else { -a };
     [tip + vec2(-a, back), tip, tip + vec2(a, back)]
@@ -187,7 +223,8 @@ fn cubic(p0: Pos2, c1: Pos2, c2: Pos2, p3: Pos2) -> Vec<Pos2> {
         .collect()
 }
 
-pub struct Scene {
+#[derive(Debug)]
+pub(crate) struct Scene {
     height: f32,
     pub glyphs: Vec<Glyph>,
     pub rects: HashMap<u64, Rect>,
@@ -204,16 +241,16 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn name_area(&self, id: u64) -> Option<Rect> {
+    pub(crate) fn name_area(&self, id: u64) -> Option<Rect> {
         self.name_areas.get(&id).or_else(|| self.rects.get(&id)).copied()
     }
 
-    pub fn side_attached(&self, id: u64, side: Side) -> bool {
+    pub(crate) fn side_attached(&self, id: u64, side: Side) -> bool {
         self.attached.get(&id).is_some_and(|a| a[side as usize])
     }
 
     /// Link dots, plus both free link points of `hovered` where no link is attached.
-    pub fn link_points(&self, hovered: Option<u64>) -> Vec<LinkPoint> {
+    pub(crate) fn link_points(&self, hovered: Option<u64>) -> Vec<LinkPoint> {
         let mut points = self.dots.clone();
         if let Some((id, r)) = hovered.and_then(|id| Some((id, *self.rects.get(&id)?))) {
             let inset = (LEGATO_INSET * self.height).min(r.width() / 2.0);
@@ -226,7 +263,7 @@ impl Scene {
         points
     }
 
-    pub fn hit(&self, pos: Pos2, hovered: Option<u64>, m: &NoteMetrics) -> Option<(u64, HitZone)> {
+    pub(crate) fn hit(&self, pos: Pos2, hovered: Option<u64>, m: &NoteMetrics) -> Option<(u64, HitZone)> {
         let reach = DOT_HIT_PX.max(m.dot_radius());
         let dot = self
             .link_points(hovered)
@@ -268,7 +305,7 @@ impl Scene {
     }
 }
 
-pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Scene {
+pub(crate) fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Scene {
     let h = m.height_px;
     let n = items.len();
     let index: HashMap<u64, usize> = items.iter().enumerate().map(|(i, it)| (it.id, i)).collect();
@@ -370,7 +407,8 @@ pub fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics) -> Sc
     for id in attach_left {
         attached.entry(id).or_default()[Side::Left as usize] = true;
     }
-    let dot_x = |id: u64, side: Side| dots.iter().find(|d| d.note_id == id && d.side == side).map(|d| d.pos.x);
+    let dot_at: HashMap<(u64, Side), f32> = dots.iter().map(|d| ((d.note_id, d.side), d.pos.x)).collect();
+    let dot_x = |id: u64, side: Side| dot_at.get(&(id, side)).copied();
     let name_areas = (0..n)
         .filter(|&i| on_beat[i])
         .filter_map(|i| {

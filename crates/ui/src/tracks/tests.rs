@@ -1,6 +1,6 @@
 use egui::{CentralPanel, Context, Event, PointerButton, Pos2, RawInput, Rect};
 use fretscribe_analysis::{Levels, Lut, Spectrogram};
-use fretscribe_core::{NoteTimes, Project, TimeSignature, Track, TrackRole};
+use fretscribe_core::{NoteTimes, Project};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -9,10 +9,7 @@ use crate::spectro::SpectroStyle;
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
 fn project() -> Project {
-    let mut p = Project::new(Track::new(1, "Guitar", TrackRole::Guitar), 20.0, 120.0, TimeSignature::COMMON);
-    p.add_track(Track::new(0, "Drums", TrackRole::Drums));
-    p.add_track(Track::new(0, "Bass", TrackRole::Bass));
-    p
+    fretscribe_core::testkit::band(20.0)
 }
 
 #[test]

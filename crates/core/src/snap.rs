@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::tempo::TIE_EPS;
 use crate::model::{TimePos, TICKS_PER_BEAT};
 use crate::tempo::{TempoMap, BEAT_EPS};
 
@@ -14,7 +15,6 @@ pub const TRIPLET_DIVISIONS: [u8; 4] = [3, 6, 12, 24];
 
 /// Every allowed division divides 48, so all grid positions are integers in 1/48-beat units.
 pub(crate) const UNITS_PER_BEAT: u32 = crate::model::TICKS_PER_BEAT as u32;
-const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapGrid {
@@ -28,10 +28,6 @@ pub struct SnapPreset {
 }
 
 /// Label of one division, as shown in the grid dropdowns.
-pub fn division_name(division: u8) -> &'static str {
-    division_label(division)
-}
-
 const PRESETS: [(&str, &[u8]); 10] = [
     ("1/4", &[1]),
     ("1/8", &[2]),
@@ -45,7 +41,7 @@ const PRESETS: [(&str, &[u8]); 10] = [
     ("1/16 + 1/16T", &[4, 6]),
 ];
 
-fn division_label(division: u8) -> &'static str {
+pub fn division_name(division: u8) -> &'static str {
     match division {
         1 => "1/4",
         2 => "1/8",
@@ -79,7 +75,7 @@ impl SnapGrid {
     pub fn label(&self) -> String {
         self.divisions
             .iter()
-            .map(|&d| division_label(d))
+            .map(|&d| division_name(d))
             .collect::<Vec<_>>()
             .join(" + ")
     }
@@ -136,6 +132,21 @@ impl Default for SnapGrid {
     }
 }
 
+/// Lattice positions (in `UNITS_PER_BEAT` units) below `end_units` for the given divisions, each
+/// labelled with the first division in the list that reaches it.
+pub(crate) fn grid_units(end_units: f64, divisions: &[u8]) -> BTreeMap<u32, u8> {
+    let mut by_units = BTreeMap::new();
+    for &division in divisions {
+        let step = UNITS_PER_BEAT / u32::from(division);
+        let mut units = 0;
+        while f64::from(units) < end_units {
+            by_units.entry(units).or_insert(division);
+            units += step;
+        }
+    }
+    by_units
+}
+
 impl TempoMap {
     /// Nearest grid position in the measure containing `sec` (the next barline included); ties go to
     /// the coarser division. After the last measure the grid continues past its end.
@@ -159,7 +170,7 @@ impl TempoMap {
         consider(len);
         for division in grid.sorted_divisions() {
             let step = TICKS_PER_BEAT / i64::from(division);
-            (0..=limit / step).for_each(|k| consider(k * step));
+            consider(((at / step as f64).round() as i64).clamp(0, limit / step) * step);
         }
         self.normalise(TimePos::new(self.measures[i].id, best.1))
     }
@@ -174,19 +185,10 @@ impl TempoMap {
     /// Lines of measure `i`, excluding the closing barline. A position shared by several divisions
     /// appears once, labelled with the coarsest straight one, else the coarsest triplet.
     pub fn grid_lines(&self, i: usize, grid: &SnapGrid) -> Vec<(f64, u8)> {
-        let end_units = self.beats[i] * f64::from(UNITS_PER_BEAT) - BEAT_EPS;
-        let mut by_position: BTreeMap<u32, u8> = BTreeMap::new();
         // Straight before triplet: a position shared by both is labelled (and drawn) as straight.
         let mut divisions = grid.sorted_divisions();
         divisions.sort_by_key(|d| TRIPLET_DIVISIONS.contains(d));
-        for division in divisions {
-            let step = UNITS_PER_BEAT / u32::from(division);
-            let mut units = 0;
-            while f64::from(units) < end_units {
-                by_position.entry(units).or_insert(division);
-                units += step;
-            }
-        }
+        let by_position = grid_units(self.beats[i] * f64::from(UNITS_PER_BEAT) - BEAT_EPS, &divisions);
         let start = self.measures[i].start_sec;
         let spb = self.sec_per_beat[i];
         by_position

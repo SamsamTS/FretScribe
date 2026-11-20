@@ -61,6 +61,14 @@ impl<T> Change<T> {
         (!same(&before, &after)).then_some(Self { before, after })
     }
 
+    /// Like `new` for borrowed values: clones only when they differ.
+    fn of(before: &T, after: &T, same: impl Fn(&T, &T) -> bool) -> Option<Self>
+    where
+        T: Clone,
+    {
+        (!same(before, after)).then(|| Self { before: before.clone(), after: after.clone() })
+    }
+
     fn expected(&self, undo: bool) -> &T {
         if undo {
             &self.after
@@ -90,8 +98,7 @@ fn holds<T>(change: &Option<Change<T>>, undo: bool, now: impl FnOnce(&T) -> bool
     change.as_ref().is_none_or(|c| now(c.expected(undo)))
 }
 
-#[allow(clippy::ptr_arg)] // used as `Fn(&Vec<Track>, &Vec<Track>)`
-fn same_tracks(a: &Vec<Track>, b: &Vec<Track>) -> bool {
+fn same_tracks(a: &[Track], b: &[Track]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.same_undoable(y))
 }
 
@@ -142,22 +149,16 @@ impl Delta {
                 })
             })
             .collect();
-        let grid = |measures: &[Measure], next_id| Grid {
-            measures: measures.to_vec(),
-            next_id,
-        };
+        let grid = |measures: &[Measure], next_id| Grid { measures: measures.to_vec(), next_id };
         Self {
             notes,
-            tracks: Change::new(before.tracks.clone(), after.tracks.clone(), same_tracks),
-            source_track: Change::new(before.source_track, after.source_track, u64::eq),
-            grid: Change::new(
-                grid(&before.measures, before.next_measure_id),
-                grid(&after.measures, after.next_measure_id),
-                Grid::eq,
-            ),
-            tuning: Change::new(before.tuning.clone(), after.tuning.clone(), Tuning::eq),
-            capo: Change::new(before.capo, after.capo, u8::eq),
-            reference_hz: Change::new(before.reference_hz, after.reference_hz, f32::eq),
+            tracks: Change::of(&before.tracks, &after.tracks, |a, b| same_tracks(a, b)),
+            source_track: Change::of(&before.source_track, &after.source_track, u64::eq),
+            grid: (before.measures != after.measures || before.next_measure_id != after.next_measure_id)
+                .then(|| Change { before: grid(&before.measures, before.next_measure_id), after: grid(&after.measures, after.next_measure_id) }),
+            tuning: Change::of(&before.tuning, &after.tuning, Tuning::eq),
+            capo: Change::of(&before.capo, &after.capo, u8::eq),
+            reference_hz: Change::of(&before.reference_hz, &after.reference_hz, f32::eq),
         }
     }
 
@@ -176,7 +177,7 @@ impl Delta {
         }
         Delta {
             notes: notes.into_iter().collect(),
-            tracks: Change::compose(self.tracks, later.tracks, same_tracks),
+            tracks: Change::compose(self.tracks, later.tracks, |a, b| same_tracks(a, b)),
             source_track: Change::compose(self.source_track, later.source_track, u64::eq),
             grid: Change::compose(self.grid, later.grid, Grid::eq),
             tuning: Change::compose(self.tuning, later.tuning, Tuning::eq),
@@ -258,19 +259,11 @@ impl Delta {
 pub(crate) mod tests {
     use super::*;
     use crate::edit::{NotePolicy, ProjectEdit};
-    use crate::model::{TimePos, TimeSignature, TrackRole};
+    use crate::model::{TimePos, TrackRole};
     use crate::tracks::{next_note_id, shift_track};
 
     pub fn project() -> Project {
-        let mut p = Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            8.0,
-            120.0,
-            TimeSignature::COMMON,
-        );
-        p.add_track(Track::new(0, "Drums", TrackRole::Drums));
-        p.add_track(Track::new(0, "Bass", TrackRole::Bass));
-        p
+        crate::testkit::band(8.0)
     }
 
     pub fn add_note(p: &mut Project, midi: u8) -> ProjectEdit {
@@ -469,7 +462,7 @@ pub(crate) mod tests {
                     p.remove_notes(&[id])
                 }
                 4 => p
-                    .set_tempo(m, 60.0 + rng.next(100) as f64, NotePolicy::FollowGrid)
+                    .set_tempo_scoped(m, 60.0 + rng.next(100) as f64, crate::measures::Propagation::Following, NotePolicy::FollowGrid)
                     .unwrap(),
                 5 => p.insert_measure(m, NotePolicy::KeepAudioPosition).unwrap(),
                 6 if p.measures.len() > 2 => p

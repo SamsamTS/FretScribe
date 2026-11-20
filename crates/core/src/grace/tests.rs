@@ -1,14 +1,9 @@
 use super::*;
+use crate::measures::tests::{near as close, secs};
 use crate::links::LinkType;
-use crate::model::{TimeSignature, Track, TrackRole};
 
 fn project() -> Project {
-    Project::new(
-        Track::new(1, "Guitar", TrackRole::Guitar),
-        8.0,
-        120.0,
-        TimeSignature::COMMON,
-    )
+    crate::testkit::project(8.0)
 }
 
 fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
@@ -21,15 +16,6 @@ fn add(p: &mut Project, midi: u8, start: f64, end: f64) -> u64 {
         tempo.sec_to_pos(end),
     ));
     id
-}
-
-fn secs(p: &Project, id: u64) -> (f64, f64) {
-    let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
-    (times.start_sec(id).unwrap(), times.end_sec(id).unwrap())
-}
-
-fn close(a: f64, b: f64) {
-    assert!((a - b).abs() < 0.011, "{a} != {b}");
 }
 
 fn on_string(p: &mut Project, id: u64, string: u8, fret: u8) {

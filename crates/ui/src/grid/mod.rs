@@ -439,15 +439,10 @@ pub fn format_time(sec: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fretscribe_core::{generate_measures, Project, Track, TrackRole};
+    use fretscribe_core::{generate_measures, Project};
 
     fn project() -> Project {
-        Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            8.0,
-            120.0,
-            TimeSignature::COMMON,
-        )
+        fretscribe_core::testkit::project(8.0)
     }
 
     #[test]

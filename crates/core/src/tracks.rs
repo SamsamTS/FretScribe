@@ -90,7 +90,7 @@ pub fn shift_track(
     if !new_offset_sec.is_finite() {
         return Err(EditError::InvalidTime(new_offset_sec));
     }
-    project.transact("Shift track", |p| {
+    project.edit_notes("Shift track", |p| {
         let index = p.track_index(track_id)?;
         let delta = new_offset_sec - p.tracks[index].offset_sec;
         p.tracks[index].offset_sec = new_offset_sec;
@@ -111,22 +111,14 @@ pub fn shift_track(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measures::tests::{close, near};
+    use crate::measures::tests::{close, near, secs};
     use crate::model::{
-        GraceKind, GraceNote, Legato, LegatoLink, Note, Technique, TimePos, TimeSignature,
+        GraceKind, GraceNote, Legato, LegatoLink, Note, Technique, TimePos,
         TrackRole,
     };
 
     fn project() -> Project {
-        let mut p = Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            16.0,
-            120.0,
-            TimeSignature::COMMON,
-        );
-        p.add_track(Track::new(0, "Drums", TrackRole::Drums));
-        p.add_track(Track::new(0, "Bass", TrackRole::Bass));
-        p
+        crate::testkit::band(16.0)
     }
 
     fn add_note(p: &mut Project, start: (u64, f64), end: (u64, f64)) -> u64 {
@@ -138,11 +130,6 @@ mod tests {
             TimePos::at(end.0, end.1),
         ));
         id
-    }
-
-    fn secs(p: &Project, id: u64) -> (f64, f64) {
-        let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
-        (times.start_sec(id).unwrap(), times.end_sec(id).unwrap())
     }
 
     #[test]

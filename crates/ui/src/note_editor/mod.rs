@@ -21,7 +21,7 @@ pub use action::{apply, ActionError, Applied, NoteAction};
 pub use buttons::{action_buttons, header_tools, show_action_row, ActionButton, HeaderTools, HINT};
 pub use clip::Clipboard;
 pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_aim, plan_extend, plan_slide_end, Creation, DrawFeedback, DrawPlan, LinkAim, LinkStart, NewNote, Pt, Ref, Sticky};
-pub use exact::{apply_exact, fields_for, parse_pitch, ExactError, ExactFields};
+pub use exact::{apply_exact, fields_for, ExactError, ExactFields};
 pub use grace_entry::{EntryKey, EntryStep, GraceEntry};
 pub use keymap::{KeyChord, Keymap, KeymapError};
 pub use input::{collect, Collected, SourcePointer};

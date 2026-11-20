@@ -305,6 +305,20 @@ impl Project {
         PitchRef::new(self.reference_hz).unwrap_or_default()
     }
 
+    /// A copy of the notes and the grid only (no tracks), enough to preview note edits cheaply.
+    pub fn notes_scratch(&self) -> Project {
+        Project {
+            tracks: Vec::new(),
+            source_track: self.source_track,
+            measures: self.measures.clone(),
+            next_measure_id: self.next_measure_id,
+            tuning: self.tuning.clone(),
+            capo: self.capo,
+            reference_hz: self.reference_hz,
+            notes: self.notes.clone(),
+        }
+    }
+
     pub fn note(&self, id: u64) -> Option<&Note> {
         self.notes.iter().find(|n| n.id == id)
     }

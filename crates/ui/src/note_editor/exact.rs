@@ -1,6 +1,6 @@
 //! Typed exact values of one note: start, end, pitch and an optional string lock.
 
-use fretscribe_core::{midi_to_name, EditError, Project, ProjectEdit, TimePos, MAX_FRET};
+use fretscribe_core::{midi_to_name, parse_pitch, EditError, Project, ProjectEdit, TimePos, MAX_FRET};
 use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,33 +52,6 @@ fn parse_number(text: &str) -> Option<f64> {
         }
         None => text.parse().ok(),
     }
-}
-
-/// A MIDI number or a name such as `E2`, `F#3`, `Bb4`.
-pub fn parse_pitch(text: &str) -> Option<u8> {
-    let text = text.trim();
-    if let Ok(n) = text.parse::<u8>() {
-        return (n <= 127).then_some(n);
-    }
-    let mut chars = text.chars();
-    let base = match chars.next()?.to_ascii_uppercase() {
-        'C' => 0,
-        'D' => 2,
-        'E' => 4,
-        'F' => 5,
-        'G' => 7,
-        'A' => 9,
-        'B' => 11,
-        _ => return None,
-    };
-    let rest = chars.as_str();
-    let (shift, octave) = match rest.chars().next()? {
-        '#' => (1, &rest[1..]),
-        'b' => (-1, &rest[1..]),
-        _ => (0, rest),
-    };
-    let midi = (octave.parse::<i32>().ok()? + 1) * 12 + base + shift;
-    u8::try_from(midi).ok().filter(|m| *m <= 127)
 }
 
 fn position(project: &Project, (bar, beat): &(String, String)) -> Result<TimePos, ExactError> {

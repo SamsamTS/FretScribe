@@ -6,7 +6,8 @@ use crate::error::CoreError;
 
 pub const A4_MIDI: f64 = 69.0;
 const STANDARD_A4_HZ: f64 = 440.0;
-const A4_RANGE_HZ: std::ops::RangeInclusive<f32> = 400.0..=480.0;
+/// Accepted reference pitch for A4.
+pub const A4_RANGE_HZ: std::ops::RangeInclusive<f32> = 400.0..=480.0;
 const NOTE_NAMES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
@@ -84,9 +85,41 @@ pub fn cents_of(pitch_ref: &PitchRef) -> f32 {
     (1200.0 * (f64::from(pitch_ref.a4_hz) / STANDARD_A4_HZ).log2()) as f32
 }
 
+/// Pitch class of `midi` ("C", "C#", ...).
+pub fn pitch_class_name(midi: u8) -> &'static str {
+    NOTE_NAMES[usize::from(midi % 12)]
+}
+
 pub fn midi_to_name(midi: u8) -> String {
     let octave = i32::from(midi / 12) - 1;
-    format!("{}{octave}", NOTE_NAMES[usize::from(midi % 12)])
+    format!("{}{octave}", pitch_class_name(midi))
+}
+
+/// A MIDI number or a name such as `E2`, `F#3`, `Bb4`.
+pub fn parse_pitch(text: &str) -> Option<u8> {
+    let text = text.trim();
+    if let Ok(n) = text.parse::<u8>() {
+        return (n <= 127).then_some(n);
+    }
+    let mut chars = text.chars();
+    let base = match chars.next()?.to_ascii_uppercase() {
+        'C' => 0,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => return None,
+    };
+    let rest = chars.as_str();
+    let (shift, octave) = match rest.chars().next()? {
+        '#' => (1, &rest[1..]),
+        'b' => (-1, &rest[1..]),
+        _ => (0, rest),
+    };
+    let midi = (octave.parse::<i32>().ok()? + 1) * 12 + base + shift;
+    u8::try_from(midi).ok().filter(|m| *m <= 127)
 }
 
 #[cfg(test)]

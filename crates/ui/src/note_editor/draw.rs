@@ -243,7 +243,7 @@ pub fn plan_slide_end(base: &Creation, cur_sec: f64, sticky: Sticky, ctx: &EditC
 
 /// A drawn slide whose end is an existing note: the first new note links to it (when valid)
 /// instead of a second new note being made.
-pub fn plan_slide_target(base: &Creation, target: u64, ctx: &EditCtx) -> Option<Creation> {
+pub(crate) fn plan_slide_target(base: &Creation, target: u64, ctx: &EditCtx) -> Option<Creation> {
     let first = base.notes.first()?;
     let mut scratch = ctx.project.clone();
     let id = fretscribe_core::next_note_id(&scratch);
@@ -256,7 +256,7 @@ pub fn plan_slide_target(base: &Creation, target: u64, ctx: &EditCtx) -> Option<
 /// note and the target gives the other, so the link completes it. Target later than the press: the
 /// new note runs from the press to the start of the target; target earlier: from the end of the
 /// target to the press.
-pub fn plan_draw_onto(press: Pt, target: u64, ctx: &EditCtx) -> Option<Creation> {
+pub(crate) fn plan_draw_onto(press: Pt, target: u64, ctx: &EditCtx) -> Option<Creation> {
     let t = ctx.project.note(target)?;
     let at = snap_edge(ctx.tempo.sec_to_pos(press.sec), Edge::Start, ctx.tempo, &ctx.project.notes, &ctx.opts((None, None)));
     let midi = row(press.midi);

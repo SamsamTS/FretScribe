@@ -168,6 +168,18 @@ impl Sink {
 
 /// Streams the source in small chunks so no full-length per-channel buffer ever exists: the only
 /// large allocation is the interleaved result.
+/// Copies interleaved `width`-channel frames into the two planar input buffers (left = first channel).
+fn load(input: &mut [Vec<f32>], interleaved: &[f32], width: usize, right: usize) -> Result<()> {
+    let [left_in, right_in] = input else {
+        return Err(resample_err("unexpected channel count"));
+    };
+    for ((l, r), frame) in left_in.iter_mut().zip(right_in.iter_mut()).zip(interleaved.chunks_exact(width)) {
+        *l = frame[0];
+        *r = frame[right];
+    }
+    Ok(())
+}
+
 fn resample_to_stereo(audio: &DecodedAudio, to: u32) -> Result<Vec<f32>> {
     let width = usize::from(audio.channels);
     let right = width.min(2) - 1;
@@ -189,14 +201,7 @@ fn resample_to_stereo(audio: &DecodedAudio, to: u32) -> Result<Vec<f32>> {
         if pos + need > frames {
             break;
         }
-        let [left, right_channel] = &mut input[..] else {
-            return Err(resample_err("unexpected channel count"));
-        };
-        let chunk = audio.interleaved[pos * width..(pos + need) * width].chunks_exact(width);
-        for ((l, r), frame) in left.iter_mut().zip(right_channel.iter_mut()).zip(chunk) {
-            *l = frame[0];
-            *r = frame[right];
-        }
+        load(&mut input, &audio.interleaved[pos * width..(pos + need) * width], width, right)?;
         let (_, produced) = resampler
             .process_into_buffer(&input, &mut output, None)
             .map_err(resample_err)?;
@@ -206,14 +211,7 @@ fn resample_to_stereo(audio: &DecodedAudio, to: u32) -> Result<Vec<f32>> {
 
     if pos < frames {
         let rest = frames - pos;
-        let [left, right_channel] = &mut input[..] else {
-            return Err(resample_err("unexpected channel count"));
-        };
-        let chunk = audio.interleaved[pos * width..].chunks_exact(width);
-        for ((l, r), frame) in left.iter_mut().zip(right_channel.iter_mut()).zip(chunk) {
-            *l = frame[0];
-            *r = frame[right];
-        }
+        load(&mut input, &audio.interleaved[pos * width..], width, right)?;
         let partial = [&input[0][..rest], &input[1][..rest]];
         let (_, produced) = resampler
             .process_partial_into_buffer(Some(&partial), &mut output, None)
@@ -236,12 +234,7 @@ fn resample_to_stereo(audio: &DecodedAudio, to: u32) -> Result<Vec<f32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sine(freq: f64, rate: u32, frames: usize) -> Vec<f32> {
-        (0..frames)
-            .map(|i| (std::f64::consts::TAU * freq * i as f64 / f64::from(rate)).sin() as f32)
-            .collect()
-    }
+    use crate::testutil::sine_frames;
 
     pub(crate) fn zero_crossing_freq(x: &[f32], rate: u32) -> f64 {
         let mut crossings = Vec::new();
@@ -341,7 +334,7 @@ mod tests {
 
     #[test]
     fn resampling_keeps_length_and_pitch() {
-        let mono = sine(440.0, 44_100, 44_100);
+        let mono = sine_frames(440.0, 44_100, 44_100, 1.0);
         let audio = DecodedAudio::from_interleaved(44_100, 1, mono).unwrap();
         let prepared = Prepared::from_decoded(&audio, 48_000).unwrap();
         assert_eq!(prepared.frames(), 48_000);

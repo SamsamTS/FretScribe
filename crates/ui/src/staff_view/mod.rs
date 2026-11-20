@@ -62,7 +62,7 @@ impl Default for StaffStyle {
             space: 7.0,
             ink: Color32::from_rgb(235, 235, 235),
             selected: Color32::from_rgb(110, 180, 255),
-            playhead: Color32::from_rgb(255, 90, 80),
+            playhead: crate::theme::PLAYHEAD,
             background: crate::theme::WINDOW_BG,
             top_extra: 0.0,
         }
@@ -114,25 +114,25 @@ pub(crate) struct Paint<'a> {
 
 impl Paint<'_> {
     /// Where a note at `sec` is drawn.
-    pub fn px(&self, sec: f64) -> f32 {
+    pub(crate) fn px(&self, sec: f64) -> f32 {
         self.x + self.grid.x(self.view, sec)
     }
 
     /// The exact x of `sec`, for bars and the seek line.
-    pub fn tx(&self, sec: f64) -> f32 {
+    pub(crate) fn tx(&self, sec: f64) -> f32 {
         self.x + self.view.sec_to_x(sec)
     }
 
     /// Height of a staff step (0 = bottom line, 2 per space up).
-    pub fn py(&self, step: i32) -> f32 {
+    pub(crate) fn py(&self, step: i32) -> f32 {
         self.top + 4.0 * self.s - step as f32 * self.s / 2.0
     }
 
-    pub fn head_w(&self, scale: f32) -> f32 {
+    pub(crate) fn head_w(&self, scale: f32) -> f32 {
         HEAD_W * self.s * scale
     }
 
-    pub fn glyph(&self, c: &str, at: Pos2, scale: f32, color: Color32, align: Align2) {
+    pub(crate) fn glyph(&self, c: &str, at: Pos2, scale: f32, color: Color32, align: Align2) {
         self.p.text(at, align, c, FontId::new(self.s * FONT_PER_SPACE * scale, FontFamily::Name(FONT_NAME.into())), color);
     }
 
@@ -141,7 +141,7 @@ impl Paint<'_> {
     }
 
     /// Nearest physical pixel.
-    pub fn snap(&self, v: f32) -> f32 {
+    pub(crate) fn snap(&self, v: f32) -> f32 {
         let k = self.ppp();
         (v * k).round() / k
     }
@@ -161,7 +161,7 @@ impl Paint<'_> {
         self.p.rect_filled(Rect::from_min_max(pos2(x0.min(x1), y0.min(y1)), pos2(x0.max(x1), y0.max(y1))), 0.0, color);
     }
 
-    pub fn line(&self, a: Pos2, b: Pos2, width: f32, color: Color32) {
+    pub(crate) fn line(&self, a: Pos2, b: Pos2, width: f32, color: Color32) {
         self.p.line_segment([a, b], Stroke::new(width * self.s, color));
     }
 }
@@ -412,8 +412,11 @@ impl Paint<'_> {
         }
     }
 
-    pub fn arc(&self, a: Pos2, b: Pos2, bulge: f32, width: f32, color: Color32) {
-        let ctrl = pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0 + bulge * 2.0);
+    pub(crate) fn arc(&self, a: Pos2, b: Pos2, bulge: f32, width: f32, color: Color32) {
+        self.bezier(a, pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0 + bulge * 2.0), b, width, color);
+    }
+
+    pub(crate) fn bezier(&self, a: Pos2, ctrl: Pos2, b: Pos2, width: f32, color: Color32) {
         self.p.add(Shape::QuadraticBezier(egui::epaint::QuadraticBezierShape::from_points_stroke([a, ctrl, b], false, Color32::TRANSPARENT, Stroke::new(width, color))));
     }
 

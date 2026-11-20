@@ -50,6 +50,7 @@ pub fn refine_pitch(spec: &Spectrogram, pitch_ref: &PitchRef, time_sec: f64, app
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SpectrogramInfo;
     use fretscribe_core::ref_from_cents;
 
     const BINS: u8 = 4;
@@ -58,15 +59,8 @@ mod tests {
     fn spec(frames: usize) -> Spectrogram {
         let (min_midi, max_midi) = (40.0, 80.0);
         let n_rows = ((max_midi - min_midi) * f32::from(BINS)) as usize + 1;
-        Spectrogram {
-            data: vec![0.0; n_rows * frames],
-            n_frames: frames,
-            n_rows,
-            hop_sec: HOP,
-            min_midi,
-            max_midi,
-            bins_per_semitone: BINS,
-        }
+        let info = SpectrogramInfo { n_frames: frames, n_rows, hop_sec: HOP, min_midi, max_midi, bins_per_semitone: BINS };
+        Spectrogram { data: vec![0.0; n_rows * frames], info }
     }
 
     /// Gaussian ridge of the given pitch (in project midi) with an amplitude per frame.
@@ -76,7 +70,7 @@ mod tests {
             let a = amp(frame as f64 * HOP);
             for row in 0..s.n_rows {
                 let d = (row as f32 - centre) / (0.4 * f32::from(BINS));
-                s.data[row * s.n_frames + frame] += a * (-0.5 * d * d).exp();
+                s.data[row * s.info.n_frames + frame] += a * (-0.5 * d * d).exp();
             }
         }
     }

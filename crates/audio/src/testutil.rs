@@ -3,39 +3,45 @@ use std::sync::Arc;
 
 use crate::decode::DecodedAudio;
 use crate::engine::{Engine, BLOCK_FRAMES};
-use crate::player::{Player, TrackAudio};
+use crate::player::{Player, PreparedTrack};
+use crate::resample::PreparedAudio;
 
 pub const RATE: u32 = 48_000;
 
+pub fn sine_frames(freq: f64, rate: u32, frames: usize, amp: f32) -> Vec<f32> {
+    (0..frames).map(|i| amp * (TAU * freq * i as f64 / f64::from(rate)).sin() as f32).collect()
+}
+
 pub fn sine(freq: f64, rate: u32, seconds: f64, amp: f32) -> Vec<f32> {
-    let frames = (seconds * f64::from(rate)).round() as usize;
-    (0..frames)
-        .map(|i| amp * (TAU * freq * i as f64 / f64::from(rate)).sin() as f32)
-        .collect()
+    sine_frames(freq, rate, (seconds * f64::from(rate)).round() as usize, amp)
 }
 
 pub fn mono_audio(rate: u32, samples: Vec<f32>) -> Arc<DecodedAudio> {
     Arc::new(DecodedAudio::from_interleaved(rate, 1, samples).unwrap())
 }
 
-pub fn track(id: u64, samples: Vec<f32>) -> TrackAudio {
-    TrackAudio {
+pub fn track_of(id: u64, audio: Arc<DecodedAudio>, offset_sec: f64) -> PreparedTrack {
+    PreparedTrack {
         id,
-        audio: mono_audio(RATE, samples),
-        offset_sec: 0.0,
+        audio: PreparedAudio::new(&audio, RATE).unwrap(),
+        offset_sec,
         volume: 1.0,
         muted: false,
         solo: false,
     }
 }
 
+pub fn track(id: u64, samples: Vec<f32>) -> PreparedTrack {
+    track_of(id, mono_audio(RATE, samples), 0.0)
+}
+
 pub fn dc(seconds: f64, value: f32) -> Vec<f32> {
     vec![value; (seconds * f64::from(RATE)) as usize]
 }
 
-pub fn setup(tracks: Vec<TrackAudio>) -> (Player, Engine) {
+pub fn setup(tracks: Vec<PreparedTrack>) -> (Player, Engine) {
     let (player, engine) = Player::headless(RATE);
-    player.set_tracks(tracks).unwrap();
+    player.set_prepared_tracks(tracks).unwrap();
     (player, engine)
 }
 

@@ -4,7 +4,7 @@ use egui::{Key, PointerButton, Pos2, Rect, Response, Ui};
 
 use super::{SpectroEvent, SpectroGeometry};
 
-pub const DRAG_THRESHOLD_PX: f32 = 4.0;
+pub(crate) const DRAG_THRESHOLD_PX: f32 = 4.0;
 
 #[derive(Clone, Copy)]
 struct Press {
@@ -20,7 +20,7 @@ fn sample(geo: &SpectroGeometry, pos: Pos2) -> (u8, f32, f64) {
 }
 
 /// `empty_at` tells whether a press position is free of notes and links.
-pub fn events(ui: &Ui, response: &Response, geo: &SpectroGeometry, ruler: Rect, empty_at: impl Fn(Pos2) -> bool) -> Vec<SpectroEvent> {
+pub(crate) fn events(ui: &Ui, response: &Response, geo: &SpectroGeometry, ruler: Rect, empty_at: impl Fn(Pos2) -> bool) -> Vec<SpectroEvent> {
     let key = response.id.with("press");
     let mut state: Option<Press> = ui.data(|d| d.get_temp::<Option<Press>>(key)).flatten();
     let (pressed, released, down, other_pressed, esc, latest) = ui.input(|i| {

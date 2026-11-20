@@ -387,9 +387,9 @@ fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<Pos
     picks
 }
 
-enum Scope {
+enum Scope<'a> {
     All,
-    From { edited: usize, backwards: bool },
+    From { edited: &'a [usize], backwards: bool },
 }
 
 struct Outcome {
@@ -397,7 +397,7 @@ struct Outcome {
     unplaceable: Vec<u64>,
 }
 
-fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &TabOptions, scope: Scope) -> Outcome {
+fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &TabOptions, scope: Scope<'_>) -> Outcome {
     let mut outcome = Outcome { changed: Vec::new(), unplaceable: Vec::new() };
     if notes.is_empty() || tuning.open_strings.is_empty() {
         return outcome;
@@ -411,39 +411,61 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
     };
     let items = build_items(notes, &ctx);
     let locked_item = |i: usize| items[i].groups.iter().any(|g| g.locked);
-    let (lo, hi) = match scope {
-        Scope::All => (0, items.len() - 1),
+    let windows = match scope {
+        Scope::All => vec![(0, items.len() - 1)],
         Scope::From { edited, backwards } => {
-            let Some(e) = items.iter().position(|it| it.notes.contains(&edited)) else { return outcome };
-            let hi = (e + 1..items.len()).find(|&j| locked_item(j)).unwrap_or(items.len() - 1);
-            let lo = if backwards { (0..e).rev().find(|&k| locked_item(k)).map_or(0, |k| k + 1) } else { e };
-            (lo, hi.max(e))
+            let mut item_of = vec![usize::MAX; notes.len()];
+            for (k, it) in items.iter().enumerate() {
+                for &i in &it.notes {
+                    item_of[i] = k;
+                }
+            }
+            let mut windows: Vec<(usize, usize)> = edited
+                .iter()
+                .filter_map(|&n| item_of.get(n).copied().filter(|&e| e != usize::MAX))
+                .map(|e| {
+                    let hi = (e + 1..items.len()).find(|&j| locked_item(j)).unwrap_or(items.len() - 1);
+                    let lo = if backwards { (0..e).rev().find(|&k| locked_item(k)).map_or(0, |k| k + 1) } else { e };
+                    (lo, hi.max(e))
+                })
+                .collect();
+            windows.sort_unstable();
+            let mut merged: Vec<(usize, usize)> = Vec::new();
+            for w in windows {
+                match merged.last_mut() {
+                    Some(last) if w.0 <= last.1 => last.1 = last.1.max(w.1),
+                    _ => merged.push(w),
+                }
+            }
+            merged
         }
     };
-    let start = (lo > 0)
-        .then(|| {
-            let last = &items[lo - 1];
-            let lasts = ends(last, |g| g.members.len() - 1);
-            summarize(&ctx, lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
-        })
-        .flatten();
-    let range: Vec<&Item> = items[lo..=hi].iter().collect();
-    let options: Vec<Vec<Combo>> = range.iter().map(|it| combos(it, &ctx)).collect();
-    let picks = viterbi(&ctx, &range, &options, start);
+    for (lo, hi) in windows {
+        let start = (lo > 0)
+            .then(|| {
+                let last = &items[lo - 1];
+                let lasts = ends(last, |g| g.members.len() - 1);
+                summarize(&ctx, lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
+            })
+            .flatten();
+        let range: Vec<&Item> = items[lo..=hi].iter().collect();
+        let options: Vec<Vec<Combo>> = range.iter().map(|it| combos(it, &ctx)).collect();
+        let picks = viterbi(&ctx, &range, &options, start);
 
-    for ((item, combos), &pick) in range.iter().zip(&options).zip(&picks) {
-        let Some(combo) = combos.get(pick) else { continue };
-        for (&i, &slot) in item.notes.iter().zip(&combo.slots) {
-            let note = &mut notes[i];
-            if is_locked(note) {
-                continue;
-            }
-            if note.string_fret != slot {
-                outcome.changed.push(note.id);
-            }
-            note.string_fret = slot;
-            if slot.is_none() {
-                outcome.unplaceable.push(note.id);
+        for ((item, combos), &pick) in range.iter().zip(&options).zip(&picks) {
+            let Some(combo) = combos.get(pick) else { continue };
+            for (&i, &slot) in item.notes.iter().zip(&combo.slots) {
+                let note = &mut notes[i];
+                if is_locked(note) {
+                    continue;
+                }
+                if note.string_fret != slot {
+                    outcome.changed.push(note.id);
+                }
+                note.string_fret = slot;
+                if slot.is_none() {
+                    outcome.unplaceable.push(note.id);
+                }
             }
         }
     }
@@ -459,7 +481,12 @@ pub fn assign_tabs(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo:
 /// next locked note, plus the preceding ones back to the previous locked note when `propagate_backwards`.
 /// Returns the ids whose placement changed.
 pub fn assign_tabs_range(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &TabOptions, edited_index: usize, propagate_backwards: bool) -> Vec<u64> {
-    run(notes, times, tuning, capo, opts, Scope::From { edited: edited_index, backwards: propagate_backwards }).changed
+    assign_tabs_ranges(notes, times, tuning, capo, opts, &[edited_index], propagate_backwards)
+}
+
+/// [`assign_tabs_range`] for several edited notes at once: the windows are merged and each is solved once.
+pub fn assign_tabs_ranges(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &TabOptions, edited: &[usize], propagate_backwards: bool) -> Vec<u64> {
+    run(notes, times, tuning, capo, opts, Scope::From { edited, backwards: propagate_backwards }).changed
 }
 
 /// One way to play the slide / bend / legato group of a note: every member on `string`.

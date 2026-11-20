@@ -5,10 +5,11 @@ use fretscribe_core::{Note, NoteTimes};
 
 use super::editor::{Button, Input, Mods, NoteEditor, Sample};
 use super::{EntryKey, Keymap};
-use crate::spectro::{hit_test, HitZone, SpectroEvent, SpectroGeometry};
+use crate::spectro::{HitZone, NoteScene, SpectroEvent, SpectroGeometry};
 
 pub struct SourcePointer<'a> {
     pub geometry: SpectroGeometry,
+    pub scene: &'a NoteScene,
     pub hovered_note: Option<(u64, HitZone)>,
     pub pitch_ruler: Rect,
     pub notes: &'a [Note],
@@ -34,7 +35,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
     // Free link points are only for the right button: a left press sees what is under them.
     let sample = |pos: Pos2, dots: bool| {
         let (midi, sec) = (geo.y_to_midi(pos.y), geo.x_to_sec(pos.x).max(0.0));
-        Sample { pos, sec, midi, refined: refine(sec, midi), hit: hit_test(geo, src.notes, src.times, pos, hover_id.filter(|_| dots)) }
+        Sample { pos, sec, midi, refined: refine(sec, midi), hit: src.scene.hit(pos, hover_id.filter(|_| dots)) }
     };
     let key = Id::new("note-editor-pressed");
     let mut pressed: [bool; 2] = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
@@ -69,12 +70,10 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
 
     let mut cancelled = false;
     for event in spectro_events {
-        let event = match event {
-            SpectroEvent::DrawBegan { midi, exact_midi_float, time_sec } => SpectroEvent::DrawBegan { midi: *midi, exact_midi_float: refine(*time_sec, *exact_midi_float), time_sec: *time_sec },
-            SpectroEvent::DrawMoved { midi, exact_midi_float, time_sec } => SpectroEvent::DrawMoved { midi: *midi, exact_midi_float: refine(*time_sec, *exact_midi_float), time_sec: *time_sec },
-            SpectroEvent::DrawEnded { midi, exact_midi_float, time_sec } => SpectroEvent::DrawEnded { midi: *midi, exact_midi_float: refine(*time_sec, *exact_midi_float), time_sec: *time_sec },
-            other => other.clone(),
-        };
+        let mut event = event.clone();
+        if let SpectroEvent::DrawBegan { exact_midi_float, time_sec, .. } | SpectroEvent::DrawMoved { exact_midi_float, time_sec, .. } | SpectroEvent::DrawEnded { exact_midi_float, time_sec, .. } = &mut event {
+            *exact_midi_float = refine(*time_sec, *exact_midi_float);
+        }
         cancelled |= event == SpectroEvent::DrawCancelled;
         inputs.push(Input::Spectro(event, mods));
     }

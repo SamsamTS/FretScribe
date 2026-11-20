@@ -1,6 +1,6 @@
 //! Time ruler strip: second ticks with labels; a click seeks.
 
-use egui::{pos2, Align2, Color32, FontId, Sense, Stroke, Ui};
+use egui::{pos2, Align2, FontId, Sense, Stroke, Ui};
 
 use super::SpectroEvent;
 use super::white;
@@ -27,7 +27,7 @@ pub fn paint_seek_line(ctx: &egui::Context, x: f32, top: f32, left: f32) {
     let screen = ctx.screen_rect();
     if x >= left && x <= screen.right() {
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("seek_line")));
-        painter.vline(x, top..=screen.bottom(), Stroke::new(2.0_f32, Color32::from_rgb(255, 90, 80)));
+        painter.vline(x, top..=screen.bottom(), Stroke::new(2.0_f32, crate::theme::PLAYHEAD));
     }
 }
 

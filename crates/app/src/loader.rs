@@ -183,9 +183,6 @@ impl LoadJob {
             }
             if ended {
                 stream.frames = 0;
-                if let Some(t) = store.tracks.get_mut(&stream.id) {
-                    t.spectrogram_ready = true;
-                }
                 events.push(LoadEvent::SpectrogramDone { id: stream.id });
             }
         }
@@ -236,7 +233,6 @@ fn load_track(
         sample_rate: decoded.sample_rate,
         duration_sec: decoded.duration_sec,
         spectrogram: Spectrogram::empty(&stream.info),
-        spectrogram_ready: false,
         pyramid: Arc::new(pyramid),
         mono,
         envelope,
@@ -252,18 +248,7 @@ pub(crate) mod tests {
     use std::path::Path;
 
     pub fn write_wav(path: &Path, rate: u32, samples: &[f32]) {
-        let data: Vec<u8> = samples.iter().flat_map(|s| ((s * 32767.0) as i16).to_le_bytes()).collect();
-        let mut out = Vec::new();
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        for v in [16u32, 0x0001_0001, rate, rate * 2, 0x0010_0002] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        out.extend_from_slice(&data);
-        std::fs::write(path, out).unwrap();
+        std::fs::write(path, fretscribe_audio::wav::encode_mono_f32(rate, samples)).unwrap();
     }
 
     /// Decaying noise-free clicks (short sine bursts) every `period` seconds.
@@ -305,7 +290,6 @@ pub(crate) mod tests {
         assert!(events.iter().any(|e| matches!(e, LoadEvent::TrackReady { id: 2, .. })));
         assert!(events.iter().any(|e| matches!(e, LoadEvent::SpectrogramDone { id: 1 })));
         assert_eq!(store.tracks.len(), 2);
-        assert!(store.tracks.values().all(|t| t.spectrogram_ready));
         assert!(store.revision > 0 && store.peaks(1, (0.0, 3.0), 77).len() == 77);
         assert!((store.duration_sec(1) - 3.0).abs() < 0.01);
         assert!(store.tracks[&1].spectrogram.data.iter().any(|&v| v > 0.0));
@@ -314,6 +298,21 @@ pub(crate) mod tests {
         let fractions: Vec<f32> = events.iter().filter_map(|e| if let LoadEvent::Progress { fraction, .. } = e { Some(*fraction) } else { None }).collect();
         assert!(fractions.windows(2).all(|w| w[1] >= w[0]) && fractions.last() == Some(&1.0), "{fractions:?}");
         assert!(job.poll(&mut store).is_empty());
+    }
+
+    #[test]
+    fn requantise_rewrites_the_stored_spectrogram() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.wav");
+        write_wav(&a, 22_050, &clicks(22_050, 2.0, 0.5));
+        let mut store = AudioStore::default();
+        run(&mut LoadJob::spawn(vec![(1, a)], 48_000, 40.0), &mut store);
+        let (before, revision) = (store.tracks[&1].spectrogram.data.clone(), store.revision);
+        let t = &store.tracks[&1];
+        let mut job = LoadJob::requantise(vec![(1, t.mono.clone(), t.sample_rate)], 8.0);
+        run(&mut job, &mut store);
+        assert_ne!(store.tracks[&1].spectrogram.data, before);
+        assert!(store.revision > revision);
     }
 
     #[test]

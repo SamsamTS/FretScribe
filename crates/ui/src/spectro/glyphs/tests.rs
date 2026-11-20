@@ -353,3 +353,18 @@ fn an_unlinked_grace_note_is_joined_to_its_main_note_by_a_dashed_connector() {
     let slid = note_glyphs(&geo(), &notes, &times, &metrics());
     assert!(slid.iter().any(|g| matches!(g, Glyph::Link { kind: LinkKind::Slide, .. })) && !slid.iter().any(|g| matches!(g, Glyph::Link { kind: LinkKind::Dashed, .. })));
 }
+
+#[test]
+fn windowed_items_match_full_layout_and_keep_link_partners() {
+    let s = Some(Technique::Slide);
+    let (mut notes, times) = setup(&[(1, 50, 1.0, 2.0, Some(2), s), (2, 55, 15.0, 16.0, None, None), (3, 45, 6.0, 7.0, None, None), (4, 48, 17.0, 18.0, None, None)]);
+    legato(&mut notes, 3, 2);
+    let full = items(&notes, &times);
+    let win = items_in(&notes, &times, Some((0.0, 3.0)));
+    let ids: Vec<u64> = win.iter().map(|i| i.id).collect();
+    assert_eq!(ids, vec![1, 2], "visible note plus its off-screen link partner, nothing else");
+    for w in &win {
+        let f = full.iter().find(|i| i.id == w.id).unwrap();
+        assert_eq!((w.link, w.legato_from), (f.link, f.legato_from));
+    }
+}

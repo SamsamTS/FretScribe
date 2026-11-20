@@ -1,6 +1,7 @@
 //! The eframe application: screen state machine (home, new project form, creating, editor), file
 //! dialogs, settings, autosave and recovery.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -27,6 +28,13 @@ const PROJECT_EXT: &str = "fretscribe";
 const AUDIO_EXTS: [&str; 7] = ["mp3", "wav", "flac", "ogg", "m4a", "aac", "aiff"];
 const TOAST_SECS: f32 = 6.0;
 
+/// What a freshly created project hands to its session: the running load, tracks to sync and the opened output.
+struct NewProject {
+    job: Option<LoadJob>,
+    sync_ids: Vec<u64>,
+    player: Option<Player>,
+}
+
 struct Creating {
     job: LoadJob,
     store: AudioStore,
@@ -34,6 +42,8 @@ struct Creating {
     main_role: fretscribe_core::TrackRole,
     ids: Vec<(u64, PathBuf)>,
     progress: (f32, String),
+    /// The output device opened to read its rate, reused by the new session.
+    player: Option<Player>,
 }
 
 struct FormScreen {
@@ -80,6 +90,7 @@ pub struct App {
     allow_close: bool,
     last_size: Option<(f32, f32)>,
     window_mode: WindowMode,
+    home_status: Option<(Instant, HashMap<PathBuf, TileStatus>)>,
 }
 
 impl App {
@@ -113,6 +124,7 @@ impl App {
             allow_close: false,
             last_size: None,
             window_mode: WindowMode::default(),
+            home_status: None,
         };
         (app.last_size, app.window_mode) = (app.settings.window_size, app.settings.window_mode);
         if app.luts.builtin_fallback {
@@ -131,7 +143,7 @@ impl App {
     }
 
     fn toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toasts.push(Toast { text: text.into(), error, born: Instant::now() });
+        self.toasts.push(Toast::new(text, error));
     }
 
     fn save_settings(&mut self) {
@@ -163,7 +175,7 @@ impl App {
         let Some(r) = self.recover.first() else { return };
         let name = r.saved_path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "an unsaved project".to_owned(), |s| s.to_string_lossy().into_owned());
         let mut choice = None;
-        egui::Window::new("Recovered work").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        fretscribe_ui::theme::dialog(ctx, "Recovered work").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.label(format!("FretScribe did not close properly. A newer recovery copy of {name} exists."));
             ui.horizontal(|ui| {
                 if ui.button("Restore recovered version").clicked() {
@@ -219,7 +231,7 @@ impl App {
     }
 
     fn start_form(&mut self, main: Option<PathBuf>) {
-        let main = main.or_else(|| rfd::FileDialog::new().set_title("Main audio file").add_filter("Audio", &AUDIO_EXTS).pick_file());
+        let main = main.or_else(|| pick_audio("Main audio file"));
         let Some(main) = main else {
             self.screen = Screen::Home;
             return;
@@ -238,7 +250,8 @@ impl App {
     fn start_creating(&mut self, v: Validated, main_role: fretscribe_core::TrackRole) {
         let mut ids = vec![(1, v.main_path.clone())];
         ids.extend(v.extra.iter().enumerate().map(|(i, (p, _))| (i as u64 + 2, p.clone())));
-        let rate = Player::new().map_or(48_000, |p| p.output_rate());
+        let player = Player::new().ok();
+        let rate = player.as_ref().map_or(48_000, Player::output_rate);
         self.screen = Screen::Creating(Box::new(Creating {
             job: LoadJob::spawn(
                 ids.clone(),
@@ -250,6 +263,7 @@ impl App {
             main_role,
             ids,
             progress: (0.0, "Reading audio".into()),
+            player,
         }));
     }
 
@@ -273,7 +287,7 @@ impl App {
         }
         let Some(duration) = duration else { return };
         let Screen::Creating(c) = std::mem::replace(&mut self.screen, Screen::Home) else { return };
-        let Creating { job, store, form, main_role, ids, .. } = *c;
+        let Creating { job, store, form, main_role, ids, player, .. } = *c;
         let mut project = build_project(&form, duration);
         if let Some(t) = project.tracks.first_mut() {
             t.role = main_role;
@@ -281,7 +295,7 @@ impl App {
         let mut file = ProjectFile::new(project);
         file.ui = self.settings.new_project_ui();
         let extras: Vec<u64> = ids.iter().skip(1).map(|(id, _)| *id).collect();
-        self.open_file_with(file, None, true, store, Some(job), extras);
+        self.open_file_with(file, None, true, store, Some(NewProject { job: Some(job), sync_ids: extras, player }));
     }
 
     fn open_project(&mut self, path: &Path) {
@@ -295,13 +309,13 @@ impl App {
     }
 
     fn open_file(&mut self, file: ProjectFile, path: Option<PathBuf>, dirty: bool) {
-        self.open_file_with(file, path, dirty, AudioStore::default(), None, Vec::new());
+        self.open_file_with(file, path, dirty, AudioStore::default(), None);
     }
 
-    fn open_file_with(&mut self, file: ProjectFile, path: Option<PathBuf>, dirty: bool, store: AudioStore, job: Option<LoadJob>, sync_ids: Vec<u64>) {
-        let fresh = job.is_some();
+    fn open_file_with(&mut self, file: ProjectFile, path: Option<PathBuf>, dirty: bool, store: AudioStore, new: Option<NewProject>) {
+        let (fresh, NewProject { job, sync_ids, player }) = (new.is_some(), new.unwrap_or(NewProject { job: None, sync_ids: Vec::new(), player: None }));
         let mut s = Session::new(file, path.clone(), store, &self.settings, self.luts.clone());
-        s.attach_player(Player::new().map_err(|e| self.toast(format!("No audio output: {e}"), true)).ok());
+        s.attach_player(player.map_or_else(Player::new, Ok).map_err(|e| self.toast(format!("No audio output: {e}"), true)).ok());
         s.loads.extend(job);
         if !fresh {
             s.load_project_audio();
@@ -363,7 +377,7 @@ impl App {
     }
 
     fn pick_project(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT]).pick_file() {
+        if let Some(p) = project_dialog().pick_file() {
             self.go(Next::Open(p));
         }
     }
@@ -374,7 +388,7 @@ impl App {
             (Some(p), false) => p.clone(),
             _ => {
                 let start = s.name();
-                match rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT]).set_file_name(format!("{start}.{PROJECT_EXT}")).save_file() {
+                match project_dialog().set_file_name(format!("{start}.{PROJECT_EXT}")).save_file() {
                     Some(p) => p.with_extension(PROJECT_EXT),
                     None => return,
                 }
@@ -394,7 +408,7 @@ impl App {
 
     fn add_track(&mut self, path: Option<PathBuf>) {
         let Screen::Editor(s) = &mut self.screen else { return };
-        let Some(path) = path.or_else(|| rfd::FileDialog::new().set_title("Add audio track").add_filter("Audio", &AUDIO_EXTS).pick_file()) else { return };
+        let Some(path) = path.or_else(|| pick_audio("Add audio track")) else { return };
         let stem = path.file_stem().map_or_else(String::new, |x| x.to_string_lossy().into_owned());
         let role = guess_role(&stem);
         let mut track = Track::new(0, stem, role);
@@ -443,7 +457,7 @@ impl App {
         match action {
             Some(FormAction::Cancel) => self.screen = Screen::Home,
             Some(FormAction::AddTrackRequested) => {
-                if let Some(p) = rfd::FileDialog::new().set_title("Add audio track").add_filter("Audio", &AUDIO_EXTS).pick_file() {
+                if let Some(p) = pick_audio("Add audio track") {
                     if let Screen::Form(fs) = &mut self.screen {
                         fs.state.add_track(p);
                     }
@@ -462,10 +476,15 @@ impl App {
 
     fn home_frame(&mut self, ctx: &Context) {
         let mut action = None;
+        let fresh = self.home_status.as_ref().is_some_and(|(at, map)| home_status_fresh(at.elapsed(), map, &self.settings));
+        if !fresh {
+            let map = self.settings.recent.iter().map(|r| (r.path.clone(), tile_status(&r.path))).collect();
+            self.home_status = Some((Instant::now(), map));
+        }
+        let status = self.home_status.as_ref().map(|(_, m)| m);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme::WINDOW_BG)).show(ctx, |ui| {
-            let status = |p: &Path| tile_status(p);
-            action = show_home(ui, &self.settings, &status, now);
+            action = show_home(ui, &self.settings, status, now);
         });
         match action {
             Some(HomeAction::NewProject) => self.start_form(None),
@@ -500,8 +519,7 @@ impl App {
             s.last_autosave = Instant::now();
             s.edits_since_autosave = 0;
         }
-        let drained: Vec<Toast> = s.toasts.drain(..).collect();
-        self.toasts.extend(drained);
+        self.toasts.append(&mut s.toasts);
         for r in requests {
             self.request(r);
         }
@@ -527,26 +545,22 @@ impl App {
             return;
         }
         let mut choice = None;
-        egui::Window::new("Unsaved changes").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        fretscribe_ui::theme::dialog(ctx, "Unsaved changes").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.label("The project has unsaved changes.");
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    choice = Some(0);
-                }
-                if ui.button("Discard changes").clicked() {
-                    choice = Some(1);
-                }
-                if ui.button("Cancel").clicked() {
-                    choice = Some(2);
+                for (label, c) in [("Save", Choice::Save), ("Discard changes", Choice::Discard), ("Cancel", Choice::Cancel)] {
+                    if ui.button(label).clicked() {
+                        choice = Some(c);
+                    }
                 }
             });
         });
         let Some(choice) = choice else { return };
         let confirm = self.confirm.take();
-        if choice == 2 {
+        if choice == Choice::Cancel {
             return;
         }
-        if choice == 0 {
+        if choice == Choice::Save {
             self.save(false);
             if matches!(&self.screen, Screen::Editor(s) if s.dirty) {
                 return;
@@ -579,7 +593,16 @@ impl App {
     }
 }
 
+const HOME_STATUS_TTL: Duration = Duration::from_secs(3);
+
+fn home_status_fresh(age: Duration, map: &HashMap<PathBuf, TileStatus>, settings: &Settings) -> bool {
+    age < HOME_STATUS_TTL && map.len() == settings.recent.len() && settings.recent.iter().all(|r| map.contains_key(&r.path))
+}
+
 fn tile_status(path: &Path) -> TileStatus {
+    if !path.exists() {
+        return TileStatus::MissingProject;
+    }
     match load_project(path) {
         Err(_) => TileStatus::MissingProject,
         Ok(f) => {
@@ -588,15 +611,35 @@ fn tile_status(path: &Path) -> TileStatus {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Choice {
+    Save,
+    Discard,
+    Cancel,
+}
+
+fn pick_audio(title: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new().set_title(title).add_filter("Audio", &AUDIO_EXTS).pick_file()
+}
+
+fn project_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new().add_filter("FretScribe project", &[PROJECT_EXT])
+}
+
 fn reveal(path: &Path) {
-    let dir = path.parent().unwrap_or(path);
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg("/select,").arg(path).spawn();
+    let mut command = std::process::Command::new("explorer");
+    #[cfg(target_os = "windows")]
+    command.arg("/select,").arg(path);
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "macos")]
+    command.arg("-R").arg(path);
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
-    let _ = dir;
+    let mut command = std::process::Command::new("xdg-open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    command.arg(path.parent().unwrap_or(path));
+    let _ = command.spawn();
 }
 
 fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
@@ -632,13 +675,13 @@ fn missing_audio_dialog(ctx: &Context, s: &mut Session) {
         return;
     }
     let mut located = None;
-    egui::Window::new("Locate audio file...").frame(fretscribe_ui::theme::dialog_frame(ctx)).collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+    fretscribe_ui::theme::dialog(ctx, "Locate audio file...").anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
         for (id, path) in &missing {
             ui.horizontal(|ui| {
                 ui.label(s.project.track(*id).map_or("track", |t| t.name.as_str()));
                 ui.label(egui::RichText::new(path.display().to_string()).family(theme::mono()));
                 if ui.button("Locate...").clicked() {
-                    located = rfd::FileDialog::new().add_filter("Audio", &AUDIO_EXTS).pick_file().map(|p| (*id, p));
+                    located = pick_audio("Locate audio file").map(|p| (*id, p));
                 }
             });
         }
@@ -697,5 +740,29 @@ impl eframe::App for App {
         self.settings.window_mode = self.window_mode;
         self.save_settings();
         let _ = autosave::mark_clean_exit(&self.settings_dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_status_cache_expires_on_age_or_list_change() {
+        let mut settings = Settings::default();
+        let entry = |p: &str| RecentProject { path: p.into(), name: p.into(), ..Default::default() };
+        settings.recent = vec![entry("a.fretscribe")];
+        let map = HashMap::from([(PathBuf::from("a.fretscribe"), TileStatus::Ok)]);
+        assert!(home_status_fresh(Duration::from_secs(1), &map, &settings));
+        assert!(!home_status_fresh(HOME_STATUS_TTL, &map, &settings));
+        settings.recent.push(entry("b.fretscribe"));
+        assert!(!home_status_fresh(Duration::ZERO, &map, &settings));
+        settings.recent = vec![entry("c.fretscribe")];
+        assert!(!home_status_fresh(Duration::ZERO, &map, &settings));
+    }
+
+    #[test]
+    fn missing_project_file_is_reported_without_parsing() {
+        assert_eq!(tile_status(Path::new("/nonexistent/x.fretscribe")), TileStatus::MissingProject);
     }
 }

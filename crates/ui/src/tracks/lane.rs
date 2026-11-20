@@ -1,21 +1,19 @@
 //! One lane: header, spectrogram strip, waveform strip and the offset drag.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use egui::{pos2, vec2, Color32, Context, Event, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
 use fretscribe_analysis::Spectrogram;
-use fretscribe_core::{NoteTimes, Project, Track};
+use fretscribe_core::Track;
 
 use super::events::TrackEvent;
 use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::nav::{notches, ViewTuning};
-use crate::note_editor::HeaderTools;
-use crate::view::RegionSelection;
 use crate::spectro::{
-    place_readout, white, GhostShape, HitZone, Peak, SpectroCache, SpectroEvent, SpectroGeometry,
-    SpectroStyle, SpectrogramView, WaveformView,
+    place_readout, white, HitZone, NoteScene, Peak, SpectroCache, SpectroEvent, SpectroGeometry, SpectrogramView, WaveformView,
 };
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
 
@@ -63,23 +61,19 @@ pub struct LaneState {
     pub cache: SpectroCache,
 }
 
+/// The caller's lane inputs plus what `TrackLanes::show` derives from the frame; derefs to the inputs.
 pub struct LaneShared<'a> {
-    pub project: &'a Project,
-    pub source: &'a dyn LaneSource,
-    pub style: &'a SpectroStyle,
-    pub times: &'a NoteTimes,
-    pub selected: &'a [u64],
-    pub ghost: Option<&'a GhostShape>,
+    pub inputs: super::lanes::TrackLanes<'a>,
     pub view: TimelineView,
     pub pitch: PitchView,
-    pub reference_track: u64,
-    pub focus: Option<(f32, f32, f32)>,
     pub audible: &'a HashSet<u64>,
-    pub tools: Option<&'a HeaderTools>,
-    pub region: Option<RegionSelection>,
-    pub region_snap: &'a [f64],
-    pub region_snapping: bool,
-    pub audio_len_sec: f64,
+}
+
+impl<'a> std::ops::Deref for LaneShared<'a> {
+    type Target = super::lanes::TrackLanes<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.inputs
+    }
 }
 
 pub struct TrackLane<'a> {
@@ -92,9 +86,10 @@ pub struct TrackLane<'a> {
 }
 
 /// What the note editor needs from the source lane's spectrogram.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct LanePointer {
     pub geometry: SpectroGeometry,
+    pub scene: Rc<NoteScene>,
     pub hovered_note: Option<(u64, HitZone)>,
     pub pitch_ruler: Rect,
 }
@@ -135,7 +130,7 @@ impl TrackLane<'_> {
                 let (alt, fine) = ctx.input(|i| (i.modifiers.alt, i.modifiers.shift));
                 drag.raw = clamp_offset(drag.raw + drag_delta_sec(response.drag_delta().x, pps, fine));
                 let candidates = if alt { Vec::new() } else { self.shared.source.snap_candidates(id, drag.raw, SNAP_TOLERANCE_PX / pps) };
-                let (shown, snapped) = snap_offset(drag.raw, &candidates, pps, alt);
+                let (shown, snapped) = snap_offset(drag.raw, &candidates, pps);
                 (drag.shown, drag.snapped) = (clamp_offset(shown), snapped);
                 ctx.data_mut(|d| d.insert_temp(key, drag));
                 events.push(TrackEvent::OffsetChanged { id, offset_sec: drag.shown, move_notes });
@@ -221,7 +216,7 @@ impl TrackLane<'_> {
                     }
                     let out = widget.show(&mut sui, &view, &pitch, &mut state.cache);
                     if is_source {
-                        pointer = Some(LanePointer { geometry: out.geometry, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
+                        pointer = Some(LanePointer { geometry: out.geometry, scene: out.scene, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
                     }
                     spectro_events.extend(out.events.into_iter().filter(|e| is_source || matches!(e, SpectroEvent::SeekRequested(_))));
                 }
@@ -273,15 +268,18 @@ impl TrackLane<'_> {
         }
         painter.rect_filled(Rect::from_min_max(pos2(wave_rect.left(), wave_rect.bottom() - px(BORDER_PX)), wave_rect.max), 0.0, BORDER_COLOR);
         let x_of = |sec: f64| timeline_left + view.sec_to_x(sec);
+        let visible = view.visible_range(wave_rect.width());
         if self.shown_rows == 0 && is_source {
             for note in &shared.project.notes {
-                if let Some(start) = shared.times.start_sec(note.id) {
+                if let Some(start) = shared.times.start_sec(note.id).filter(|s| visible.contains(s)) {
                     painter.vline(x_of(start), wave_rect.top()..=wave_rect.top() + TICK_PT, Stroke::new(1.5_f32, NOTE_TICK));
                 }
             }
         }
         if options.show_onsets && !is_source {
-            for &onset in shared.source.onsets(id) {
+            let onsets = shared.source.onsets(id);
+            let (lo, hi) = (onsets.partition_point(|o| o + offset < visible.start), onsets.partition_point(|o| o + offset <= visible.end));
+            for &onset in &onsets[lo..hi] {
                 painter.vline(x_of(onset + offset), wave_rect.bottom() - TICK_PT..=wave_rect.bottom(), Stroke::new(1.0_f32, ONSET_TICK));
             }
         }

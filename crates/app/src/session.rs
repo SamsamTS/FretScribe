@@ -8,14 +8,14 @@ use fretscribe_analysis::sync::SyncCandidate;
 use fretscribe_analysis::Levels;
 use fretscribe_audio::{Player, SpeedMode};
 use fretscribe_core::{
-    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, TempoMap, UiState, UndoPolicy, UndoStack,
+    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
 };
 use fretscribe_notation::staff::{self, StaffLayout, StaffOptions};
-use fretscribe_notation::tab::{assign_tabs, assign_tabs_range, TabOptions};
+use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::note_editor::{Keymap, NoteEditor};
 use fretscribe_ui::{RegionSelection, SpectroCache, SpectroStyle, TabViewState, TrackLanesState, ViewController, ViewTuning};
-use uuid::Uuid;
+use fretscribe_core::Uuid;
 
 use crate::autosave::AutosavePolicy;
 use crate::jobs::{self, Job};
@@ -35,6 +35,12 @@ pub struct Toast {
     pub born: Instant,
 }
 
+impl Toast {
+    pub fn new(text: impl Into<String>, error: bool) -> Self {
+        Self { text: text.into(), error, born: Instant::now() }
+    }
+}
+
 pub struct SyncDialog {
     pub track: u64,
     pub candidates: Vec<SyncCandidate>,
@@ -46,6 +52,13 @@ pub struct Jobs {
     pub tempo: Option<Job<Vec<(f64, f64)>>>,
     pub pitch: Option<Job<fretscribe_analysis::pitchref::PitchRefEstimate>>,
     pub sync: Vec<(u64, Job<Vec<SyncCandidate>>)>,
+}
+
+impl Jobs {
+    /// Any background analysis job (not the track loads) is running.
+    pub fn any(&self) -> bool {
+        self.autofit.is_some() || self.tempo.is_some() || self.pitch.is_some() || !self.sync.is_empty()
+    }
 }
 
 pub struct Session {
@@ -94,27 +107,19 @@ pub struct Session {
     pub nav_regions: Option<fretscribe_ui::NavRegions>,
     /// The Q the spectrograms were last (re)computed with.
     pub q_applied: f32,
-    pub load_progress: Option<(f32, String)>,
     pub jobs: Jobs,
     pub sync_on_ready: Vec<u64>,
     pub sync_dialog: Option<SyncDialog>,
     pub toasts: Vec<Toast>,
     pub synced: Vec<PlayerCall>,
     pub audio_len_sec: f64,
-    pub hints: Hints,
     pub snap_on: bool,
-    pub ref_text: String,
     pub synth_on: bool,
     pub synth_synced: bool,
     pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
     pub pending_delete: Option<fretscribe_ui::GridEvent>,
     pub tempo_choices: Vec<(f64, f64)>,
     pub pitch_result: Option<fretscribe_analysis::pitchref::PitchRefEstimate>,
-}
-
-#[derive(Default)]
-pub struct Hints {
-    pub lut_missing_shown: bool,
 }
 
 fn style_of(ui: &UiState, luts: &LutSet) -> SpectroStyle {
@@ -134,7 +139,7 @@ impl Session {
             .filter(|_| settings.keep_history_in_file)
             .map_or_else(|| UndoStack::with_policy(policy), |h| UndoStack::from_saved(h, &project, policy));
         let nav = ViewState { scroll_sec: ui.view.scroll_sec, scroll_y: ui.view.scroll_y, pixels_per_sec: ui.view.pixels_per_sec };
-        let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
+        let times = project.note_times();
         let audio_len_sec = project.measures.last().map_or(0.0, |m| m.start_sec);
         let (keymap, keymap_error) = crate::settings::settings_dir().map_or_else(
             || (Keymap::default(), None),
@@ -179,16 +184,13 @@ impl Session {
             requant: None,
             nav_regions: None,
             q_applied: ui.spectro_q,
-            load_progress: None,
             jobs: Jobs::default(),
             sync_on_ready: Vec::new(),
             sync_dialog: None,
             toasts: Vec::new(),
             synced: Vec::new(),
             audio_len_sec,
-            hints: Hints::default(),
             snap_on: true,
-            ref_text: String::new(),
             synth_on: false,
             synth_synced: false,
             exact: None,
@@ -207,7 +209,7 @@ impl Session {
     }
 
     pub fn toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toasts.push(Toast { text: text.into(), error, born: Instant::now() });
+        self.toasts.push(Toast::new(text, error));
     }
 
     pub fn name(&self) -> String {
@@ -267,7 +269,7 @@ impl Session {
         let (mut ready, mut spectro) = (false, false);
         for e in events {
             match e {
-                LoadEvent::Progress { fraction, label } => self.load_progress = Some((fraction, label)),
+                LoadEvent::Progress { .. } => {}
                 LoadEvent::TrackReady { id, duration_sec } => {
                     ready = true;
                     self.audio_len_sec = self.audio_len_sec.max(duration_sec);
@@ -286,11 +288,7 @@ impl Session {
         if spectro {
             self.revision += 1;
         }
-        let busy = !self.loads.is_empty() || self.requant.is_some();
-        if !busy {
-            self.load_progress = None;
-        }
-        busy
+        !self.loads.is_empty() || self.requant.is_some()
     }
 
     // ---- model edits ---------------------------------------------------------------------
@@ -313,11 +311,15 @@ impl Session {
 
     /// Recomputes what depends on the project after any change (edit, undo, load).
     pub fn refresh(&mut self) {
-        self.times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        self.refresh_model();
+        self.player_resync(false);
+    }
+
+    fn refresh_model(&mut self) {
+        self.times = self.project.note_times();
         self.store.set_beat_times_from(&self.project);
         self.staff_dirty = true;
         self.revision += 1;
-        self.player_resync(false);
     }
 
     pub fn undo_redo(&mut self, redo: bool) {
@@ -333,7 +335,7 @@ impl Session {
         self.dirty = true;
         self.store_prune();
         self.push_tracks_to_player();
-        self.refresh();
+        self.refresh_model();
         self.player_resync(true);
     }
 
@@ -353,18 +355,16 @@ impl Session {
 
     /// Tab inference over everything (open, tuning/capo change).
     pub fn infer_all(&mut self) -> Vec<u64> {
-        let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        let times = self.project.note_times();
         assign_tabs(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts)
     }
 
     /// Re-run inference after note edits: the edited notes' neighbourhood only.
     pub fn infer_affected(&mut self, affected: &[u64]) {
-        let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
-        for id in affected {
-            if let Some(i) = self.project.notes.iter().position(|n| n.id == *id) {
-                assign_tabs_range(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, i, self.tab_state.propagate_backwards);
-            }
-        }
+        let times = self.project.note_times();
+        let index: std::collections::HashMap<u64, usize> = self.project.notes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        let edited: Vec<usize> = affected.iter().filter_map(|id| index.get(id).copied()).collect();
+        assign_tabs_ranges(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, &edited, self.tab_state.propagate_backwards);
     }
 
     /// One undoable edit around any model mutation; errors become a toast.
@@ -472,7 +472,7 @@ impl Session {
         for (id, candidates) in finished {
             self.apply_sync(id, candidates);
         }
-        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty()
+        self.jobs.any()
     }
 
     fn apply_sync(&mut self, id: u64, candidates: Vec<SyncCandidate>) {
@@ -490,14 +490,14 @@ impl Session {
     }
 
     pub fn jobs_running(&self) -> bool {
-        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty() || !self.loads.is_empty()
+        self.jobs.any() || !self.loads.is_empty()
     }
 
     /// One undoable step: re-solves the string/fret of every note that is not locked.
     pub fn reinfer_tab(&mut self) {
         let opts = self.tab_opts.clone();
         let unplaced = self.edit("Re-infer tab", |p| {
-            let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+            let times = p.note_times();
             let (tuning, capo) = (p.tuning.clone(), p.capo);
             Ok::<_, std::convert::Infallible>(assign_tabs(&mut p.notes, &times, &tuning, capo, &opts))
         });
@@ -626,18 +626,14 @@ impl Session {
     }
 
     /// Recomputes the loaded spectrograms with the Q in `ui`, in the background.
+    /// Recomputes every loaded spectrogram with the new Q, replacing a recompute still running.
+    /// Waits (the toolbar asks again each frame) while the initial load is running.
     pub fn q_changed(&mut self) {
+        if !self.loads.is_empty() {
+            return;
+        }
         self.q_applied = self.ui.spectro_q;
-        let tracks: Vec<_> = self
-            .store
-            .tracks
-            .iter_mut()
-            .filter(|(_, t)| t.spectrogram_ready)
-            .map(|(id, t)| {
-                t.spectrogram_ready = false;
-                (*id, t.mono.clone(), t.sample_rate)
-            })
-            .collect();
+        let tracks = self.store.tracks.iter().map(|(id, t)| (*id, t.mono.clone(), t.sample_rate)).collect();
         self.requant = Some(LoadJob::requantise(tracks, self.ui.spectro_q));
     }
 
@@ -648,5 +644,36 @@ impl Session {
 
     pub fn speed_mode(&self) -> SpeedMode {
         if self.keep_pitch { SpeedMode::PreservePitch } else { SpeedMode::ChangePitch }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::loader::tests::{clicks, write_wav};
+
+    #[test]
+    fn q_change_recomputes_the_stored_spectrogram() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("a.wav");
+        write_wav(&wav, 22_050, &clicks(22_050, 2.0, 0.5));
+        let mut store = AudioStore::default();
+        let mut job = LoadJob::spawn(vec![(1, wav)], 48_000, 40.0);
+        while !job.is_finished() {
+            job.poll(&mut store);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let file = ProjectFile::new(fretscribe_core::testkit::project(2.0));
+        let mut s = Session::new(file, None, store, &Settings::default(), LutSet::scan(None));
+        let (before, revision) = (s.store.tracks[&1].spectrogram.data.clone(), s.store.revision);
+        for q in [8.0, 12.0] {
+            s.ui.spectro_q = q;
+            s.q_changed();
+        }
+        while s.poll_loads() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_ne!(s.store.tracks[&1].spectrogram.data, before);
+        assert!(s.store.revision > revision);
     }
 }

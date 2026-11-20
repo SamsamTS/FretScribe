@@ -4,18 +4,15 @@
 //! divides 24). A grid candidate captures the pointer within 40% of the gap to its own neighbours,
 //! so close straight and triplet positions never swallow each other.
 
-use std::collections::BTreeMap;
 
-use crate::model::{Note, TimePos};
-use crate::snap::{SnapGrid, UNITS_PER_BEAT};
-use crate::model::TICKS_PER_BEAT;
+use crate::tempo::{EPS, TIE_EPS};
+use crate::model::{Note, TimePos, TICKS_PER_BEAT};
+use crate::snap::{grid_units, SnapGrid, UNITS_PER_BEAT};
 use crate::tempo::TempoMap;
 
 const NEIGHBOUR_CAP: f64 = 0.4;
 const HYSTERESIS: f64 = 0.8;
 const MIN_SPACING_PX: f64 = 6.0;
-const SAME_SEC: f64 = 1e-9;
-const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SnapOpts<'a> {
@@ -120,20 +117,8 @@ fn grid_candidates(tempo: &TempoMap, divisions: &[u8], sec: f64) -> Vec<(TimePos
     let mut out = Vec::new();
     for i in centre.saturating_sub(1)..=(centre + 1).min(last) {
         let len_units = tempo.ticks[i] as u32;
-        let end_units = if i == last {
-            len_units + UNITS_PER_BEAT * 2
-        } else {
-            len_units
-        };
-        let mut by_units: BTreeMap<u32, u8> = BTreeMap::new();
-        for &division in divisions {
-            let step = UNITS_PER_BEAT / u32::from(division);
-            let mut units = 0;
-            while units < end_units {
-                by_units.entry(units).or_insert(division);
-                units += step;
-            }
-        }
+        let end_units = if i == last { len_units + UNITS_PER_BEAT * 2 } else { len_units };
+        let by_units = grid_units(f64::from(end_units), divisions);
         for (units, division) in by_units {
             let pos = TimePos::new(tempo.measures[i].id, i64::from(units));
             out.push((pos, tempo.pos_to_sec(pos), division));
@@ -164,11 +149,11 @@ fn choose(candidates: &[Candidate], sec: f64, sticky_sec: Option<f64>) -> Option
     let sticky = sticky_sec.and_then(|s| {
         candidates
             .iter()
-            .find(|c| (c.sec - s).abs() < SAME_SEC && (c.sec - sec).abs() <= c.radius)
+            .find(|c| (c.sec - s).abs() < EPS && (c.sec - sec).abs() <= c.radius)
     });
     match sticky {
         Some(s)
-            if (best.sec - s.sec).abs() >= SAME_SEC
+            if (best.sec - s.sec).abs() >= EPS
                 && (best.sec - sec).abs() > HYSTERESIS * (s.sec - sec).abs() =>
         {
             Some(*s)
@@ -218,12 +203,10 @@ pub fn snap_edge(
                 Edge::End => note.start,
             };
             let pos = tempo.normalise(target);
-            candidates.push(Candidate {
-                pos,
-                sec: tempo.pos_to_sec(pos),
-                radius: threshold,
-                rank: (1, 0, false),
-            });
+            let at = tempo.pos_to_sec(pos);
+            if (at - sec).abs() <= threshold {
+                candidates.push(Candidate { pos, sec: at, radius: threshold, rank: (1, 0, false) });
+            }
         }
     }
     let sticky = match edge {
@@ -244,21 +227,12 @@ pub fn snap_edge(
     onset.map_or(pos, |o| tempo.sec_to_pos(o))
 }
 
-fn first_grid_at_or_after(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> TimePos {
-    let sec = tempo.pos_to_sec(from) - SAME_SEC;
-    grid_candidates(tempo, &grid.sorted_divisions(), sec)
-        .into_iter()
-        .find(|c| c.1 >= sec)
-        .map_or(from, |c| tempo.normalise(c.0))
-}
-
-fn last_grid_at_or_before(tempo: &TempoMap, grid: &SnapGrid, from: TimePos) -> TimePos {
-    let sec = tempo.pos_to_sec(from) + SAME_SEC;
-    grid_candidates(tempo, &grid.sorted_divisions(), sec)
-        .into_iter()
-        .rev()
-        .find(|c| c.1 <= sec)
-        .map_or(from, |c| tempo.normalise(c.0))
+/// The nearest grid position at or after `from` (`forward`) or at or before it.
+fn grid_near(tempo: &TempoMap, grid: &SnapGrid, from: TimePos, forward: bool) -> TimePos {
+    let sec = tempo.pos_to_sec(from) + if forward { -EPS } else { EPS };
+    let list = grid_candidates(tempo, &grid.sorted_divisions(), sec);
+    let found = if forward { list.into_iter().find(|c| c.1 >= sec) } else { list.into_iter().rev().find(|c| c.1 <= sec) };
+    found.map_or(from, |c| tempo.normalise(c.0))
 }
 
 /// The grid position `steps` positions after (or before, when negative) `pos`; a position off the
@@ -272,9 +246,9 @@ pub fn step_on_grid(tempo: &TempoMap, grid: &SnapGrid, pos: TimePos, steps: i32)
         let sec = tempo.pos_to_sec(pos);
         let list = grid_candidates(tempo, &grid.sorted_divisions(), sec);
         let next = if steps > 0 {
-            list.iter().find(|c| c.1 > sec + SAME_SEC)
+            list.iter().find(|c| c.1 > sec + EPS)
         } else {
-            list.iter().rev().find(|c| c.1 < sec - SAME_SEC)
+            list.iter().rev().find(|c| c.1 < sec - EPS)
         };
         match next {
             Some(c) => pos = tempo.normalise(c.0),
@@ -303,20 +277,20 @@ pub fn snap_resized(
     match edge {
         Edge::End => {
             let earliest = add_beats(tempo, fixed, min);
-            if tempo.pos_to_sec(snapped) >= tempo.pos_to_sec(earliest) - SAME_SEC {
+            if tempo.pos_to_sec(snapped) >= tempo.pos_to_sec(earliest) - EPS {
                 snapped
             } else if on_grid {
-                first_grid_at_or_after(tempo, opts.grid, earliest)
+                grid_near(tempo, opts.grid, earliest, true)
             } else {
                 earliest
             }
         }
         Edge::Start => {
             let latest = add_beats(tempo, fixed, -min);
-            if tempo.pos_to_sec(snapped) <= tempo.pos_to_sec(latest) + SAME_SEC {
+            if tempo.pos_to_sec(snapped) <= tempo.pos_to_sec(latest) + EPS {
                 snapped
             } else if on_grid {
-                last_grid_at_or_before(tempo, opts.grid, latest)
+                grid_near(tempo, opts.grid, latest, false)
             } else {
                 latest
             }

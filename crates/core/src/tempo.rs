@@ -12,6 +12,10 @@ use std::collections::HashMap;
 use crate::model::{Measure, Note, TimePos, MIN_BPM, TICKS_PER_BEAT};
 
 pub(crate) const BEAT_EPS: f64 = 1e-10;
+/// Equality tolerance for times, positions and values.
+pub(crate) const EPS: f64 = 1e-9;
+/// Tolerance for tie-breaking between equidistant snap candidates.
+pub(crate) const TIE_EPS: f64 = 1e-12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BeatKind {
@@ -32,14 +36,24 @@ pub struct TempoMap {
     pub(crate) beats: Vec<f64>,
     /// Length of each measure in ticks.
     pub(crate) ticks: Vec<i64>,
+    /// Beats / ticks from the start of the grid to the start of each measure.
+    beat_starts: Vec<f64>,
+    tick_starts: Vec<i64>,
     pub(crate) sec_per_beat: Vec<f64>,
     ids: HashMap<u64, usize>,
+}
+
+impl crate::model::Project {
+    /// Start and end times of every note under the current grid.
+    pub fn note_times(&self) -> NoteTimes {
+        NoteTimes::build(&self.notes, &TempoMap::new(&self.measures))
+    }
 }
 
 impl TempoMap {
     pub fn new(measures: &[Measure]) -> Self {
         let beats: Vec<f64> = measures.iter().map(|m| m.time_sig.beats()).collect();
-        let ticks = beats.iter().map(|b| (b * TICKS_PER_BEAT as f64).round() as i64).collect();
+        let ticks: Vec<i64> = beats.iter().map(|b| (b * TICKS_PER_BEAT as f64).round() as i64).collect();
         let sec_per_beat = measures
             .iter()
             .enumerate()
@@ -58,10 +72,14 @@ impl TempoMap {
             .enumerate()
             .map(|(i, m)| (m.id, i))
             .collect();
+        let prefix = |values: &[f64]| values.iter().scan(0.0, |acc, v| Some(std::mem::replace(acc, *acc + v))).collect::<Vec<f64>>();
+        let (beat_starts, tick_starts) = (prefix(&beats), ticks.iter().scan(0, |acc, v| Some(std::mem::replace(acc, *acc + v))).collect());
         Self {
             measures: measures.to_vec(),
             beats,
             ticks,
+            beat_starts,
+            tick_starts,
             sec_per_beat,
             ids,
         }
@@ -146,14 +164,14 @@ impl TempoMap {
     pub fn pos_to_beats(&self, pos: TimePos) -> Option<f64> {
         let normal = self.normalise(pos);
         let i = self.index_of(normal.measure)?;
-        Some(self.beats[..i].iter().sum::<f64>() + normal.beat())
+        Some(self.beat_starts[i] + normal.beat())
     }
 
     /// Ticks since the start of the first measure; `None` when the measure is not in the grid.
     pub fn pos_to_ticks(&self, pos: TimePos) -> Option<i64> {
         let normal = self.normalise(pos);
         let i = self.index_of(normal.measure)?;
-        Some(self.ticks[..i].iter().sum::<i64>() + normal.tick)
+        Some(self.tick_starts[i] + normal.tick)
     }
 
     /// Inverse of `pos_to_ticks`; positions before the first measure stay negative on it and

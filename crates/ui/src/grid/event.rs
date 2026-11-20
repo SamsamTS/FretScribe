@@ -56,17 +56,12 @@ impl GridEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fretscribe_core::{Note, TimePos, Track, TrackRole, UndoStack};
+    use fretscribe_core::{Note, TimePos, UndoStack};
 
     const FOLLOW: NotePolicy = NotePolicy::FollowGrid;
 
     fn project() -> Project {
-        Project::new(
-            Track::new(1, "Guitar", TrackRole::Guitar),
-            8.0,
-            120.0,
-            TimeSignature::COMMON,
-        )
+        fretscribe_core::testkit::project(8.0)
     }
 
     fn apply_all(events: &[GridEvent], p: &mut Project, undo: &mut UndoStack) {

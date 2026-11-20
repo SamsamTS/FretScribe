@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use fretscribe_core::{EditError, LinkType, NoteTimes, Project, ProjectEdit, TempoMap, Tuning};
+use fretscribe_core::{EditError, LinkType, Project, ProjectEdit, Tuning};
 use fretscribe_notation::tab::{assign_tabs, assign_tabs_range, candidate_label, group_options, GroupOption, TabOptions};
 use thiserror::Error;
 
@@ -89,7 +89,7 @@ fn current_string(p: &Project, id: u64) -> Option<u8> {
 }
 
 fn resolve(p: &mut Project, opts: &TabOptions, edited: &[u64], backwards: bool) -> Vec<u64> {
-    let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+    let times = p.note_times();
     let first = (0..p.notes.len())
         .filter(|&i| edited.contains(&p.notes[i].id))
         .min_by(|&a, &b| times.start_sec(p.notes[a].id).partial_cmp(&times.start_sec(p.notes[b].id)).unwrap_or(std::cmp::Ordering::Equal));
@@ -165,7 +165,7 @@ pub fn apply_tuning(project: &mut Project, tuning: Tuning, capo: u8, opts: &TabO
             n.string_fret = if n.locked_fret { fret.zip(n.string_fret).map(|(f, (s, _))| (s, f)) } else { None };
             n.locked_fret &= n.string_fret.is_some();
         }
-        let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+        let times = p.note_times();
         assign_tabs(&mut p.notes, &times, &p.tuning, p.capo, opts);
         Ok(())
     });
@@ -233,7 +233,7 @@ fn auto_string(project: &Project, opts: &TabOptions, note: u64) -> Option<u8> {
     for n in scratch.notes.iter_mut().filter(|n| all.contains(&n.id)) {
         (n.locked_fret, n.string_fret) = (false, None);
     }
-    let times = NoteTimes::build(&scratch.notes, &TempoMap::new(&scratch.measures));
+    let times = scratch.note_times();
     let at = scratch.notes.iter().position(|n| n.id == note)?;
     let (tuning, capo) = (scratch.tuning.clone(), scratch.capo);
     assign_tabs_range(&mut scratch.notes, &times, &tuning, capo, opts, at, false);

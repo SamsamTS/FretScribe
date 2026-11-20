@@ -7,6 +7,10 @@ use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId,
 
 pub const DEFAULT_ACCENT: Color32 = Color32::from_rgb(0xF0, 0xAA, 0x3C);
 /// The logo's background (#1C2024) is the window colour; the other surfaces are tinted from it.
+/// The playhead and seek line.
+pub const PLAYHEAD: Color32 = Color32::from_rgb(255, 90, 80);
+/// Open strings and region edges.
+pub const ACCENT_AMBER: Color32 = Color32::from_rgb(255, 200, 90);
 pub const WINDOW_BG: Color32 = Color32::from_rgb(0x1C, 0x20, 0x24);
 pub const TITLE_BG: Color32 = Color32::from_rgb(0x16, 0x19, 0x1D);
 pub const PANEL_BG: Color32 = Color32::from_rgb(0x26, 0x2B, 0x31);
@@ -103,6 +107,11 @@ pub fn install_fonts(ctx: &egui::Context) {
 }
 
 /// Frame of dialog windows: the window colour (like the toolbar), not the lighter panel grey.
+/// A non-collapsible window in the dialog frame; callers add anchor/resizable as needed.
+pub fn dialog<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
+    egui::Window::new(title).frame(dialog_frame(ctx)).collapsible(false)
+}
+
 pub fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::window(&ctx.style()).fill(WINDOW_BG)
 }

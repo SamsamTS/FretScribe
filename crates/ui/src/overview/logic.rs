@@ -97,7 +97,7 @@ pub fn resize_right(view: &TimelineView, main_width_px: f32, new_end_sec: f64, a
     zoom_to(end, end - view.scroll_sec, main_width_px, false, view)
 }
 
-pub const MIN_BAND_PX: f64 = 2.0;
+pub(crate) const MIN_BAND_PX: f64 = 2.0;
 
 /// Time spans of the odd-numbered measures (second, fourth, ...), which get the lighter background.
 /// Spans narrower than `MIN_BAND_PX` are left out: at that size the alternation is only noise.

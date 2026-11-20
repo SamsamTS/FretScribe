@@ -72,6 +72,8 @@ pub enum Effect {
 pub struct Env<'a> {
     pub project: &'a mut Project,
     pub grid: &'a SnapGrid,
+    /// The grid of `project`, built once per frame by the caller (note edits never change it).
+    pub tempo: &'a TempoMap,
     pub px_per_sec: f64,
     pub threshold_px: f64,
     pub onsets: Option<&'a [f64]>,
@@ -139,8 +141,7 @@ pub struct NoteEditor {
 
 fn with_ctx<R>(env: &Env, alt: bool, f: impl FnOnce(&EditCtx) -> R) -> R {
     let project: &Project = env.project;
-    let tempo = TempoMap::new(&project.measures);
-    f(&EditCtx { project, tempo: &tempo, grid: env.grid, px_per_sec: env.px_per_sec, threshold_px: env.threshold_px, onsets: env.onsets, alt })
+    f(&EditCtx { project, tempo: env.tempo, grid: env.grid, px_per_sec: env.px_per_sec, threshold_px: env.threshold_px, onsets: env.onsets, alt })
 }
 
 fn pt(at: &Sample) -> Pt {
@@ -301,7 +302,7 @@ impl NoteEditor {
             (Button::Left, Some((id, zone @ (HitZone::LeftEdge | HitZone::RightEdge)))) => State::Resize { note: id, edge: if zone == HitZone::LeftEdge { Edge::Start } else { Edge::End }, sticky: NO_STICKY },
             (Button::Left, Some((id, HitZone::Body))) if mods.shift && project.outgoing(id).is_none() => State::Chain { last: id, sticky: NO_STICKY },
             (Button::Left, Some((id, HitZone::Body))) => {
-                let tempo = TempoMap::new(&project.measures);
+                let tempo = env.tempo;
                 let start = project.note(id).map_or(first.sec, |n| tempo.pos_to_sec(n.start));
                 if !self.selection.contains(id) {
                     self.selection.set(vec![id]);
@@ -415,8 +416,8 @@ impl NoteEditor {
 
     fn update_paste(&mut self, env: &Env, at: &Sample, alt: bool) {
         let anchor = Self::paste_anchor(env, at.sec, alt);
-        let tempo = TempoMap::new(&env.project.measures);
-        self.ghost = self.clipboard.as_ref().map(|c| c.ghost(&tempo, anchor));
+        let tempo = env.tempo;
+        self.ghost = self.clipboard.as_ref().map(|c| c.ghost(tempo, anchor));
     }
 
     fn release(&mut self, env: &mut Env, button: Button, at: Sample, mods: Mods) -> Vec<Effect> {
@@ -438,7 +439,7 @@ impl NoteEditor {
             }
             (State::Resize { note, edge, sticky }, Button::Left) => {
                 let change = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|p| p.0));
-                change.map_or_else(Vec::new, |c| self.finish_resize(env, &c))
+                change.map_or_else(Vec::new, |c| self.finish_changes(env, vec![c], "Resize note"))
             }
             (State::Chain { last, sticky }, Button::Left) => {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
@@ -470,8 +471,8 @@ impl NoteEditor {
             (State::Paste { pressed: true }, Button::Left) => {
                 self.ignore_seek = true;
                 let anchor = Self::paste_anchor(env, at.sec, mods.alt);
-                let tempo = TempoMap::new(&env.project.measures);
-                match self.clipboard.clone().map(|c| c.commit(env.project, &tempo, anchor, "Paste notes")) {
+                let tempo = env.tempo;
+                match self.clipboard.clone().map(|c| c.commit(env.project, tempo, anchor, "Paste notes")) {
                     Some(Ok((edit, ids))) => {
                         self.selection.set(ids.clone());
                         vec![Effect::Edit { edit: Box::new(edit), merge: false, affected: ids }]
@@ -505,16 +506,6 @@ impl NoteEditor {
         let affected = changes.iter().map(|c| c.id).collect();
         match apply_changes(env.project, &changes, label) {
             Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected }],
-            Err(e) => vec![Effect::Message(e.to_string())],
-        }
-    }
-
-    fn finish_resize(&mut self, env: &mut Env, change: &NoteChange) -> Vec<Effect> {
-        if is_noop(env.project, std::slice::from_ref(change)) {
-            return Vec::new();
-        }
-        match apply_changes(env.project, std::slice::from_ref(change), "Resize note") {
-            Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected: vec![change.id] }],
             Err(e) => vec![Effect::Message(e.to_string())],
         }
     }
@@ -562,8 +553,8 @@ impl NoteEditor {
     }
 
     fn click(&mut self, env: &mut Env, button: Button, first: Sample, mods: Mods) -> Vec<Effect> {
-        let tempo = TempoMap::new(&env.project.measures);
-        let order = time_order(&env.project.notes, &tempo);
+        let tempo = env.tempo;
+        let order = time_order(&env.project.notes, tempo);
         match (button, first.hit) {
             (Button::Left, Some((id, _))) if on_note(first.hit).is_some() => {
                 self.selection.click(id, mods.ctrl, mods.shift, &order);
@@ -677,8 +668,8 @@ impl NoteEditor {
     }
 
     fn copy(&mut self, env: &Env) {
-        let tempo = TempoMap::new(&env.project.measures);
-        self.clipboard = Clipboard::copy(env.project, &tempo, &self.selection.ids);
+        let tempo = env.tempo;
+        self.clipboard = Clipboard::copy(env.project, tempo, &self.selection.ids);
     }
 
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {

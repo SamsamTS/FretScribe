@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use eframe::egui::{self, pos2, vec2, Color32, Rect, Sense, Stroke};
-use fretscribe_analysis::{clamp_gamma, discover_luts, Levels, Lut, Spectrogram, SpectrogramParams, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
+use fretscribe_analysis::{clamp_gamma, discover_luts, Levels, Lut, Spectrogram, SpectrogramInfo, SpectrogramParams, APP_GAMMA, APP_WHITE, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
 use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{Legato, LegatoLink, Note, NoteTimes, PitchRef, Project, SnapGrid, TempoMap, TimeSignature, Technique, Track, TrackRole, UndoStack};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env, NoteEditor};
@@ -42,7 +42,7 @@ fn synthetic() -> Spectrogram {
             }
         }
     }
-    Spectrogram { data, n_frames, n_rows, hop_sec: hop, min_midi: min, max_midi: max, bins_per_semitone: bins }
+    Spectrogram { data, info: SpectrogramInfo { n_frames, n_rows, hop_sec: hop, min_midi: min, max_midi: max, bins_per_semitone: bins } }
 }
 
 fn levels_slider(ui: &mut egui::Ui, levels: &mut Levels) {
@@ -211,13 +211,14 @@ impl Demo {
     }
 
     fn changed(&mut self) {
-        self.times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        self.times = self.project.note_times();
         self.revision += 1;
     }
 
     fn run(&mut self, ctx: &egui::Context, inputs: Vec<ne::Input>, px_per_sec: f64, hovered: Option<u64>) {
         for input in inputs {
-            let mut env = Env { project: &mut self.project, grid: &self.grid, px_per_sec, threshold_px: 12.0, onsets: None, now: ctx.input(|i| i.time), hovered };
+            let tempo = TempoMap::new(&self.project.measures);
+            let mut env = Env { project: &mut self.project, grid: &self.grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, onsets: None, now: ctx.input(|i| i.time), hovered };
             for effect in self.editor.handle(&mut env, input.clone()) {
                 match effect {
                     Effect::Seek(sec) => self.playhead = sec,
@@ -320,7 +321,7 @@ impl eframe::App for Demo {
                 .inner;
             let events: Vec<SpectroEvent> = spec_out.events.iter().cloned().chain(seek).collect();
             let refine = |sec: f64, midi: f32| refine_pitch(&self.spectrogram, &self.pitch_ref, sec, midi);
-            let source = ne::SourcePointer { geometry: spec_out.geometry, hovered_note: spec_out.hovered_note, pitch_ruler: spec_out.pitch_ruler, notes: &self.project.notes, times: &self.times };
+            let source = ne::SourcePointer { geometry: spec_out.geometry, scene: &spec_out.scene, hovered_note: spec_out.hovered_note, pitch_ruler: spec_out.pitch_ruler, notes: &self.project.notes, times: &self.times };
             let collected = ne::collect(ctx, &source, &events, &self.editor, &self.keymap, &refine);
             let hovered = spec_out.hovered_note.map(|h| h.0);
             self.run(ctx, collected.inputs, view.pixels_per_sec, hovered);
@@ -383,7 +384,7 @@ fn main() -> eframe::Result {
     run(false)
 }
 
-pub fn run(legato: bool) -> eframe::Result {
+pub(crate) fn run(legato: bool) -> eframe::Result {
     eframe::run_native(
         "FretScribe note editor demo",
         eframe::NativeOptions::default(),

@@ -8,6 +8,7 @@ use fretscribe_analysis::{discover_luts, Lut};
 #[derive(Clone)]
 pub struct LutSet {
     pub luts: Vec<Arc<Lut>>,
+    names: Vec<String>,
     pub dir: Option<PathBuf>,
     pub builtin_fallback: bool,
 }
@@ -27,6 +28,7 @@ impl LutSet {
             luts.push(Arc::new(Lut::builtin()));
         }
         Self {
+            names: luts.iter().map(|l| l.name.clone()).collect(),
             luts,
             dir: dir.map(Path::to_path_buf),
             builtin_fallback,
@@ -37,8 +39,8 @@ impl LutSet {
         self.luts.iter().position(|l| l.name == name).unwrap_or(0)
     }
 
-    pub fn names(&self) -> Vec<&str> {
-        self.luts.iter().map(|l| l.name.as_str()).collect()
+    pub fn names(&self) -> &[String] {
+        &self.names
     }
 }
 
@@ -65,7 +67,7 @@ mod tests {
         for dir in [None, Some(tempfile::tempdir().unwrap())] {
             let set = LutSet::scan(dir.as_ref().map(|d| d.path()));
             assert!(set.builtin_fallback);
-            assert_eq!(set.names(), ["Classic"]);
+            assert_eq!(set.names(), ["Classic".to_owned()]);
         }
         assert!(LutSet::scan(Some(Path::new("/definitely/missing"))).builtin_fallback);
     }
@@ -78,7 +80,7 @@ mod tests {
         let set = LutSet::scan(Some(dir.path()));
         assert!(!set.builtin_fallback);
         assert_eq!(set.names().len(), 2);
-        let ice = set.names()[1].to_owned();
+        let ice = set.names()[1].clone();
         assert_eq!(set.index_of(&ice), 1);
         assert_eq!(set.index_of("nope"), 0);
     }

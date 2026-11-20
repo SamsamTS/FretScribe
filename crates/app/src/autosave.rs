@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use std::time::SystemTime;
 
 use fretscribe_core::{discard_autosave, save_autosave, ProjectFile};
-use uuid::Uuid;
+use fretscribe_core::Uuid;
 
 const MARKER: &str = "session.marker";
 const RUNNING: &str = "running";

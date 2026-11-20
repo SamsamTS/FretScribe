@@ -17,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use fretscribe_audio::{
-    decode_files, Player, PreparedAudio, PreparedTrack, SpeedMode, MAX_SPEED, MIN_SPEED,
+    decode_file, Player, PreparedAudio, PreparedTrack, SpeedMode, MAX_SPEED, MIN_SPEED,
 };
 
 const USAGE: &str = "usage: play [--seek SEC] [--speed X] [--mode preserve|change] [--region START END] [--loop] [--focus] [--strength X] PATH[:OFFSET_MS]...";
@@ -187,7 +187,7 @@ impl View {
 
 fn load(player: &Player, args: &Args) -> Result<(), Box<dyn Error>> {
     let paths: Vec<&PathBuf> = args.inputs.iter().map(|(path, _)| path).collect();
-    let decoded = decode_files(&paths);
+    let decoded: Vec<_> = paths.iter().map(decode_file).collect();
 
     let mut tracks = Vec::with_capacity(args.inputs.len());
     for (id, ((path, offset_sec), audio)) in (1u64..).zip(args.inputs.iter().zip(decoded)) {
@@ -278,16 +278,10 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         if !player.is_playing() && !paused {
             break;
         }
-        let levels: Vec<String> = player
-            .track_peak_levels()
-            .iter()
-            .map(|(id, peak)| format!("#{id} {peak:.2}"))
-            .collect();
         println!(
-            "{:8.3} / {duration:.3} s   [{}]   {}",
+            "{:8.3} / {duration:.3} s   [{}]",
             player.position_sec(),
-            view.describe(),
-            levels.join("  ")
+            view.describe()
         );
 
         let line = if input_open {

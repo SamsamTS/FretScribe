@@ -304,3 +304,29 @@ fn group_options_follow_the_whole_chain() {
     assert_eq!(group_options(&f.notes, &f.tuning, 0, &TabOptions::default(), 1).len(), 5);
     assert!(group_options(&f.notes, &f.tuning, 0, &TabOptions::default(), 99).is_empty());
 }
+
+#[test]
+fn editing_several_notes_in_one_call_matches_sequential_calls() {
+    let edited = [1, 3, 6];
+    for lock_at in [None, Some(5)] {
+        let build = || {
+            let mut f = fixture();
+            let ids = run_line(&mut f);
+            if let Some(l) = lock_at {
+                f.lock(ids[l], 5, 0);
+            }
+            for &i in &edited {
+                f.notes[ids[i]].midi += 7;
+            }
+            f
+        };
+        let (mut one, mut seq) = (build(), build());
+        let times = NoteTimes::build(&one.notes, &one.tempo);
+        assign_tabs_ranges(&mut one.notes, &times, &one.tuning, 0, &TabOptions::default(), &edited, false);
+        for &i in &edited {
+            seq.range(i, false);
+        }
+        let placed = |f: &Fixture| f.notes.iter().map(|n| n.string_fret).collect::<Vec<_>>();
+        assert_eq!(placed(&one), placed(&seq), "lock at {lock_at:?}");
+    }
+}

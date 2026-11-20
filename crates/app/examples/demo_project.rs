@@ -7,19 +7,7 @@ use std::path::PathBuf;
 use fretscribe_core::{Note, Project, ProjectFile, TempoMap, TimeSignature, Track, TrackRole};
 
 fn wav(path: &std::path::Path, samples: &[f32], rate: u32) -> std::io::Result<()> {
-    let data: Vec<u8> = samples.iter().flat_map(|s| ((s.clamp(-1.0, 1.0) * 32000.0) as i16).to_le_bytes()).collect();
-    let mut out = Vec::new();
-    out.extend(b"RIFF");
-    out.extend((36 + data.len() as u32).to_le_bytes());
-    out.extend(b"WAVEfmt ");
-    out.extend([16, 0, 0, 0, 1, 0, 1, 0]);
-    out.extend(rate.to_le_bytes());
-    out.extend((rate * 2).to_le_bytes());
-    out.extend([2, 0, 16, 0]);
-    out.extend(b"data");
-    out.extend((data.len() as u32).to_le_bytes());
-    out.extend(data);
-    std::fs::write(path, out)
+    std::fs::write(path, fretscribe_audio::wav::encode_mono_f32(rate, samples))
 }
 
 fn main() -> std::io::Result<()> {

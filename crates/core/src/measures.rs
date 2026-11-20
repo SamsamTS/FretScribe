@@ -5,11 +5,11 @@
 
 use std::ops::Range;
 
+use crate::tempo::EPS;
 use crate::error::EditError;
 use crate::model::{Measure, TimeSignature, MAX_BPM, MIN_BPM};
 
 const MAX_GENERATED_MEASURES: usize = 100_000;
-const SAME_VALUE_EPS: f64 = 1e-9;
 
 pub fn valid_tempo(bpm: f64) -> bool {
     bpm.is_finite() && (MIN_BPM..=MAX_BPM).contains(&bpm)
@@ -37,7 +37,7 @@ pub fn generate_measures(
     let duration = time_sig.beats() * 60.0 / bpm;
     let span = (audio_len_sec - start_sec) / duration;
     let count = if span.is_finite() {
-        ((span - SAME_VALUE_EPS).ceil().max(1.0) as usize).min(MAX_GENERATED_MEASURES)
+        ((span - EPS).ceil().max(1.0) as usize).min(MAX_GENERATED_MEASURES)
     } else {
         1
     };
@@ -58,13 +58,13 @@ pub fn cover_audio(measures: &mut Vec<Measure>, audio_len_sec: f64, next_id: &mu
         return false;
     }
     let before = measures.len();
-    while measures.len() > 1 && measures.last().is_some_and(|m| m.start_sec >= audio_len_sec - SAME_VALUE_EPS && !keep(m)) {
+    while measures.len() > 1 && measures.last().is_some_and(|m| m.start_sec >= audio_len_sec - EPS && !keep(m)) {
         measures.pop();
     }
     while measures.len() < MAX_GENERATED_MEASURES {
         let Some(last) = measures.last() else { break };
         let end = last.start_sec + last.nominal_duration_sec();
-        if end >= audio_len_sec - SAME_VALUE_EPS {
+        if end >= audio_len_sec - EPS {
             break;
         }
         let mut next = Measure::new(*next_id, end, last.tempo_bpm, last.time_sig);
@@ -122,12 +122,18 @@ pub fn set_tempo_scoped(
     if !valid_tempo(new_bpm) {
         return Err(EditError::InvalidTempo(new_bpm));
     }
+    Ok(set_scoped(measures, index, propagation, |m| m.tempo_bpm != new_bpm, |m| m.tempo_bpm = new_bpm))
+}
+
+/// Applies `assign` to the measures in scope that `differs`, dropping their anchor, then refits the starts.
+fn set_scoped(measures: &mut [Measure], index: usize, propagation: Propagation, differs: impl Fn(&Measure) -> bool, assign: impl Fn(&mut Measure)) -> Range<usize> {
     let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in measures[index..end].iter_mut().filter(|m| m.tempo_bpm != new_bpm) {
-        (m.tempo_bpm, m.anchored) = (new_bpm, false);
+    for m in measures[index..end].iter_mut().filter(|m| differs(m)) {
+        assign(m);
+        m.anchored = false;
     }
     recompute_starts(measures, index);
-    Ok(index..end)
+    index..end
 }
 
 /// Same propagation rule as `set_tempo`, applied to the time signature. A manual change of either drops the fit (anchor) of every measure it changes.
@@ -149,12 +155,7 @@ pub fn set_time_sig_scoped(
     if !new_sig.is_valid() {
         return Err(EditError::InvalidTimeSignature(new_sig));
     }
-    let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in measures[index..end].iter_mut().filter(|m| m.time_sig != new_sig) {
-        (m.time_sig, m.anchored) = (new_sig, false);
-    }
-    recompute_starts(measures, index);
-    Ok(index..end)
+    Ok(set_scoped(measures, index, propagation, |m| m.time_sig != new_sig, |m| m.time_sig = new_sig))
 }
 
 #[cfg(test)]
@@ -168,6 +169,12 @@ pub(crate) mod tests {
     /// Equal to within half a tick (a position stored as ticks is at most that far from the time it came from).
     pub fn near(a: f64, b: f64) {
         assert!((a - b).abs() < 0.011, "{a} != {b}");
+    }
+
+    /// Start and end seconds of a note.
+    pub fn secs(p: &crate::model::Project, id: u64) -> (f64, f64) {
+        let times = crate::tempo::NoteTimes::build(&p.notes, &crate::tempo::TempoMap::new(&p.measures));
+        (times.start_sec(id).unwrap(), times.end_sec(id).unwrap())
     }
 
     pub fn grid(tempos: &[f64]) -> Vec<Measure> {

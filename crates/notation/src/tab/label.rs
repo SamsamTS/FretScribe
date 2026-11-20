@@ -1,6 +1,6 @@
 //! The one place that names strings: spectrogram readout, menus and the tab ruler all go through here.
 
-use fretscribe_core::{midi_to_name, Tuning};
+use fretscribe_core::{midi_to_name, pitch_class_name, Tuning};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LabelStyle {
@@ -10,14 +10,6 @@ pub enum LabelStyle {
     StringNumber,
 }
 
-fn pitch_class(midi: u8) -> String {
-    midi_to_name(midi).trim_end_matches(|c: char| c.is_ascii_digit() || c == '-').to_owned()
-}
-
-fn octave(midi: u8) -> i32 {
-    i32::from(midi / 12) - 1
-}
-
 fn convention(tuning: &Tuning, string: usize) -> Option<String> {
     let strings = &tuning.open_strings;
     if string >= strings.len() {
@@ -25,12 +17,12 @@ fn convention(tuning: &Tuning, string: usize) -> Option<String> {
     }
     let top = strings.iter().rposition(|&m| Some(&m) == strings.iter().max())?;
     let base = |i: usize| {
-        let name = pitch_class(strings[i]);
+        let name = pitch_class_name(strings[i]).to_owned();
         if i == top { name.to_lowercase() } else { name }
     };
     let label = base(string);
     let shared = (0..strings.len()).filter(|&i| base(i) == label).count() > 1;
-    Some(if shared { format!("{label}{}", octave(strings[string])) } else { label })
+    Some(if shared { format!("{label}{}", i32::from(strings[string] / 12) - 1) } else { label })
 }
 
 pub fn string_label_styled(tuning: &Tuning, string: u8, style: LabelStyle) -> Option<String> {
