@@ -1641,11 +1641,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fretscribe-demos"
+version = "0.1.0"
+
+[[package]]
 name = "fretscribe-notation"
 version = "0.1.0"
 dependencies = [
  "fretscribe-core",
 ]
+
+[[package]]
+name = "fretscribe-tests"
+version = "0.1.0"
 
 [[package]]
 name = "fretscribe-ui"

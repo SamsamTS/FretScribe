@@ -25,5 +25,8 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 ## Removed (pruning)
 (none yet)
 
-## Test counts (post-pruning reference)
-(none yet)
+## Test counts
+BEFORE pruning (cargo test -p <crate> --release): core 221, audio 94, analysis 80, notation 47, ui 338, app TBD (run timed out, see below).
+AFTER pruning: TBD
+
+Note: ALSA installed (`libasound2-dev pkg-config`); full-workspace cargo check passes with the scaffold.
