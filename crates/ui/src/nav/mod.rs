@@ -6,7 +6,6 @@ mod input;
 pub mod maths;
 pub mod tuning;
 
-pub(crate) use input::notches;
 pub use input::{read_wheel, NavContext, NavRegions, WheelAccum, WheelActions};
 pub use maths::{Geometry, Hover, PitchRange};
 pub use tuning::ViewTuning;
@@ -69,6 +68,8 @@ pub struct ViewController {
     pivot: Option<Pivot>,
     panning: bool,
     wheel: WheelAccum,
+    /// Whole Alt + wheel notches over the lanes this frame; the lanes turn them into spectrogram rows.
+    pub wheel_rows: f64,
 }
 
 impl ViewController {
@@ -84,6 +85,7 @@ impl ViewController {
             pivot: None,
             panning: false,
             wheel: WheelAccum::default(),
+            wheel_rows: 0.0,
         }
     }
 
