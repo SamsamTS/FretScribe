@@ -314,7 +314,7 @@ impl<'a> SpectrogramView<'a> {
             painter.rect_filled(above, 0.0, shade);
             painter.rect_filled(below, 0.0, shade);
         }
-        let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
+        let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
         self.draw_guides(&painter, &labels, &geo, cursor_midi);
         notes::draw_notes(&painter, &scene, self.selected, self.note_opacity, hovered_id);
         if let Some(ghost) = self.ghost {

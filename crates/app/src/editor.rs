@@ -129,7 +129,6 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let area = ui.available_rect_before_wrap();
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
         let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
-        let lanes_timeline = Rect::from_min_max(pos2(ruler.left(), ruler.bottom()), area.max);
         seek_origin = ruler.left_top();
         // The corner above the track headers shares the toolbar's background and captions like its groups.
         let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
@@ -137,12 +136,15 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
         let notation_timeline = Rect::from_min_max(pos2(ruler.left(), notation_rect.top()), notation_rect.max);
-        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes: lanes_timeline });
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
         spectro_events.extend(seek);
-        let measure_starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
+        // Region edges snap to the current grid subdivisions (the measure starts when it has none).
+        let tempo_map = fretscribe_core::TempoMap::new(&s.project.measures);
+        let mut region_points: Vec<f64> = (0..tempo_map.len()).flat_map(|i| tempo_map.grid_lines(i, &s.ui.snap_grid).into_iter().map(|(sec, _)| sec).chain([tempo_map.measure_start_sec(i)])).collect();
+        region_points.extend((!tempo_map.is_empty()).then(|| tempo_map.measure_end_sec(tempo_map.len() - 1, audio_len)));
         let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap);
         let out = TrackLanes {
             project: &s.project,
@@ -152,7 +154,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             selected: &s.editor.selection.ids,
             tools: Some(&tools),
             region: s.region,
-            region_snap: &measure_starts,
+            region_snap: &region_points,
             region_snapping: s.overview_snap,
             audio_len_sec: audio_len,
             wheel_rows: s.ctl.wheel_rows,
