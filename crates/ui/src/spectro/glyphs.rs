@@ -429,5 +429,6 @@ pub fn link_points(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, m: 
     layout(geo, &items(notes, times), m).link_points(hovered)
 }
 
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/spectro/glyphs.rs"]
 mod tests;

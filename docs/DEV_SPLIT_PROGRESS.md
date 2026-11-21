@@ -8,7 +8,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - [x] 1 Demos -> dev/demos
 - [x] 2 Integration tests -> dev/tests/tests
 - [x] 3 Unit tests: core (215 = reference)
-- [ ] 4 Unit tests (one commit each): [x] audio (94) [x] analysis (77) [x] notation (46) [ ] ui [ ] app
+- [ ] 4 Unit tests (one commit each): [x] audio (94) [x] analysis (77) [x] notation (46) [x] ui (336) [ ] app
 - [ ] 5 Proof (move dev/ away, build/clippy/test --no-run), docs, CI script
 
 ## Inventory (repo differs from the prompt text)

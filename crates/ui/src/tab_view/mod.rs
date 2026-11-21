@@ -10,7 +10,8 @@ mod colors;
 mod draw;
 mod edit;
 mod menu;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/tab_view.rs"]
 mod tests;
 
 use egui::{pos2, vec2, Color32, Key, Modifiers, Rect, Response, Sense, Stroke, Ui};
