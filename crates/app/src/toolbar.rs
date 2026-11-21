@@ -129,7 +129,7 @@ fn transport(ui: &mut Ui, s: &mut Session) {
             let looped = s.ui.loop_enabled;
             s.play_selection(looped);
         }
-        if toggle(ui, "loop", "Repeat the selection (or the whole file when nothing is selected)", &mut s.ui.loop_enabled) {
+        if toggle(ui, "loop", "Repeat the whole file, or the selection when played with Ctrl+Space or the play-selection button", &mut s.ui.loop_enabled) {
             s.player_resync(false);
         }
         toggle(ui, "follow-playhead", "Follow the playhead", &mut s.follow);

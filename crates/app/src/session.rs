@@ -112,6 +112,8 @@ pub struct Session {
     pub sync_dialog: Option<SyncDialog>,
     pub toasts: Vec<Toast>,
     pub synced: Vec<PlayerCall>,
+    /// The player is bound to the selected region (Ctrl/Shift+Space or the play-selection button); plain play ignores it.
+    pub play_region: bool,
     pub audio_len_sec: f64,
     pub snap_on: bool,
     pub synth_on: bool,
@@ -189,6 +191,7 @@ impl Session {
             sync_dialog: None,
             toasts: Vec::new(),
             synced: Vec::new(),
+            play_region: false,
             audio_len_sec,
             snap_on: true,
             synth_on: false,
@@ -512,7 +515,14 @@ impl Session {
     pub fn player_resync(&mut self, all: bool) {
         let Some(player) = &self.player else { return };
         let mode_speed = (self.speed, self.keep_pitch);
-        let next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        if !self.play_region {
+            next.iter_mut().for_each(|c| {
+                if let PlayerCall::Region(r) = c {
+                    *r = None;
+                }
+            });
+        }
         let calls = if all { next.clone() } else { player_sync::diff(&self.synced, &next) };
         player_sync::apply(player, &calls);
         self.synced = next;
@@ -542,6 +552,10 @@ impl Session {
             player.pause();
             return;
         }
+        if std::mem::take(&mut self.play_region) {
+            self.player_resync(false);
+        }
+        let Some(player) = &self.player else { return };
         player.seek(self.ui.playhead_sec);
         player.play();
     }
@@ -549,10 +563,9 @@ impl Session {
     /// Plays the selected region from its start, with the loop switched on or off first.
     pub fn play_selection(&mut self, looped: bool) {
         let Some(r) = self.region else { return };
-        if self.ui.loop_enabled != looped {
-            self.ui.loop_enabled = looped;
-            self.player_resync(false);
-        }
+        self.ui.loop_enabled = looped;
+        self.play_region = true;
+        self.player_resync(false);
         if let Some(p) = &self.player {
             p.seek(r.start_sec);
             p.play();
@@ -563,7 +576,7 @@ impl Session {
         if let Some(p) = &self.player {
             p.stop();
         }
-        self.ui.playhead_sec = self.region.map_or(0.0, |r| r.start_sec);
+        self.ui.playhead_sec = self.region.filter(|_| self.play_region).map_or(0.0, |r| r.start_sec);
     }
 
     pub fn seek(&mut self, sec: f64) {
