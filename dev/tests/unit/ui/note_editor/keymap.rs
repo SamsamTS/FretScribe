@@ -14,7 +14,8 @@ fn defaults_are_valid_and_every_binding_dispatches_its_action() {
     let map = Keymap::default();
     assert_eq!(map.rows.len(), DEFAULTS.len());
     for (id, action, chords) in &map.rows {
-        assert!(!chords.is_empty(), "{id} has no default shortcut");
+        // The link key (L) also cycles the link type, which only has a key when one is configured.
+        assert!(*id == "cycle_link_type" || !chords.is_empty(), "{id} has no default shortcut");
         for chord in chords {
             assert_eq!(press(&map, chord), Some(*action), "{id} {chord}");
         }
@@ -39,6 +40,13 @@ fn exact_modifiers_are_required() {
     assert_eq!(press(&map, &up(false, false)), Some(Transpose(1)));
     assert_eq!(press(&map, &up(false, true)), Some(Transpose(12)));
     assert_eq!(press(&map, &up(true, false)), None);
+}
+
+#[test]
+fn cycling_the_link_type_shares_the_link_key() {
+    let map = Keymap::default();
+    assert_eq!(map.shortcut_label(CycleLinkType).as_deref(), Some("L"));
+    assert_eq!(press(&map, &"T".parse().unwrap()), None);
 }
 
 #[test]

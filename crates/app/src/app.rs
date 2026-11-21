@@ -643,16 +643,20 @@ fn reveal(path: &Path) {
 }
 
 fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
-    let save = ctx
-        .input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
-        .then_some(Request::Save);
+    use egui::{Key, Modifiers as M};
+    // Shortcuts that work everywhere; the shifted one first, as `consume_key` ignores extra Shift.
+    let request = ctx.input_mut(|i| {
+        [(M::COMMAND | M::SHIFT, Key::S, Request::SaveAs), (M::COMMAND, Key::S, Request::Save), (M::COMMAND, Key::T, Request::AddTrack), (M::COMMAND, Key::O, Request::Open)]
+            .into_iter()
+            .find_map(|(m, k, r)| i.consume_key(m, k).then_some(r))
+    });
     if ctx.wants_keyboard_input() {
-        return save;
+        return request;
     }
     let (space, undo, redo) = ctx.input(|i| {
         let cmd = i.modifiers.command;
         (
-            i.key_pressed(egui::Key::Space) && !cmd,
+            i.key_pressed(egui::Key::Space) && !cmd && !i.modifiers.shift,
             cmd && i.key_pressed(egui::Key::Z) && !i.modifiers.shift,
             cmd && (i.key_pressed(egui::Key::Y) || (i.key_pressed(egui::Key::Z) && i.modifiers.shift)),
         )
@@ -660,12 +664,15 @@ fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
     if space {
         s.toggle_play();
     }
+    if let Some(looped) = ctx.input(|i| i.key_pressed(Key::Space).then_some(i.modifiers).and_then(|m| if m.command { Some(true) } else { m.shift.then_some(false) })) {
+        s.play_selection(looped);
+    }
     if undo {
         s.undo_redo(false);
     } else if redo {
         s.undo_redo(true);
     }
-    save
+    request
 }
 
 /// "Locate audio file..." for every track whose file cannot be found.

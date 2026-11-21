@@ -169,16 +169,16 @@ pub enum LinkAim {
 
 /// Right-drag from a note, first step. Over another note: a link to it when valid (nothing when
 /// not). Elsewhere, inside the span of the source a legato (hammer-on or pull-off, falling back to
-/// a slide when no string fits) joined to its right half's end or left half's start; past either
+/// a slide when no string fits, or `forced`) joined to its right half's end or left half's start; past either
 /// end a slide starting at the pointer. The pointer pitch is the new note's pitch.
-pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, ctx: &EditCtx) -> LinkAim {
+pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, forced: Option<LinkType>, ctx: &EditCtx) -> LinkAim {
     let project = ctx.project;
     let Some(source) = project.note(src) else {
         return LinkAim::Hidden;
     };
     if let Some(t) = target.and_then(|id| project.note(id)).filter(|t| t.id != src) {
         let (from, to) = if ctx.tempo.pos_to_sec(t.start) >= ctx.tempo.pos_to_sec(source.start) { (source, t) } else { (t, source) };
-        let kind = project.infer_link_type(from.id, to.id);
+        let kind = forced.unwrap_or_else(|| project.infer_link_type(from.id, to.id));
         return if project.can_link(from.id, to.id, kind).is_ok() {
             LinkAim::Join(Creation { notes: Vec::new(), links: vec![(Ref::Existing(from.id), Ref::Existing(to.id), kind)] })
         } else {
@@ -202,7 +202,7 @@ pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, ctx: &Ed
         let near = if wrong { bound } else { at };
         (near, if forward { (Some(near), None) } else { (None, Some(near)) })
     };
-    let kind = if inside { infer_link(&project.tuning, project.capo, source.midi, midi) } else { LinkType::Slide };
+    let kind = forced.unwrap_or(if inside { infer_link(&project.tuning, project.capo, source.midi, midi) } else { LinkType::Slide });
     LinkAim::Start { start: LinkStart { src, forward, kind, midi, near }, snapped }
 }
 

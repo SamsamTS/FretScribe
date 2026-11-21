@@ -14,7 +14,7 @@ pub struct ActionButton {
     pub enabled: bool,
 }
 
-pub const HINT: &str = "Select notes, or hover one and press L to link";
+pub const HINT: &str = "Select notes, or hover one and press L to link (L again cycles the link type)";
 
 /// Locks to the lowest-fret string of the first selected note, or unlocks when all are locked.
 fn string_action(project: &Project, selection: &Selection) -> (NoteAction, bool) {
@@ -75,9 +75,9 @@ pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap) -
     link.enabled = true;
     link.tooltip = match keymap.shortcut_label(link.action) {
         Some(keys) => {
-            format!("Link the selected notes, or start linking from the hovered note ({keys})")
+            format!("Link the selected notes, or start linking from the hovered note; again to cycle the link type ({keys})")
         }
-        None => "Link the selected notes, or start linking from the hovered note".to_owned(),
+        None => "Link the selected notes, or start linking from the hovered note; again to cycle the link type".to_owned(),
     };
     let strings = project.tuning.open_strings.len();
     let top = |n: &fretscribe_core::Note| {

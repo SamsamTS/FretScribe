@@ -103,7 +103,7 @@ const DEFAULTS: &[(&str, NoteAction, &[&str])] = &[
     ("lengthen", Resize { steps: 1 }, &["Shift+Right"]),
     ("link", LinkHover, &["L"]),
     ("unlink", UnlinkSelection, &["Shift+L"]),
-    ("cycle_link_type", CycleLinkType, &["T"]),
+    ("cycle_link_type", CycleLinkType, &[]),
     ("grace", Grace, &["G"]),
     ("legato", ForceLegato, &["H"]),
     ("string_1", SetStringFromTop(1), &["1"]),
@@ -206,10 +206,15 @@ impl Keymap {
         self.rows.iter().find(|(_, _, chords)| chords.iter().any(|c| c.matches(input))).map(|r| r.1)
     }
 
-    /// `LinkSelection` shares the link key (`LinkHover` acts on the selection when there is one).
+    /// `LinkSelection` shares the link key (`LinkHover` acts on the selection when there is one),
+    /// and so does `CycleLinkType` unless it is given a key of its own.
     pub fn chords(&self, action: NoteAction) -> &[KeyChord] {
-        let action = if action == LinkSelection { LinkHover } else { action };
-        self.rows.iter().find(|r| r.1 == action).map_or(&[], |r| &r.2)
+        let find = |a: NoteAction| self.rows.iter().find(|r| r.1 == a).map_or(&[][..], |r| &r.2[..]);
+        match action {
+            LinkSelection => find(LinkHover),
+            CycleLinkType if find(CycleLinkType).is_empty() => find(LinkHover),
+            _ => find(action),
+        }
     }
 
     /// First chord of the action, for tooltips.

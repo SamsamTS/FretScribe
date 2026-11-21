@@ -57,10 +57,10 @@ fn project(ui: &mut Ui, requests: &mut Vec<Request>) {
             ibtn(ui, "settings", "Settings (not available yet)", false)
         });
         sep(ui);
-        push(ui, "add-track", Request::AddTrack, "Add an audio track");
-        push(ui, "open", Request::Open, "Open a project");
+        push(ui, "add-track", Request::AddTrack, "Add an audio track (Ctrl+T)");
+        push(ui, "open", Request::Open, "Open a project (Ctrl+O)");
         push(ui, "save", Request::Save, "Save (Ctrl+S)");
-        push(ui, "save-as", Request::SaveAs, "Save under a new name");
+        push(ui, "save-as", Request::SaveAs, "Save under a new name (Ctrl+Shift+S)");
         ui.add_enabled_ui(false, |ui| ibtn(ui, "export", "Export is not available yet", false));
     });
 }
@@ -124,10 +124,10 @@ fn transport(ui: &mut Ui, s: &mut Session) {
         }
         sep(ui);
         let has_region = s.region.is_some();
-        let play_region = ui.add_enabled_ui(has_region, |ui| ibtn(ui, "play-selection", if has_region { "Play selection" } else { "Select a region first: drag on the overview" }, false)).inner;
-        if let (true, Some(r), Some(p)) = (play_region.clicked(), s.region, &s.player) {
-            p.seek(r.start_sec);
-            p.play();
+        let play_region = ui.add_enabled_ui(has_region, |ui| ibtn(ui, "play-selection", if has_region { "Play selection: Ctrl+Space looped, Shift+Space once" } else { "Select a region first: drag on the overview" }, false)).inner;
+        if play_region.clicked() {
+            let looped = s.ui.loop_enabled;
+            s.play_selection(looped);
         }
         if toggle(ui, "loop", "Repeat the selection (or the whole file when nothing is selected)", &mut s.ui.loop_enabled) {
             s.player_resync(false);

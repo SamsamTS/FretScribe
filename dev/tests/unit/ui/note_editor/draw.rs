@@ -127,7 +127,7 @@ fn committing_a_slide_is_one_undoable_edit_with_fresh_ids() {
 }
 
 fn aim(p: &Project, src: u64, cur: Pt, on: Option<u64>) -> LinkAim {
-    with_ctx(p, &[4, 3], false, |ctx| plan_aim(src, cur, on, (None, None), ctx))
+    with_ctx(p, &[4, 3], false, |ctx| plan_aim(src, cur, on, (None, None), None, ctx))
 }
 
 fn start(p: &Project, src: u64, cur: Pt) -> LinkStart {

@@ -2,7 +2,7 @@
 //! Edits are applied to the project right away and handed back as undo steps.
 
 use egui::Pos2;
-use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap};
+use fretscribe_core::{snap_edge, Edge, LinkType, Project, ProjectEdit, SnapGrid, TempoMap};
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
@@ -92,11 +92,13 @@ struct LinkState {
     pressed: bool,
     start: Option<LinkStart>,
     sticky: Sticky,
+    /// The link kind picked with L, instead of the inferred one.
+    kind: Option<LinkType>,
 }
 
 impl LinkState {
     fn new(src: u64, hover: bool) -> Self {
-        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY }
+        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY, kind: None }
     }
 
     /// No button is held: left clicks drive it.
@@ -349,7 +351,7 @@ impl NoteEditor {
                     };
                     match &l.start {
                         Some(start) => Some(extend(start, Some(at.sec), l.sticky)),
-                        None => match plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, ctx) {
+                        None => match plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, l.kind, ctx) {
                             LinkAim::Hidden => None,
                             LinkAim::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY)),
                             LinkAim::Start { start, snapped } => {
@@ -541,7 +543,7 @@ impl NoteEditor {
             let plan = with_ctx(env, mods.alt, |ctx| plan_extend(start, Some(at.sec), l.sticky, ctx));
             return self.commit(env, &plan.creation, "Draw linked note", true);
         }
-        match with_ctx(env, mods.alt, |ctx| plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, ctx)) {
+        match with_ctx(env, mods.alt, |ctx| plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, l.kind, ctx)) {
             LinkAim::Hidden => Vec::new(),
             LinkAim::Join(c) => self.commit(env, &c, "Link notes", false),
             LinkAim::Start { start, .. } => {
@@ -673,14 +675,42 @@ impl NoteEditor {
     }
 
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
-        if action == NoteAction::LinkHover && self.selection.ids.is_empty() {
-            if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
-                self.state = State::Link(LinkState::new(src, true));
+        if action == NoteAction::LinkHover {
+            // L while linking cycles the kind of the link being drawn, on a linked note the kind of its link.
+            if let State::Link(l) = &mut self.state {
+                let shown = l.start.as_ref().map(|s| s.kind).or(l.kind).or(self.feedback.as_ref().and_then(|f| f.link));
+                let next = match shown {
+                    Some(LinkType::Slide) => LinkType::Bend,
+                    Some(LinkType::Bend) => LinkType::Legato,
+                    _ => LinkType::Slide,
+                };
+                l.kind = Some(next);
+                if let Some(s) = &mut l.start {
+                    s.kind = next;
+                }
+                return Vec::new();
             }
-            return Vec::new();
+            if self.selection.ids.is_empty() {
+                if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
+                    let linked = env.project.link_of(src).map(|_| src).or_else(|| env.project.incoming(src).map(|(from, _)| from));
+                    match linked {
+                        Some(from) => return self.cycle_note(env, from),
+                        None => self.state = State::Link(LinkState::new(src, true)),
+                    }
+                }
+                return Vec::new();
+            }
+        }
+        let mut action = action;
+        let mut result = apply(env.project, &self.selection, action, env.grid);
+        if action == NoteAction::LinkHover && result.as_ref().is_ok_and(|d| d.edit.is_none()) {
+            // Nothing to link (already linked notes): L cycles their link type.
+            if let Ok(cycled) = apply(env.project, &self.selection, NoteAction::CycleLinkType, env.grid).ok().filter(|d| d.edit.is_some()).ok_or(()) {
+                (action, result) = (NoteAction::CycleLinkType, Ok(cycled));
+            }
         }
         let merge = action == NoteAction::CycleLinkType && self.cycle.is_some_and(|(_, at)| env.now - at <= CYCLE_WINDOW_SEC);
-        match apply(env.project, &self.selection, action, env.grid) {
+        match result {
             Ok(done) => {
                 if let Some(selection) = done.selection {
                     self.selection = selection;

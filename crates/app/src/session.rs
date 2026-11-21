@@ -547,6 +547,19 @@ impl Session {
         player.play();
     }
 
+    /// Plays the selected region from its start, with the loop switched on or off first.
+    pub fn play_selection(&mut self, looped: bool) {
+        let Some(r) = self.region else { return };
+        if self.ui.loop_enabled != looped {
+            self.ui.loop_enabled = looped;
+            self.player_resync(false);
+        }
+        if let Some(p) = &self.player {
+            p.seek(r.start_sec);
+            p.play();
+        }
+    }
+
     pub fn stop(&mut self) {
         if let Some(p) = &self.player {
             p.stop();
