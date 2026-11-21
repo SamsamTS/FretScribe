@@ -7,7 +7,7 @@ use fretscribe_core::{snap_edge, Edge, LinkType, Project, ProjectEdit, SnapGrid,
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
 use super::grace_entry::{EntryKey, EntryStep, GraceEntry};
-use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_draw_onto, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, valid_kinds, plan_draw, plan_extend, plan_draw_onto, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{NoteChange, apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
@@ -94,11 +94,13 @@ struct LinkState {
     sticky: Sticky,
     /// The link kind picked with L, instead of the inferred one.
     kind: Option<LinkType>,
+    /// The kinds the previewed link accepts (L cycles through them).
+    valid: Vec<LinkType>,
 }
 
 impl LinkState {
     fn new(src: u64, hover: bool) -> Self {
-        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY, kind: None }
+        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY, kind: None, valid: Vec::new() }
     }
 
     /// No button is held: left clicks drive it.
@@ -347,24 +349,27 @@ impl NoteEditor {
                 let plan = with_ctx(env, mods.alt, |ctx| {
                     let extend = |start: &LinkStart, sec, sticky| {
                         let p = plan_extend(start, sec, sticky, ctx);
-                        (ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped)
+                        (ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped, valid_kinds(&p.creation, ctx.project))
                     };
                     match &l.start {
                         Some(start) => Some(extend(start, Some(at.sec), l.sticky)),
                         None => match plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, l.kind, ctx) {
                             LinkAim::Hidden => None,
-                            LinkAim::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY)),
+                            LinkAim::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY, valid_kinds(&c, ctx.project))),
                             LinkAim::Start { start, snapped } => {
-                                let (ghost, fb, _) = extend(&start, None, NO_STICKY);
-                                Some((ghost, fb, snapped))
+                                let (ghost, fb, _, valid) = extend(&start, None, NO_STICKY);
+                                Some((ghost, fb, snapped, valid))
                             }
                         },
                     }
                 });
-                let next = plan.as_ref().map(|p| p.2);
-                self.show_plan(plan);
-                if let (Some(s), State::Link(l)) = (next, &mut self.state) {
-                    l.sticky = s;
+                let next = plan.as_ref().map(|p| (p.2, p.3.clone()));
+                self.show_plan(plan.map(|p| (p.0, p.1, p.2)));
+                if let State::Link(l) = &mut self.state {
+                    l.valid = next.as_ref().map(|n| n.1.clone()).unwrap_or_default();
+                    if let Some((s, _)) = next {
+                        l.sticky = s;
+                    }
                 }
             }
             State::Draw { press, was_slide, sticky } => {
@@ -679,11 +684,8 @@ impl NoteEditor {
             // L while linking cycles the kind of the link being drawn, on a linked note the kind of its link.
             if let State::Link(l) = &mut self.state {
                 let shown = l.start.as_ref().map(|s| s.kind).or(l.kind).or(self.feedback.as_ref().and_then(|f| f.link));
-                let next = match shown {
-                    Some(LinkType::Slide) => LinkType::Bend,
-                    Some(LinkType::Bend) => LinkType::Legato,
-                    _ => LinkType::Slide,
-                };
+                let at = l.valid.iter().position(|k| Some(*k) == shown);
+                let Some(&next) = at.map_or(l.valid.first(), |i| l.valid.get((i + 1) % l.valid.len())) else { return Vec::new() };
                 l.kind = Some(next);
                 if let Some(s) = &mut l.start {
                     s.kind = next;

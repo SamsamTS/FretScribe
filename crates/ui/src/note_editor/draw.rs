@@ -178,7 +178,7 @@ pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, forced: 
     };
     if let Some(t) = target.and_then(|id| project.note(id)).filter(|t| t.id != src) {
         let (from, to) = if ctx.tempo.pos_to_sec(t.start) >= ctx.tempo.pos_to_sec(source.start) { (source, t) } else { (t, source) };
-        let kind = forced.unwrap_or_else(|| project.infer_link_type(from.id, to.id));
+        let kind = forced.filter(|k| project.can_link(from.id, to.id, *k).is_ok()).unwrap_or_else(|| project.infer_link_type(from.id, to.id));
         return if project.can_link(from.id, to.id, kind).is_ok() {
             LinkAim::Join(Creation { notes: Vec::new(), links: vec![(Ref::Existing(from.id), Ref::Existing(to.id), kind)] })
         } else {
@@ -202,8 +202,34 @@ pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, forced: 
         let near = if wrong { bound } else { at };
         (near, if forward { (Some(near), None) } else { (None, Some(near)) })
     };
-    let kind = forced.unwrap_or(if inside { infer_link(&project.tuning, project.capo, source.midi, midi) } else { LinkType::Slide });
+    let kind = forced.filter(|k| kind_fits(project, source.midi, midi, *k)).unwrap_or(if inside { infer_link(&project.tuning, project.capo, source.midi, midi) } else { LinkType::Slide });
     LinkAim::Start { start: LinkStart { src, forward, kind, midi, near }, snapped }
+}
+
+/// Whether a link of `kind` suits the pitches of a link to a new note (existing pairs go through `can_link`).
+fn kind_fits(project: &Project, a: u8, b: u8, kind: LinkType) -> bool {
+    let fit = |midis: &[u8]| same_string_fit(&project.tuning, project.capo, midis);
+    match kind {
+        LinkType::Slide => true,
+        LinkType::Bend => fit(&[a, b]) && fit(&[a.min(b)]) && a.abs_diff(b) <= SOFT_BEND_LIMIT,
+        LinkType::Legato | LinkType::Tied => fit(&[a, b]),
+        LinkType::Dashed => false,
+    }
+}
+
+/// The kinds (slide, bend, legato) the first link of `creation` can take, for L to cycle through.
+pub fn valid_kinds(creation: &Creation, project: &Project) -> Vec<LinkType> {
+    let Some(&(a, b, _)) = creation.links.first() else { return Vec::new() };
+    let kinds = [LinkType::Slide, LinkType::Bend, LinkType::Legato];
+    let midi = |r: Ref| match r {
+        Ref::New(i) => creation.notes.get(i).map(|n| n.midi),
+        Ref::Existing(id) => project.note(id).map(|n| n.midi),
+    };
+    match (a, b, midi(a), midi(b)) {
+        (Ref::Existing(x), Ref::Existing(y), ..) => kinds.into_iter().filter(|k| project.can_link(x, y, *k).is_ok()).collect(),
+        (_, _, Some(x), Some(y)) => kinds.into_iter().filter(|k| kind_fits(project, x, y, *k)).collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Right-drag link, second step: the new note runs from the fixed point to the pointer (one step

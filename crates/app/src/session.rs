@@ -542,8 +542,7 @@ impl Session {
             player.pause();
             return;
         }
-        let start = self.region.map_or(self.ui.playhead_sec, |r| if (r.start_sec..r.end_sec).contains(&self.ui.playhead_sec) { self.ui.playhead_sec } else { r.start_sec });
-        player.seek(start);
+        player.seek(self.ui.playhead_sec);
         player.play();
     }
 

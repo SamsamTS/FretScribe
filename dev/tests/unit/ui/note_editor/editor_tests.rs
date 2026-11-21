@@ -519,6 +519,20 @@ fn link_key_cycles_the_link_of_a_linked_hovered_or_selected_note() {
 }
 
 #[test]
+fn link_key_while_linking_skips_kinds_the_pitches_do_not_allow() {
+    let mut h = H::new();
+    let src = add(&mut h.p, 60, 2.0, 3.0);
+    h.hovered = Some(src);
+    h.send(Input::Action(NoteAction::LinkHover));
+    h.mv(s(4.02, 100.0, None), NONE);
+    h.send(Input::Action(NoteAction::LinkHover));
+    h.click(Button::Left, s(4.02, 100.0, None), NONE);
+    h.mv(s(6.0, 100.0, None), NONE);
+    h.click(Button::Left, s(6.0, 100.0, None), NONE);
+    assert_eq!(h.p.outgoing(src).map(|l| l.1), Some(LinkType::Slide));
+}
+
+#[test]
 fn link_key_while_linking_forces_the_next_kind() {
     let mut h = H::new();
     let src = add(&mut h.p, 60, 2.0, 3.0);
