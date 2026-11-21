@@ -1604,7 +1604,6 @@ dependencies = [
 name = "fretscribe-analysis"
 version = "0.1.0"
 dependencies = [
- "fretscribe-audio",
  "fretscribe-core",
  "image",
  "log",
@@ -1641,6 +1640,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fretscribe-demos"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "fretscribe",
+ "fretscribe-analysis",
+ "fretscribe-audio",
+ "fretscribe-core",
+ "fretscribe-ui",
+ "image",
+]
+
+[[package]]
 name = "fretscribe-notation"
 version = "0.1.0"
 dependencies = [
@@ -1648,16 +1661,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fretscribe-tests"
+version = "0.1.0"
+dependencies = [
+ "fretscribe",
+ "fretscribe-core",
+]
+
+[[package]]
 name = "fretscribe-ui"
 version = "0.1.0"
 dependencies = [
- "eframe",
  "egui",
  "egui_extras",
  "fretscribe-analysis",
  "fretscribe-core",
  "fretscribe-notation",
- "image",
  "serde",
  "serde_json",
  "tempfile",

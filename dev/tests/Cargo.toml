@@ -1,0 +1,15 @@
+[package]
+name = "fretscribe-tests"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Integration tests (public API only): `cargo test --release -p fretscribe-tests`.
+# Unit tests of each crate live in unit/<crate>/ and are pulled in by #[path] (stages 3-4).
+# Safe to delete together with dev/.
+
+[dependencies]
+
+[dev-dependencies]
+fretscribe = { path = "../../crates/app" }
+fretscribe-core.workspace = true

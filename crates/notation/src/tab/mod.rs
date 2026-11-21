@@ -2,7 +2,8 @@
 
 mod label;
 mod solve;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/notation/tab.rs"]
 mod tests;
 
 use fretscribe_core::Tuning;

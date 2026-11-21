@@ -12,9 +12,11 @@ mod keymap;
 mod modify;
 mod overlay;
 mod select;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/note_editor/editor_tests.rs"]
 mod editor_tests;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/note_editor/testkit.rs"]
 mod testkit;
 
 pub use action::{apply, ActionError, Applied, NoteAction};

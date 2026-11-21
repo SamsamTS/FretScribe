@@ -9,7 +9,8 @@ mod lane;
 mod lanes;
 mod offset;
 mod region;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/tracks.rs"]
 mod tests;
 
 pub use events::TrackEvent;

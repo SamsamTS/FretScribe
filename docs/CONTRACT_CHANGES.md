@@ -163,3 +163,8 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 ## 2026-11-18 - ui/app: shared note placement and grid thinning
 
 `NoteGrid` (ui) replaces the fixed note inset. Sheet and tab draw notes at `NoteGrid::x`, which keeps each note inside its grid cell and clear of the lines, identically in both views; `StaffView`/`TabView` take a `grid` field. Notation grid lines drop by halves as the zoom falls (measure lines stay). Drawn x is nudged only; playhead, bars and click-to-seek use the exact time. No core change.
+
+## 2026-11-21 - tests and demos moved to `dev/`
+
+Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo run -p fretscribe-demos --example <name>` replaces `-p fretscribe-analysis|fretscribe|fretscribe-audio --example ...`, e.g. `make_luts`); the integration test is `dev/tests/tests/pipeline.rs`; unit-test bodies are in `dev/tests/unit/<crate>/` and attached by `#[cfg(all(test, dev_tests))] #[path]` (cfg `dev_tests` is set by each crate's `build.rs` when that folder exists). The PNG export tools and the ui widget demos (`staff_demo`, `tab_demo`, ...) were removed. `core::testkit` now lives there too (feature `test-support` unchanged). Deleting `dev/` also needs `"dev/*"` removed from the workspace `members`.
+

@@ -371,5 +371,6 @@ impl Project {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/core/grace.rs"]
 mod tests;

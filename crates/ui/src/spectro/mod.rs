@@ -332,7 +332,8 @@ impl<'a> SpectrogramView<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/spectro.rs"]
 mod tests;
 
 const REGION_FILL: Color32 = Color32::from_rgba_premultiplied(40, 30, 11, 40);
