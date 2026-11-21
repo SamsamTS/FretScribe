@@ -3,7 +3,7 @@ use maths::MeasureSpan;
 
 fn controller() -> ViewController {
     let mut c = ViewController::new(ViewState { scroll_sec: 0.0, scroll_y: 0.0, pixels_per_sec: 100.0 }, &ViewTuning::DEFAULT, PitchRange { lo: 20.0, hi: 100.0 });
-    c.set_geometry(1000.0, 100.0);
+    c.set_geometry(1000.0, -2.0, 102.0);
     c
 }
 
@@ -93,7 +93,7 @@ fn animation_converges_at_any_frame_rate_to_the_same_target() {
         let mut c = controller();
         let h = hover(&c, 400.0, None);
         c.zoom(&h, 3.0);
-        c.scroll_time(5.0, 0.5);
+        c.scroll_time(5.0, &TempoMap::new(&fretscribe_core::generate_measures(0.0, 100.0, 120.0, fretscribe_core::TimeSignature::COMMON, &mut 1)));
         run(&mut c, dt, |_| {});
         c.current
     };
@@ -149,5 +149,5 @@ fn jump_to_centres_and_scroll_is_clamped() {
     c.jump_to(50.0);
     assert_eq!(c.target.scroll_sec, 45.0);
     c.jump_to(-100.0);
-    assert!(c.target.scroll_sec >= -1.0 - 1e-9);
+    assert_eq!(c.target.scroll_sec, -2.0);
 }

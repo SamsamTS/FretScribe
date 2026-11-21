@@ -11,7 +11,9 @@ const STOP_EPS: f64 = 1e-6;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Geometry {
     pub width: f64,
-    pub audio_len_sec: f64,
+    /// The view may show nothing before `lo_sec` nor after `hi_sec` (one measure beyond the grid).
+    pub lo_sec: f64,
+    pub hi_sec: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -77,11 +79,47 @@ pub fn zoom_pps(pps: f64, notches: f64, t: &ViewTuning) -> f64 {
     (pps * t.zoom_per_notch.powf(notches)).clamp(t.min_pps, t.max_pps)
 }
 
-pub fn clamp_scroll(scroll_sec: f64, pps: f64, geo: Geometry, t: &ViewTuning) -> f64 {
-    let visible = geo.width / pps;
-    let lo = -t.overscroll_fraction * visible;
-    let hi = geo.audio_len_sec - (1.0 - t.overscroll_fraction) * visible;
-    scroll_sec.clamp(lo, hi.max(lo))
+pub fn clamp_scroll(scroll_sec: f64, pps: f64, geo: Geometry, _t: &ViewTuning) -> f64 {
+    scroll_sec.clamp(geo.lo_sec, (geo.hi_sec - geo.width / pps).max(geo.lo_sec))
+}
+
+/// One measure before the first and after the last (by its own length); the grid, or `0..audio_len`
+/// without one.
+pub fn scroll_limits(map: &TempoMap, audio_len_sec: f64) -> (f64, f64) {
+    let Some(last) = map.len().checked_sub(1) else { return (0.0, audio_len_sec) };
+    let end = map.measure_end_sec(last, map.measure_start_sec(last) + map.measure_duration_sec(last));
+    (map.measure_start_sec(0) - map.measure_duration_sec(0), end + map.measure_duration_sec(last))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Round {
+    Nearest,
+    Down,
+    Up,
+}
+
+/// The quarter-note line of the grid at (`Nearest`), before (`Down`) or after (`Up`) `sec`; a
+/// measure's last, shorter quarter ends on the next barline. Before the first measure and after the
+/// last the first / last tempo continues.
+pub fn snap_quarter(map: &TempoMap, sec: f64, round: Round) -> f64 {
+    if map.is_empty() || !sec.is_finite() {
+        return sec;
+    }
+    let (i, beat) = map.sec_to_beat_position(sec);
+    let (start, spb, len) = (map.measure_start_sec(i), 60.0 / map.effective_bpm(i), map.beats_in_measure(i));
+    let at = |b: f64| match map.measures().get(i + 1) {
+        Some(next) if b >= len - 1e-9 => next.start_sec,
+        _ => start + b * spb,
+    };
+    let near = beat.round();
+    let (lo, hi) = if (beat - near).abs() < 1e-9 { (near, near) } else { (beat.floor(), beat.ceil()) };
+    let (a, b) = (at(lo), at(hi));
+    match round {
+        Round::Down => a,
+        Round::Up => b,
+        Round::Nearest if sec - a <= b - sec => a,
+        Round::Nearest => b,
+    }
 }
 
 /// `scroll_sec` and `pps` describe the target view. A previous anchor with the same key is reused
@@ -155,16 +193,24 @@ pub fn zoom_target(
     }
 }
 
-pub fn scroll_time_target(scroll_sec: f64, pps: f64, notches: f64, quarter_sec: f64, geo: Geometry, t: &ViewTuning) -> f64 {
-    clamp_scroll(scroll_sec + notches * t.quarter_notes_per_notch * quarter_sec, pps, geo, t)
-}
-
-/// Duration of a quarter note at the tempo realised by the measure containing `sec`.
-pub fn quarter_sec_at(map: &TempoMap, sec: f64) -> f64 {
-    if map.is_empty() {
-        return 0.5;
-    }
-    60.0 / map.effective_bpm(map.sec_to_beat_position(sec).0)
+/// Each notch moves the view by a fixed number of points whatever the zoom, then its left edge
+/// snaps to the nearest quarter-note line (at least one quarter when the step is shorter), within
+/// the scroll limits.
+pub fn scroll_time_target(scroll_sec: f64, pps: f64, notches: f64, map: &TempoMap, geo: Geometry, t: &ViewTuning) -> f64 {
+    let (dir, step) = (notches.signum(), t.scroll_x_points_per_notch / pps);
+    let max = (geo.hi_sec - geo.width / pps).max(geo.lo_sec);
+    (0..notches.round().abs() as u32).fold(clamp_scroll(scroll_sec, pps, geo, t), |cur, _| {
+        let mut next = snap_quarter(map, cur + dir * step, Round::Nearest);
+        if (next - cur).abs() < 1e-9 {
+            next = if dir > 0.0 { snap_quarter(map, cur + 1e-6, Round::Up) } else { snap_quarter(map, cur - 1e-6, Round::Down) };
+        }
+        if next > max {
+            next = snap_quarter(map, max, Round::Down).max(cur.min(max));
+        } else if next < geo.lo_sec {
+            next = snap_quarter(map, geo.lo_sec, Round::Up).min(cur.max(geo.lo_sec));
+        }
+        next
+    })
 }
 
 pub fn measure_at(map: &TempoMap, sec: f64) -> Option<MeasureSpan> {

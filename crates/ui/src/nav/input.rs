@@ -3,7 +3,7 @@
 use egui::{Context, Event, MouseWheelUnit, PointerButton, Pos2, Rect, Vec2};
 use fretscribe_core::TempoMap;
 
-use super::maths::{max_scroll_y, measure_at, quarter_sec_at, Hover};
+use super::maths::{max_scroll_y, measure_at, scroll_limits, Hover};
 use super::tuning::ViewTuning;
 use super::ViewController;
 
@@ -126,7 +126,8 @@ impl ViewController {
         let ppp = ctx.pixels_per_point();
         let r = &nav.regions;
         let viewport_px = (r.lanes.height() * ppp).round();
-        self.set_geometry(f64::from(r.grid.width()), nav.audio_len_sec);
+        let (lo, hi) = scroll_limits(nav.map, nav.audio_len_sec);
+        self.set_geometry(f64::from(r.grid.width()), lo, hi);
         self.set_vertical(
             f64::from(nav.strip_pitch_px) / f64::from(ppp),
             max_scroll_y(f64::from(nav.content_px), f64::from(viewport_px)) / f64::from(ppp),
@@ -152,8 +153,7 @@ impl ViewController {
             self.zoom_at(nav.map, f64::from(pos.x - r.grid.left()), wheel.zoom);
         }
         if wheel.horiz != 0.0 {
-            let centre = self.target.scroll_sec + self.width() / self.target.pixels_per_sec / 2.0;
-            self.scroll_time(wheel.horiz, quarter_sec_at(nav.map, centre));
+            self.scroll_time(wheel.horiz, nav.map);
         }
         if wheel.vert != 0.0 {
             self.scroll_y(wheel.vert);

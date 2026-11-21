@@ -140,8 +140,8 @@ fn run_publishes_alt_notches_and_plain_wheel_is_ignored_off_the_lanes() {
 fn button_zoom_follows_the_wheel_rules() {
     let (mut a, map) = ctl_and_map(0.0);
     let (mut b, _) = ctl_and_map(0.0);
-    a.set_geometry(1000.0, 100.0);
-    b.set_geometry(1000.0, 100.0);
+    a.set_geometry(1000.0, -2.0, 102.0);
+    b.set_geometry(1000.0, -2.0, 102.0);
     a.zoom_at_centre(&map, 1.0);
     let x = 500.0;
     b.zoom(&Hover { x, sec: x / 100.0, measure: crate::nav::maths::measure_at(&map, x / 100.0) }, 1.0);

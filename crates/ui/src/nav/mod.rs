@@ -12,6 +12,8 @@ pub use tuning::ViewTuning;
 
 use maths::{clamp_scroll, max_scroll_y, scroll_time_target, scroll_y_target, smooth, snap_y, zoom_target, Anchor};
 
+use fretscribe_core::TempoMap;
+
 use crate::view::TimelineView;
 
 const PITCH_EPS: f64 = 1e-3;
@@ -79,7 +81,7 @@ impl ViewController {
             current: state,
             pitch: PitchAnimation { target: full_pitch, current: full_pitch, full: full_pitch },
             tuning: *tuning,
-            geo: Geometry { width: 1.0, audio_len_sec: 0.0 },
+            geo: Geometry { width: 1.0, lo_sec: 0.0, hi_sec: 0.0 },
             y_pitch: 0.0,
             y_max: 0.0,
             pivot: None,
@@ -93,8 +95,8 @@ impl ViewController {
         self.geo.width
     }
 
-    pub fn set_geometry(&mut self, width: f64, audio_len_sec: f64) {
-        self.geo = Geometry { width: width.max(1.0), audio_len_sec: audio_len_sec.max(0.0) };
+    pub fn set_geometry(&mut self, width: f64, lo_sec: f64, hi_sec: f64) {
+        self.geo = Geometry { width: width.max(1.0), lo_sec, hi_sec };
     }
 
     /// `pitch` is one strip pitch and `max` the bottom stop, both in points.
@@ -127,9 +129,9 @@ impl ViewController {
         self.settle_if_instant();
     }
 
-    pub fn scroll_time(&mut self, notches: f64, quarter_sec: f64) {
+    pub fn scroll_time(&mut self, notches: f64, map: &TempoMap) {
         let t = self.tuning;
-        self.target.scroll_sec = scroll_time_target(self.target.scroll_sec, self.target.pixels_per_sec, notches, quarter_sec, self.geo, &t);
+        self.target.scroll_sec = scroll_time_target(self.target.scroll_sec, self.target.pixels_per_sec, notches, map, self.geo, &t);
         self.pivot = None;
         self.settle_if_instant();
     }
