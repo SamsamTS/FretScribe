@@ -8,7 +8,8 @@
 
 mod quant;
 mod spell;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/notation/staff.rs"]
 mod tests;
 mod value;
 
