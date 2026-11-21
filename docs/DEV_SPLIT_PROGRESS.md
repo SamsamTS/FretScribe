@@ -6,7 +6,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - [x] 0 Inventory + scaffold (`dev/demos`, `dev/tests`, members = ["crates/*", "dev/*"])
 - [x] 0b Prune demos (commit) / prune tests (commit) / record counts
 - [x] 1 Demos -> dev/demos
-- [ ] 2 Integration tests -> dev/tests/tests
+- [x] 2 Integration tests -> dev/tests/tests
 - [ ] 3 Unit tests: core
 - [ ] 4 Unit tests: audio, analysis, notation, ui, app (one commit each)
 - [ ] 5 Proof (move dev/ away, build/clippy/test --no-run), docs, CI script
@@ -23,6 +23,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - Demos live in dev/demos/examples/*.rs, auto-discovered (no [[example]] entries needed); run with `cargo run --release -p fretscribe-demos --example <name>`. Names: beatfit_bench, make_luts, pitchref, sync_offset, waveform_peaks, demo_project, ui_preview, play. No shared helpers, so src/lib.rs is a stub.
 - make_luts: `../../LUT` resolves identically from dev/demos (verified, PNGs byte-identical).
 - play's 6 inline tests run via `cargo test -p fretscribe-demos --examples` (not counted in the crate numbers above).
+- Integration tests: only app/tests/pipeline.rs remained (the export tests were pruned); now dev/tests/tests/pipeline.rs (3 tests), auto-discovered, deps fretscribe + fretscribe-core. `cargo test --release -p fretscribe-tests --test pipeline`. NEXT: stage 3 (core).
 - analysis dev-dep fretscribe-audio dropped (only the examples used it).
 
 ## Removed (pruning)

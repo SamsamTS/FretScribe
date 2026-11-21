@@ -1663,6 +1663,10 @@ dependencies = [
 [[package]]
 name = "fretscribe-tests"
 version = "0.1.0"
+dependencies = [
+ "fretscribe",
+ "fretscribe-core",
+]
 
 [[package]]
 name = "fretscribe-ui"
