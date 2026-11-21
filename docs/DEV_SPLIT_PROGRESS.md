@@ -7,7 +7,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - [x] 0b Prune demos (commit) / prune tests (commit) / record counts
 - [x] 1 Demos -> dev/demos
 - [x] 2 Integration tests -> dev/tests/tests
-- [ ] 3 Unit tests: core
+- [x] 3 Unit tests: core (215 = reference)
 - [ ] 4 Unit tests: audio, analysis, notation, ui, app (one commit each)
 - [ ] 5 Proof (move dev/ away, build/clippy/test --no-run), docs, CI script
 
@@ -20,6 +20,9 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - No CONTEXT.md in the repo (only in the project docs).
 
 ## Decisions
+- OPEN (stage 5): the prompt assumes `members = ["crates/*", "dev/*"]` is valid when dev/ is missing. It is NOT on cargo 1.97 (non-matching glob = literal path = error; also with an empty dev/; variants `dev/*/`, `dev/**`, `[d]ev/*` all fail). Needs a choice: (A) dev/ as its own nested workspace (root `exclude = ["dev"]`; commands become `--manifest-path dev/Cargo.toml`, separate lock/target) or (B) keep the glob and make "delete dev/" a two-step (rm -rf dev + drop the members line; the CI proof script does both). Until decided: glob kept, proofs use $S/nodev.sh-style temporary patch.
+- Mover script (reusable): move_tests.py <crate> in the session scratchpad; if lost, rules are: inline `#[cfg(test)] mod X {}` -> dev/tests/unit/<crate>/<module>.rs (X != tests -> <module>_X.rs); external `#[cfg(test)] mod X;` files move to the same relative place (tests -> <module>.rs); stub = `#[cfg(all(test, dev_tests))] #[path = "<../ * (depth+3)>dev/tests/unit/<crate>/<file>"] mod X;`; each crate with tests gets the same build.rs (copy crates/core/build.rs).
+- core hand cases: `testkit` (shared fixtures, feature test-support) moved to dev/tests/unit/core/testkit.rs, gated `all(any(test, feature="test-support"), dev_tests)`; edit.rs `finish()` undo/redo self-check moved into tests::check_undo_redo, called under `#[cfg(all(test, dev_tests))]`.
 - Demos live in dev/demos/examples/*.rs, auto-discovered (no [[example]] entries needed); run with `cargo run --release -p fretscribe-demos --example <name>`. Names: beatfit_bench, make_luts, pitchref, sync_offset, waveform_peaks, demo_project, ui_preview, play. No shared helpers, so src/lib.rs is a stub.
 - make_luts: `../../LUT` resolves identically from dev/demos (verified, PNGs byte-identical).
 - play's 6 inline tests run via `cargo test -p fretscribe-demos --examples` (not counted in the crate numbers above).

@@ -1640,31 +1640,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "fretscribe-demos"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "egui",
- "fretscribe",
- "fretscribe-analysis",
- "fretscribe-audio",
- "fretscribe-core",
- "fretscribe-ui",
- "image",
-]
-
-[[package]]
 name = "fretscribe-notation"
 version = "0.1.0"
 dependencies = [
- "fretscribe-core",
-]
-
-[[package]]
-name = "fretscribe-tests"
-version = "0.1.0"
-dependencies = [
- "fretscribe",
  "fretscribe-core",
 ]
 

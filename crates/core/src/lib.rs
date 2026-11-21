@@ -13,7 +13,8 @@ pub mod pitch;
 pub mod snap;
 pub mod snap_note;
 pub mod tempo;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(all(any(test, feature = "test-support"), dev_tests))]
+#[path = "../../../dev/tests/unit/core/testkit.rs"]
 pub mod testkit;
 pub mod tracks;
 pub mod undo;
