@@ -13,7 +13,7 @@ On Linux the audio backend needs the ALSA development files (`apt-get install li
 
 ## Tests and demos
 
-Everything for development lives in `dev/` (see `docs/CONVENTIONS.md`): `cargo test --release --workspace`, `cargo run --release -p fretscribe-demos --example <name>` (`beatfit_bench`, `make_luts`, `pitchref`, `sync_offset`, `waveform_peaks`, `demo_project`, `ui_preview`, `play`) and `dev/check_without_dev.sh`.
+Everything for development lives in `dev/` (see `docs/CONVENTIONS.md`): `cargo test --release --workspace`, `cargo run --release -p fretscribe-demos --example <name>` (`beatfit_bench`, `make_luts`, `pitchref`, `sync_offset`, `waveform_peaks`, `demo_project`, `ui_preview`, `play`).
 
 ## The `LUT/` folder
 

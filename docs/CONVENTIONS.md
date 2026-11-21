@@ -25,4 +25,4 @@ Every test, example and CLI tool lives under `dev/`, which can be deleted withou
 - `dev/tests` (crate `fretscribe-tests`): integration tests (public API only) in `tests/`; `cargo test --release -p fretscribe-tests`.
 - `dev/tests/unit/<crate>/<module>.rs`: the unit tests. Each file is a child module of the module it tests, declared there as `#[cfg(all(test, dev_tests))] #[path = "../../../dev/tests/unit/<crate>/<module>.rs"] mod tests;` (adjust the `../` count). Test-only helpers that need private access are child modules too (`test_support`, `testkit`). Each crate's `build.rs` sets cfg `dev_tests` only if `dev/tests/unit` exists, so without `dev/` nothing refers to the missing files.
 - Product code never depends on `dev/`, and a new test, demo, example or export test always goes there.
-- To drop `dev/`: delete it and remove `"dev/*"` from `members` in `Cargo.toml` (cargo rejects a glob that matches nothing). `dev/check_without_dev.sh` proves the build, clippy and `cargo test --no-run` stay green without it.
+- To drop `dev/`: delete it and remove `"dev/*"` from `members` in `Cargo.toml` (cargo rejects a glob that matches nothing).

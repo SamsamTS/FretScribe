@@ -31,7 +31,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 
 - Overview snapping: on by default, Alt disables it (or enables it when the magnet button is off). `OverviewTimeline::snapping(bool)`, `OverviewEvent::SnapToggled(bool)` (the app stores the state); `DragContext::snap: &[f64]`.
 - `nav` (`ViewController`, `ViewTuning`, `NavContext`, `NavRegions`, `nav::ViewState { scroll_sec, scroll_y, pixels_per_sec }`): `ctl.run(ctx, &NavContext)` once per frame; widgets read `current`. The app must set `ctx.options_mut(|o| o.zoom_with_keyboard = false)`. `scroll_y` is not persisted. Feel constants live in `nav/tuning.rs`.
-- Alt + wheel is read by the lane (resizes it), not by the nav; the pitch range is always shown in full (`ViewController::pitch` stays, pitch zoom removed).
+- Alt + wheel is read by the nav over the lanes and published as `ViewController::wheel_rows`, which the app passes to `TrackLanes::wheel_rows` (the lane under the pointer resizes); the pitch range is always shown in full (`ViewController::pitch` stays, pitch zoom removed).
 
 ## 2026-11-06 - analysis: beat fit, track sync, reference pitch
 
@@ -168,3 +168,6 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 
 Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo run -p fretscribe-demos --example <name>` replaces `-p fretscribe-analysis|fretscribe|fretscribe-audio --example ...`, e.g. `make_luts`); the integration test is `dev/tests/tests/pipeline.rs`; unit-test bodies are in `dev/tests/unit/<crate>/` and attached by `#[cfg(all(test, dev_tests))] #[path]` (cfg `dev_tests` is set by each crate's `build.rs` when that folder exists). The PNG export tools and the ui widget demos (`staff_demo`, `tab_demo`, ...) were removed. `core::testkit` now lives there too (feature `test-support` unchanged). Deleting `dev/` also needs `"dev/*"` removed from the workspace `members`.
 
+## 2026-11-21 - app: wheel parity
+- `ViewController::run` is the only thing that advances the view (the app no longer calls `update`). `NavRegions::grid` is the timeline column only (headers excluded, notation panel included), `lanes` the scrolling timeline area. New `ViewController::{zoom_at, zoom_at_centre, wheel_rows}`, `WheelActions::rows`, `TrackLanes::wheel_rows`; overview zoom buttons use `zoom_at_centre`; `nav::notches` is no longer re-exported.
+- Horizontal wheel scroll: a fixed `ViewTuning::scroll_x_points_per_notch` (120) whatever the zoom, then the left edge snaps to the nearest quarter-note line (at least one quarter per notch). Scroll limits: one measure before the first and after the last (`maths::scroll_limits`, `Geometry { width, lo_sec, hi_sec }`, `ViewController::set_geometry(width, lo, hi)`). Removed `quarter_notes_per_notch`, `overscroll_fraction`, `quarter_sec_at`; `scroll_time` takes the `TempoMap`.

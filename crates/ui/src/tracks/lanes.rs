@@ -119,6 +119,8 @@ pub struct TrackLanes<'a> {
     pub region_snap: &'a [f64],
     pub region_snapping: bool,
     pub audio_len_sec: f64,
+    /// Alt + wheel notches read by the nav this frame (`ViewController::wheel_rows`).
+    pub wheel_rows: f64,
 }
 
 pub struct TrackLanesOutput {

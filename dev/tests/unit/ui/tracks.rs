@@ -52,11 +52,12 @@ struct Harness {
     project: Project,
     state: TrackLanesState,
     time: f64,
+    rows: f64,
 }
 
 impl Harness {
     fn new() -> Self {
-        let mut h = Self { ctx: Context::default(), project: project(), state: TrackLanesState::default(), time: 0.0 };
+        let mut h = Self { ctx: Context::default(), project: project(), state: TrackLanesState::default(), time: 0.0, rows: 0.0 };
         h.frame(Vec::new());
         h
     }
@@ -66,11 +67,12 @@ impl Harness {
         let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0))), time: Some(self.time), events, ..Default::default() };
         let style = SpectroStyle { levels: Levels::default(), gamma: 1.0, lut: Arc::new(Lut::builtin()) };
         let times = NoteTimes::default();
+        let rows = std::mem::take(&mut self.rows);
         let mut out = Vec::new();
         let _ = self.ctx.run(raw, |ctx| {
             CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
                 let lanes = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0));
-                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 0.0 }
+                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 0.0, wheel_rows: rows }
                     .show(ui, lanes, &TimelineView::new(0.0, 100.0), &PitchView::default(), 0.0, &mut self.state);
                 out = o.events;
             });
@@ -129,12 +131,12 @@ fn collapsing_shrinks_the_lane_in_whole_rows() {
 }
 
 #[test]
-fn one_alt_wheel_notch_resizes_the_lane_by_a_row_with_animation() {
+fn one_alt_wheel_notch_from_the_nav_resizes_the_lane_by_a_row_with_animation() {
     let mut h = Harness::new();
     let pos = Pos2::new(500.0, 100.0);
     h.frame(vec![Event::PointerMoved(pos)]);
-    let alt = egui::Modifiers { alt: true, ..Default::default() };
-    h.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, 1.0), modifiers: alt }]);
+    h.rows = 1.0;
+    h.frame(Vec::new());
     assert_eq!(h.state.configured_rows(1), SPECTRO_ROWS + 1);
     let mut seen = vec![h.state.strips(&h.ctx, &h.project).0[0].rows];
     for _ in 0..30 {
@@ -142,7 +144,8 @@ fn one_alt_wheel_notch_resizes_the_lane_by_a_row_with_animation() {
         seen.push(h.state.strips(&h.ctx, &h.project).0[0].rows);
     }
     assert!(seen.windows(2).all(|w| w[0] <= w[1]) && *seen.last().unwrap() == SPECTRO_ROWS + 1, "{seen:?}");
-    h.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, -1.0), modifiers: alt }]);
+    h.rows = -1.0;
+    h.frame(Vec::new());
     assert_eq!(h.state.configured_rows(1), SPECTRO_ROWS);
 }
 

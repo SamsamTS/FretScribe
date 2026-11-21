@@ -129,13 +129,15 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let area = ui.available_rect_before_wrap();
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
         let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
+        let lanes_timeline = Rect::from_min_max(pos2(ruler.left(), ruler.bottom()), area.max);
         seek_origin = ruler.left_top();
         // The corner above the track headers shares the toolbar's background and captions like its groups.
         let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
         ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
-        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_rect), lanes });
+        let notation_timeline = Rect::from_min_max(pos2(ruler.left(), notation_rect.top()), notation_rect.max);
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes: lanes_timeline });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
@@ -153,6 +155,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             region_snap: &measure_starts,
             region_snapping: s.overview_snap,
             audio_len_sec: audio_len,
+            wheel_rows: s.ctl.wheel_rows,
             ghost: s.editor.ghost.as_ref(),
             reference_track: s.reference_track,
             focus: s.ui.focus_enabled.then(|| {
@@ -263,14 +266,10 @@ fn handle_overview(s: &mut Session, e: OverviewEvent) {
             (v.scroll_sec, v.pixels_per_sec) = (scroll_sec, pixels_per_sec);
             s.ctl.set_target(v);
         }
+        OverviewEvent::Zoom(ZoomStep::Fit) => s.ctl.set_target(TimelineView::new(0.0, s.ctl.width() / s.audio_len_sec.max(1.0))),
         OverviewEvent::Zoom(step) => {
-            let mut v = s.ctl.target.timeline();
-            match step {
-                ZoomStep::In => v.zoom_around((s.ctl.width() / 2.0) as f32, 1.25),
-                ZoomStep::Out => v.zoom_around((s.ctl.width() / 2.0) as f32, 1.0 / 1.25),
-                ZoomStep::Fit => v = TimelineView::new(0.0, s.ctl.width() / s.audio_len_sec.max(1.0)),
-            }
-            s.ctl.set_target(v);
+            let notch = if step == ZoomStep::In { 1.0 } else { -1.0 };
+            s.ctl.zoom_at_centre(&TempoMap::new(&s.project.measures), notch);
         }
         OverviewEvent::SnapToggled(on) => s.overview_snap = on,
         OverviewEvent::NotesOnAllLanesToggled(on) => s.lanes.options.show_notes_on_all = on,

@@ -3,7 +3,7 @@
 use egui::{Context, Event, MouseWheelUnit, PointerButton, Pos2, Rect, Vec2};
 use fretscribe_core::TempoMap;
 
-use super::maths::{max_scroll_y, measure_at, quarter_sec_at, Hover};
+use super::maths::{max_scroll_y, measure_at, scroll_limits, Hover};
 use super::tuning::ViewTuning;
 use super::ViewController;
 
@@ -32,14 +32,17 @@ pub struct WheelAccum {
     zoom: f64,
     horiz: f64,
     vert: f64,
+    rows: f64,
 }
 
-/// Whole notches; positive `zoom` zooms in, positive `horiz` and `vert` go forward / down.
+/// Whole notches; positive `zoom` zooms in, positive `horiz` and `vert` go forward / down, positive
+/// `rows` (Alt + wheel over the lanes) adds spectrogram rows.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WheelActions {
     pub zoom: f64,
     pub horiz: f64,
     pub vert: f64,
+    pub rows: f64,
     pub claimed: bool,
 }
 
@@ -68,7 +71,10 @@ pub fn read_wheel(events: &mut Vec<Event>, pointer: Option<Pos2>, r: &NavRegions
             let (nx, ny) = notches(*unit, *delta, t);
             let mut used = false;
             if m.alt {
-                // Alt + wheel resizes the lane under the pointer (see `tracks`).
+                if in_lanes {
+                    acc.rows += ny;
+                    used = true;
+                }
             } else if m.ctrl {
                 if in_grid {
                     acc.zoom += ny;
@@ -97,18 +103,31 @@ pub fn read_wheel(events: &mut Vec<Event>, pointer: Option<Pos2>, r: &NavRegions
         zoom: take_whole(&mut acc.zoom),
         horiz: take_whole(&mut acc.horiz),
         vert: take_whole(&mut acc.vert),
+        rows: take_whole(&mut acc.rows),
         claimed,
     }
 }
 
 impl ViewController {
+    /// Zooms by `notches` around the screen column `x` (relative to the grid's left edge), with the
+    /// measure rule of the wheel. Toolbar and overview buttons go through here too.
+    pub fn zoom_at(&mut self, map: &TempoMap, x: f64, notches: f64) {
+        let sec = self.current.scroll_sec + x / self.current.pixels_per_sec;
+        self.zoom(&Hover { x, sec, measure: measure_at(map, sec) }, notches);
+    }
+
+    pub fn zoom_at_centre(&mut self, map: &TempoMap, notches: f64) {
+        self.zoom_at(map, self.width() / 2.0, notches);
+    }
+
     /// One frame of navigation: reads the input, moves the target, advances `current` and requests
     /// a repaint while an animation runs. Call before drawing the strips.
     pub fn run(&mut self, ctx: &Context, nav: &NavContext) {
         let ppp = ctx.pixels_per_point();
         let r = &nav.regions;
         let viewport_px = (r.lanes.height() * ppp).round();
-        self.set_geometry(f64::from(r.grid.width()), nav.audio_len_sec);
+        let (lo, hi) = scroll_limits(nav.map, nav.audio_len_sec);
+        self.set_geometry(f64::from(r.grid.width()), lo, hi);
         self.set_vertical(
             f64::from(nav.strip_pitch_px) / f64::from(ppp),
             max_scroll_y(f64::from(nav.content_px), f64::from(viewport_px)) / f64::from(ppp),
@@ -129,16 +148,12 @@ impl ViewController {
             (pos, wheel, i.pointer.button_pressed(PointerButton::Middle), down, i.pointer.delta(), i.unstable_dt)
         });
 
-        if let Some(pos) = pos {
-            if wheel.zoom != 0.0 {
-                let x = f64::from(pos.x - r.grid.left());
-                let sec = self.current.scroll_sec + x / self.current.pixels_per_sec;
-                self.zoom(&Hover { x, sec, measure: measure_at(nav.map, sec) }, wheel.zoom);
-            }
+        self.wheel_rows = wheel.rows;
+        if let (Some(pos), true) = (pos, wheel.zoom != 0.0) {
+            self.zoom_at(nav.map, f64::from(pos.x - r.grid.left()), wheel.zoom);
         }
         if wheel.horiz != 0.0 {
-            let centre = self.target.scroll_sec + self.width() / self.target.pixels_per_sec / 2.0;
-            self.scroll_time(wheel.horiz, quarter_sec_at(nav.map, centre));
+            self.scroll_time(wheel.horiz, nav.map);
         }
         if wheel.vert != 0.0 {
             self.scroll_y(wheel.vert);

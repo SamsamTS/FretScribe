@@ -509,7 +509,7 @@ impl App {
         requests.extend(save);
         editor::dialogs(ctx, s);
         missing_audio_dialog(ctx, s);
-        if s.ctl.update(ctx.input(|i| i.stable_dt) as f64) || playing || loading || jobs {
+        if playing || loading || jobs {
             ctx.request_repaint();
         }
         let secs = s.last_autosave.elapsed().as_secs_f64();

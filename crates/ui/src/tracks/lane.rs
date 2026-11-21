@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use egui::{pos2, vec2, Color32, Context, Event, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
+use egui::{pos2, vec2, Color32, Context, Id, PointerButton, Rect, Response, Sense, Stroke, Ui, UiBuilder};
 use fretscribe_analysis::Spectrogram;
 use fretscribe_core::Track;
 
@@ -11,7 +11,6 @@ use super::events::TrackEvent;
 use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
-use crate::nav::{notches, ViewTuning};
 use crate::spectro::{
     place_readout, white, HitZone, NoteScene, Peak, SpectroCache, SpectroEvent, SpectroGeometry, SpectrogramView, WaveformView,
 };
@@ -228,21 +227,8 @@ impl TrackLane<'_> {
             painter.rect_filled(Rect::from_min_max(pos2(spec_rect.left(), spec_rect.bottom() - px(BORDER_PX)), spec_rect.max), 0.0, BORDER_COLOR);
         }
 
-        if self.shown_rows > 0 && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
-            let key = Id::new(("wheel-rows", id));
-            let added: f64 = ctx.input(|i| {
-                let tuning = ViewTuning::DEFAULT;
-                i.events.iter().map(|e| match e {
-                    Event::MouseWheel { unit, delta, modifiers } if modifiers.alt => notches(*unit, *delta, &tuning).1,
-                    _ => 0.0,
-                }).sum()
-            });
-            let acc = ctx.data(|d| d.get_temp::<f64>(key).unwrap_or(0.0)) + added;
-            let whole = acc.trunc();
-            ctx.data_mut(|d| d.insert_temp(key, acc - whole));
-            if whole != 0.0 {
-                resized_rows = Some((clamp_rows(i64::from(self.configured_rows) + whole as i64), true));
-            }
+        if self.shown_rows > 0 && shared.wheel_rows != 0.0 && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
+            resized_rows = Some((clamp_rows(i64::from(self.configured_rows) + shared.wheel_rows as i64), true));
         }
 
         if self.shown_rows > 0 && self.shown_rows == self.configured_rows {
