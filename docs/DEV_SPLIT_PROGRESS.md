@@ -8,7 +8,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - [x] 1 Demos -> dev/demos
 - [x] 2 Integration tests -> dev/tests/tests
 - [x] 3 Unit tests: core (215 = reference)
-- [ ] 4 Unit tests: audio, analysis, notation, ui, app (one commit each)
+- [ ] 4 Unit tests (one commit each): [x] audio (94) [ ] analysis [ ] notation [ ] ui [ ] app
 - [ ] 5 Proof (move dev/ away, build/clippy/test --no-run), docs, CI script
 
 ## Inventory (repo differs from the prompt text)
@@ -28,6 +28,8 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - play's 6 inline tests run via `cargo test -p fretscribe-demos --examples` (not counted in the crate numbers above).
 - Integration tests: only app/tests/pipeline.rs remained (the export tests were pruned); now dev/tests/tests/pipeline.rs (3 tests), auto-discovered, deps fretscribe + fretscribe-core. `cargo test --release -p fretscribe-tests --test pipeline`. NEXT: stage 3 (core).
 - analysis dev-dep fretscribe-audio dropped (only the examples used it).
+
+- audio hand cases: test-only helpers `Prepared::from_channels` (resample.rs) and `Player::headless` (player.rs) moved as inherent impls into child modules `test_support` (dev/tests/unit/audio/{resample,player}_support.rs), gated like the tests.
 
 ## Removed (pruning)
 Demos/export tests (commit "prune demos"): analysis/examples/spectrogram_png.rs, analysis/tests/export_spectrogram_png.rs, analysis/tests/export_waveform_png.rs (PNG export tools); ui/examples/{grid,legato,nav,note_editor,overview,staff,tab,tracks}_demo.rs (widgets already in the app); ui dev-deps eframe + image dropped (demo-only); analysis `[[test]]` entries dropped.
