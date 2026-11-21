@@ -117,8 +117,6 @@ const DEFAULTS: &[(&str, NoteAction, &[&str])] = &[
     ("string_9", SetStringFromTop(9), &["9"]),
     ("string_auto", SetString(None), &["0"]),
     ("exact_edit", OpenExactEdit, &["Enter", "F2"]),
-    ("snap_previous", SnapPreset { next: false }, &["["]),
-    ("snap_next", SnapPreset { next: true }, &["]"]),
 ];
 
 #[derive(Debug, Error, PartialEq)]

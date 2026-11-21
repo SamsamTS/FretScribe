@@ -65,8 +65,6 @@ pub enum Effect {
     Edit { edit: Box<ProjectEdit>, merge: bool, affected: Vec<u64> },
     Message(String),
     OpenExact(u64),
-    /// The grid the keys selected; the app stores it.
-    SnapGrid(SnapGrid),
 }
 
 pub struct Env<'a> {
@@ -76,7 +74,6 @@ pub struct Env<'a> {
     pub tempo: &'a TempoMap,
     pub px_per_sec: f64,
     pub threshold_px: f64,
-    pub onsets: Option<&'a [f64]>,
     /// Seconds, any monotonic clock.
     pub now: f64,
     pub hovered: Option<u64>,
@@ -145,7 +142,7 @@ pub struct NoteEditor {
 
 fn with_ctx<R>(env: &Env, alt: bool, f: impl FnOnce(&EditCtx) -> R) -> R {
     let project: &Project = env.project;
-    f(&EditCtx { project, tempo: env.tempo, grid: env.grid, px_per_sec: env.px_per_sec, threshold_px: env.threshold_px, onsets: env.onsets, alt })
+    f(&EditCtx { project, tempo: env.tempo, grid: env.grid, px_per_sec: env.px_per_sec, threshold_px: env.threshold_px, alt })
 }
 
 fn pt(at: &Sample) -> Pt {
@@ -726,7 +723,6 @@ impl NoteEditor {
                 }
                 out.extend(done.message.map(Effect::Message));
                 out.extend(done.open_exact.map(Effect::OpenExact));
-                out.extend(done.snap_grid.map(Effect::SnapGrid));
                 if let Some(entry) = done.grace_entry.filter(|_| !self.is_busy()).and_then(|main| GraceEntry::new(env.project, main)) {
                     self.show_entry(env, &entry);
                     self.state = State::Grace { entry, pressed: false };

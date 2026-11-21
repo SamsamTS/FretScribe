@@ -163,17 +163,7 @@ fn grid(ui: &mut Ui, s: &mut Session) {
         }
         s.policy = if follow { NotePolicy::FollowGrid } else { NotePolicy::KeepAudioPosition };
         sep(ui);
-        let keys = |next| {
-            s.keymap
-                .shortcut_label(fretscribe_ui::note_editor::NoteAction::SnapPreset { next })
-                .unwrap_or_default()
-        };
-        let snap_tip = format!(
-            "Snap to the grid ({} / {}: previous / next preset)",
-            keys(false),
-            keys(true)
-        );
-        toggle(ui, "snap", &snap_tip, &mut s.snap_on);
+        toggle(ui, "snap", "Snap to the grid", &mut s.snap_on);
         for (triplet, options, id, tip) in [
             (
                 false,
@@ -211,10 +201,6 @@ fn grid(ui: &mut Ui, s: &mut Session) {
             if let Some(division) = next {
                 s.ui.snap_grid = s.ui.snap_grid.with(triplet, division);
             }
-        }
-        toggle(ui, "snap-onsets", "Adds the detected onsets of the beat-analysis tracks as snap targets", &mut s.snap_to_onsets);
-        if toggle(ui, "rhythm", "Strict beats. Sheet: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut s.ui.strict_beats) {
-            s.staff_dirty = true;
         }
         sep(ui);
         if ibtn(ui, "auto-fit-grid", "Fits the measures to the onsets of the beat-analysis tracks", false).clicked() {

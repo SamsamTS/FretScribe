@@ -36,7 +36,6 @@ icons!(
     "synth",
     "guitar-focus",
     "snap",
-    "snap-onsets",
     "follow-grid",
     "stay-with-audio",
     "rhythm",

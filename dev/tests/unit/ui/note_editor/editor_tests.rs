@@ -36,7 +36,7 @@ impl H {
 
     fn send(&mut self, input: Input) -> Vec<Effect> {
         let tempo = TempoMap::new(&self.p.measures);
-        let mut env = Env { project: &mut self.p, grid: &self.grid, tempo: &tempo, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, now: self.now, hovered: self.hovered };
+        let mut env = Env { project: &mut self.p, grid: &self.grid, tempo: &tempo, px_per_sec: PX_PER_SEC, threshold_px: 12.0, now: self.now, hovered: self.hovered };
         self.ed.handle(&mut env, input)
     }
 
@@ -831,6 +831,4 @@ fn keyboard_commands_each_give_one_undo_step_cut_pastes_back_and_snap_keys_repor
     assert!(h.p.notes.is_empty());
     h.send(Input::Paste);
     assert!(h.ed.in_mode());
-    let out = h.send(Input::Action(NoteAction::SnapPreset { next: true }));
-    assert!(matches!(out.as_slice(), [Effect::Message(_), Effect::SnapGrid(g)] if *g == SnapGrid::new(&[4, 6])));
 }

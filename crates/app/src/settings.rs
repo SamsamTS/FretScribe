@@ -47,7 +47,6 @@ pub struct Settings {
     pub lut_name: String,
     pub keep_pitch: bool,
     pub follow_playhead: bool,
-    pub snap_to_onsets: bool,
 }
 
 impl Default for Settings {
@@ -70,7 +69,6 @@ impl Default for Settings {
             lut_name: "Classic".to_owned(),
             keep_pitch: true,
             follow_playhead: true,
-            snap_to_onsets: false,
         }
     }
 }

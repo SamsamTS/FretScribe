@@ -42,7 +42,6 @@ pub struct EditCtx<'a> {
     pub grid: &'a SnapGrid,
     pub px_per_sec: f64,
     pub threshold_px: f64,
-    pub onsets: Option<&'a [f64]>,
     /// Snapping disabled by the modifier.
     pub alt: bool,
 }
@@ -50,7 +49,6 @@ pub struct EditCtx<'a> {
 impl<'a> EditCtx<'a> {
     pub(crate) fn opts(&self, sticky: Sticky) -> SnapOpts<'a> {
         let mut opts = SnapOpts::new(self.grid, self.threshold_px, self.px_per_sec);
-        opts.onset_targets = self.onsets;
         opts.disabled = self.alt;
         (opts.sticky_start, opts.sticky_end) = sticky;
         opts

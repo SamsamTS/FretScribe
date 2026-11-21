@@ -152,33 +152,6 @@ fn end_snaps_to_the_start_of_the_next_note() {
 }
 
 #[test]
-fn onsets_are_a_fallback_below_grid_and_neighbours() {
-    let (m, grid) = (map(), g(&[4]));
-    let hit = [0.185];
-    let mut o = SnapOpts::new(&grid, 10.0, PX_PER_SEC);
-    o.onset_targets = Some(&hit);
-    near(m.pos_to_sec(start(&m, m.sec_to_pos(0.18), &[], &o)), 0.185);
-    o.onset_targets = None;
-    near(m.pos_to_sec(start(&m, m.sec_to_pos(0.18), &[], &o)), 0.18);
-    let near_grid = [0.13];
-    o.onset_targets = Some(&near_grid);
-    assert_eq!(start(&m, m.sec_to_pos(0.135), &[], &o), at(1, 0.25));
-    let prev = [note(1, at(1, 0.0), at(1, 0.4))];
-    o.onset_targets = Some(&hit);
-    assert_eq!(start(&m, m.sec_to_pos(0.18), &prev, &o), at(1, 0.4));
-}
-
-#[test]
-fn onsets_work_without_the_grid() {
-    let (m, grid) = (map(), g(&[1]));
-    let hits = [0.62];
-    let mut o = opts(&grid);
-    o.onset_targets = Some(&hits);
-    o.enable_grid_snap = false;
-    near(m.pos_to_sec(start(&m, m.sec_to_pos(0.6), &[], &o)), 0.62);
-}
-
-#[test]
 fn disabled_keeps_the_pointer_but_enforces_the_minimal_length() {
     let (m, grid) = (map(), g(&[4, 3]));
     let mut o = opts(&grid);
