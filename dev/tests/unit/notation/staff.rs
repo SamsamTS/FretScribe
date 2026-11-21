@@ -220,7 +220,8 @@ fn tied(a: Note, b: &Note) -> Note {
 #[test]
 fn tied_notes_resolve_into_the_fewest_values() {
     let ms = measures(1, TimeSignature::COMMON);
-    let cases: [(&[(f64, f64)], (i64, u8)); 3] = [
+    type Spans = &'static [(f64, f64)];
+    let cases: [(Spans, (i64, u8)); 3] = [
         (&[(0.0, 0.25), (0.25, 0.5)], (24, 0)),
         (&[(0.0, 0.5), (0.5, 1.0), (1.0, 2.0)], (96, 0)),
         (&[(0.0, 0.5), (0.5, 1.0), (1.0, 1.5)], (72, 1)),

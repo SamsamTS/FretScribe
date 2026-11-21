@@ -31,7 +31,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 
 - audio hand cases: test-only helpers `Prepared::from_channels` (resample.rs) and `Player::headless` (player.rs) moved as inherent impls into child modules `test_support` (dev/tests/unit/audio/{resample,player}_support.rs), gated like the tests.
 - analysis hand case: `#[cfg(test)] impl Lut { grey }` moved to child module `test_support` (dev/tests/unit/analysis/lut_support.rs).
-- Final verification with dev/ present: `cargo test --workspace --release` = app 51+3, analysis 77, audio 94, core 215, notation 46, ui 336 (all equal to the AFTER reference), 0 failures. `cargo clippy --workspace --all-targets`: 1 warning (type_complexity in the staff tests), identical on main (pre-existing, not touched).
+- Final verification with dev/ present: `cargo test --workspace --release` = app 51+3, analysis 77, audio 94, core 215, notation 46, ui 336 (all equal to the AFTER reference), 0 failures. `cargo clippy --workspace --all-targets`: clean (the one pre-existing type_complexity warning in the staff tests was fixed in a separate commit).
 - Footgun: moving dev/ away and back with `mv` keeps old mtimes, so cargo may keep a stale build.rs result (no `dev_tests`) -> `touch dev/tests/unit`. Deleting and restoring via git, and the proof script (works on a copy), are not affected.
 - CONTEXT.md (project doc, not in the repo) got a "Tests and demos live in dev/" section.
 
