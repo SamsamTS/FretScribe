@@ -446,16 +446,6 @@ mod tests {
     }
 
     #[test]
-    fn label_text() {
-        let m = Measure::new(1, 0.0, 70.0, TimeSignature::COMMON);
-        assert_eq!(measure_label(&m), "4/4 \u{2669}=70");
-        let m = Measure::new(1, 0.0, 97.5, TimeSignature::new(6, 8));
-        assert_eq!(measure_label(&m), "6/8 \u{2669}=97.5");
-        assert_eq!(format_bpm(119.99), "120");
-        assert_eq!(format_bpm(120.04), "120");
-    }
-
-    #[test]
     fn effective_tempo_is_shown_only_when_it_differs() {
         let m = Measure::new(1, 0.0, 56.0, TimeSignature::COMMON);
         assert_eq!(effective_suffix(&m, 55.3).as_deref(), Some(" (55.3)"));

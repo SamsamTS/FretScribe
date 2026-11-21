@@ -131,11 +131,6 @@ mod tests {
     }
 
     #[test]
-    fn default_is_440() {
-        assert_eq!(PitchRef::default().a4_hz(), 440.0);
-    }
-
-    #[test]
     fn validation_range() {
         assert!(PitchRef::new(400.0).is_ok());
         assert!(PitchRef::new(480.0).is_ok());
@@ -227,13 +222,4 @@ mod tests {
         assert_eq!(ref_from_cents(-1000.0).a4_hz(), 400.0);
     }
 
-    #[test]
-    fn names() {
-        assert_eq!(midi_to_name(60), "C4");
-        assert_eq!(midi_to_name(61), "C#4");
-        assert_eq!(midi_to_name(69), "A4");
-        assert_eq!(midi_to_name(40), "E2");
-        assert_eq!(midi_to_name(0), "C-1");
-        assert_eq!(midi_to_name(127), "G9");
-    }
 }

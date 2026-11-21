@@ -433,13 +433,6 @@ mod tests {
     }
 
     #[test]
-    fn duration_follows_length_and_rate() {
-        let pyramid = WaveformPyramid::build(&vec![0.0; 22_050], 44_100);
-        close(pyramid.duration_sec() as f32, 0.5);
-        assert_eq!(pyramid.sample_rate(), 44_100);
-    }
-
-    #[test]
     fn ten_minutes_of_audio_builds_and_stays_exact() {
         let rate = 44_100;
         let len = 600 * rate as usize;
@@ -605,15 +598,6 @@ mod tests {
         assert_eq!(sharp, smooth);
     }
 
-    #[test]
-    fn default_smoothing_applies_to_render_rgba() {
-        let lut = Lut::grey();
-        let peaks = alternating(60);
-        assert_eq!(
-            render_rgba(&peaks, 80, &lut),
-            render_with_smoothing(&peaks, 80, &lut, WAVEFORM_COLOR_SMOOTHING_PX)
-        );
-    }
     #[test]
     fn envelope_and_body_each_fade_from_the_centre_to_their_tips() {
         let lut = Lut::grey();

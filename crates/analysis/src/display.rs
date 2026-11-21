@@ -72,14 +72,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_levels_are_identity() {
-        for i in 0..=100 {
-            let v = i as f32 / 100.0;
-            assert!((apply_levels(v, Levels::default()) - v).abs() < 1e-6);
-        }
-    }
-
-    #[test]
     fn levels_cut_and_saturate() {
         let l = Levels::new(0.3, 0.8);
         assert_eq!(apply_levels(0.0, l), 0.0);

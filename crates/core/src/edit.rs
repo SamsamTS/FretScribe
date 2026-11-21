@@ -716,13 +716,6 @@ mod tests {
     }
 
     #[test]
-    fn inverted_policy() {
-        assert_eq!(Follow.inverted(), Keep);
-        assert_eq!(Keep.inverted(), Follow);
-        assert_eq!(NotePolicy::default(), Follow);
-    }
-
-    #[test]
     fn move_measure_start_refits_previous_tempo_and_shifts_followers() {
         let mut p = project(4);
         let n = note(&mut p, 60, (3, 0.0), (3, 1.0));

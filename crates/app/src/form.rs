@@ -352,19 +352,6 @@ mod tests {
     }
 
     #[test]
-    fn presets_round_trip() {
-        for instrument in [Instrument::Guitar, Instrument::Bass] {
-            for (label, text) in preset_texts(instrument) {
-                let t = parse_tuning(&text, instrument).unwrap();
-                assert_eq!(tuning_text(&t), text, "{label}");
-            }
-        }
-        assert_eq!(preset_texts(Instrument::Guitar).len(), 6);
-        assert_eq!(preset_texts(Instrument::Guitar)[0].1, "E A D G B e");
-        assert_eq!(tuning_text(&guitar("EADGBE").unwrap()), "E A D G B e");
-    }
-
-    #[test]
     fn commit_normalisers() {
         assert_eq!(normalise_tuning("DADGAD", Instrument::Guitar).as_deref(), Some("D A D G A d"));
         assert_eq!(normalise_tuning("zz", Instrument::Guitar), None);

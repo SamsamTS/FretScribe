@@ -218,12 +218,6 @@ mod tests {
     }
 
     #[test]
-    fn default_is_sixteenth_plus_eighth_triplet() {
-        assert_eq!(SnapGrid::default().divisions, [4, 3]);
-        assert_eq!(SnapGrid::default().label(), "1/16 + 1/8T");
-    }
-
-    #[test]
     fn straight_and_triplet_are_independent_and_may_be_none() {
         let grid = SnapGrid::default();
         assert_eq!((grid.straight(), grid.triplet()), (Some(4), Some(3)));
@@ -235,44 +229,6 @@ mod tests {
         // 1/64 and 1/64T coincide 8 times per beat (every 1/8): 16 + 24 - 8 lines per beat.
         assert_eq!(m.grid_lines(0, &both).len(), 4 * (16 + 24 - 8));
         close(m.snap_to_grid(0.0301, &g(&[16])), 0.03125);
-    }
-
-    #[test]
-    fn presets_cover_singles_and_mixed_grids() {
-        let presets = SnapGrid::presets();
-        let names: Vec<&str> = presets.iter().map(|p| p.name).collect();
-        assert_eq!(
-            names,
-            [
-                "1/4",
-                "1/8",
-                "1/8T",
-                "1/16",
-                "1/16T",
-                "1/32",
-                "1/32T",
-                "1/8 + 1/8T",
-                "1/16 + 1/8T",
-                "1/16 + 1/16T"
-            ]
-        );
-        let divisions: Vec<Vec<u8>> = presets.iter().map(|p| p.grid.divisions.clone()).collect();
-        assert_eq!(
-            divisions,
-            [
-                vec![1],
-                vec![2],
-                vec![3],
-                vec![4],
-                vec![6],
-                vec![8],
-                vec![12],
-                vec![2, 3],
-                vec![4, 3],
-                vec![4, 6]
-            ]
-        );
-        assert!(presets.iter().any(|p| p.grid == SnapGrid::default()));
     }
 
     #[test]

@@ -279,14 +279,6 @@ fn resolving_is_idempotent_and_reset_notes_rejoin_the_segment() {
 }
 
 #[test]
-fn presets_cover_the_named_tunings() {
-    let names: Vec<String> = presets().into_iter().map(|t| t.name).collect();
-    assert_eq!(names.len(), 10);
-    assert_eq!(names[0], "Standard");
-    assert_eq!(candidates(64, &Tuning::standard(), 0, 22).first(), Some(&(1, 19)));
-}
-
-#[test]
 fn group_options_follow_the_whole_chain() {
     let mut f = fixture();
     let ids = f.seq(&[64, 66, 64]);

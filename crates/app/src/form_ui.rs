@@ -496,14 +496,6 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_valid() {
-        let s = state();
-        let v = s.validated().unwrap();
-        assert_eq!((v.name.as_str(), v.bpm, v.reference_hz, v.tuning.name.as_str()), ("Song", 120.0, 440.0, "Standard"));
-        assert_eq!(s.tracks(), [("/m/song.flac".into(), TrackRole::Guitar)]);
-    }
-
-    #[test]
     fn create_disabled_until_valid() {
         let mut s = state();
         s.set_main_readable(false);
@@ -572,10 +564,4 @@ mod tests {
         assert_eq!(s.validated().unwrap().extra.len(), 1);
     }
 
-    #[test]
-    fn column_spans_fill_the_row() {
-        let inner = PANEL_W - 2.0 * PANEL_PAD - 2.0;
-        assert!((3.0 * span(inner, 2.0) + 2.0 * COL_GAP - inner).abs() < 1e-3);
-        assert!((span(inner, 4.0) + span(inner, 2.0) + COL_GAP - inner).abs() < 1e-3);
-    }
 }

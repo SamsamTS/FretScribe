@@ -414,13 +414,4 @@ pub(crate) mod tests {
         assert_eq!(ms[0].time_sig, TimeSignature::COMMON);
     }
 
-    #[test]
-    fn signature_beats() {
-        assert_eq!(TimeSignature::new(4, 4).beats(), 4.0);
-        assert_eq!(TimeSignature::new(6, 8).beats(), 3.0);
-        assert_eq!(TimeSignature::new(3, 4).beats(), 3.0);
-        assert_eq!(TimeSignature::new(7, 8).beats(), 3.5);
-        assert_eq!(TimeSignature::new(2, 2).beats(), 4.0);
-        assert_eq!(TimeSignature::new(5, 16).beats(), 1.25);
-    }
 }

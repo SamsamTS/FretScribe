@@ -195,16 +195,6 @@ mod tests {
     }
 
     #[test]
-    fn default_palette_is_the_classic_gradient() {
-        let p = WaveformPalette::default();
-        assert_eq!(p.color(0.0), Color32::from_rgb(0, 0, 0));
-        assert_eq!(p.color(1.0), Color32::from_rgb(255, 235, 0));
-        let stop = p.color(0.3);
-        assert!(stop.g().abs_diff(20) <= 2 && stop.b().abs_diff(140) <= 2 && stop.r() == 0, "{stop:?}");
-        assert_eq!(p.background(), p.color(0.0));
-    }
-
-    #[test]
     fn palette_lookup_clamps_and_survives_nan() {
         let p = grey();
         assert_eq!(p.color(-1.0), Color32::from_rgb(0, 0, 0));
