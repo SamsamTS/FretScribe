@@ -1,6 +1,6 @@
 //! Mean beat error of a rough grid before/after fitting, on synthetic drifting click tracks.
 //!
-//! cargo run --release -p fretscribe-analysis --example beatfit_bench [-- <seeds>]
+//! cargo run --release -p fretscribe-demos --example beatfit_bench [-- <seeds>]
 
 use std::time::Instant;
 

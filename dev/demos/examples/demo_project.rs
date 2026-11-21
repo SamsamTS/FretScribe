@@ -1,5 +1,5 @@
 //! Writes a synthetic 20 s song (clicks plus a tone melody) and a project file using it:
-//! `cargo run -p fretscribe --example demo_project -- <out dir>`, then open the `.fretscribe` file.
+//! `cargo run -p fretscribe-demos --example demo_project -- <out dir>`, then open the `.fretscribe` file.
 
 use std::f32::consts::TAU;
 use std::path::PathBuf;

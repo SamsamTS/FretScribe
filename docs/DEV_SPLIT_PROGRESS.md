@@ -5,7 +5,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 ## Stages
 - [x] 0 Inventory + scaffold (`dev/demos`, `dev/tests`, members = ["crates/*", "dev/*"])
 - [x] 0b Prune demos (commit) / prune tests (commit) / record counts
-- [ ] 1 Demos -> dev/demos
+- [x] 1 Demos -> dev/demos
 - [ ] 2 Integration tests -> dev/tests/tests
 - [ ] 3 Unit tests: core
 - [ ] 4 Unit tests: audio, analysis, notation, ui, app (one commit each)
@@ -20,7 +20,10 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - No CONTEXT.md in the repo (only in the project docs).
 
 ## Decisions
-(none yet)
+- Demos live in dev/demos/examples/*.rs, auto-discovered (no [[example]] entries needed); run with `cargo run --release -p fretscribe-demos --example <name>`. Names: beatfit_bench, make_luts, pitchref, sync_offset, waveform_peaks, demo_project, ui_preview, play. No shared helpers, so src/lib.rs is a stub.
+- make_luts: `../../LUT` resolves identically from dev/demos (verified, PNGs byte-identical).
+- play's 6 inline tests run via `cargo test -p fretscribe-demos --examples` (not counted in the crate numbers above).
+- analysis dev-dep fretscribe-audio dropped (only the examples used it).
 
 ## Removed (pruning)
 Demos/export tests (commit "prune demos"): analysis/examples/spectrogram_png.rs, analysis/tests/export_spectrogram_png.rs, analysis/tests/export_waveform_png.rs (PNG export tools); ui/examples/{grid,legato,nav,note_editor,overview,staff,tab,tracks}_demo.rs (widgets already in the app); ui dev-deps eframe + image dropped (demo-only); analysis `[[test]]` entries dropped.

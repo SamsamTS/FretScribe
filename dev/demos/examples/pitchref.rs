@@ -1,6 +1,6 @@
 //! Prints the estimated reference pitch of an audio file.
 //!
-//! cargo run --release -p fretscribe-analysis --example pitchref -- song.wav [--start 0 --end 30]
+//! cargo run --release -p fretscribe-demos --example pitchref -- song.wav [--start 0 --end 30]
 
 use std::process::exit;
 

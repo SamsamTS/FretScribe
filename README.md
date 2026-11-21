@@ -9,7 +9,7 @@ cargo run --release -p fretscribe
 ```
 
 On Linux the audio backend needs the ALSA development files (`apt-get install libasound2-dev pkg-config`).
-`cargo run -p fretscribe --example demo_project -- <dir>` writes a small synthetic project to try the editor with.
+`cargo run -p fretscribe-demos --example demo_project -- <dir>` writes a small synthetic project to try the editor with.
 
 ## The `LUT/` folder
 

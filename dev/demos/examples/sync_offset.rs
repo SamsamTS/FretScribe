@@ -1,6 +1,6 @@
 //! Prints the offset candidates of a track relative to a reference track.
 //!
-//! cargo run --release -p fretscribe-analysis --example sync_offset -- ref.wav other.wav [--max-lag 15]
+//! cargo run --release -p fretscribe-demos --example sync_offset -- ref.wav other.wav [--max-lag 15]
 
 use std::process::exit;
 

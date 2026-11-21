@@ -1,6 +1,6 @@
 //! Prints the waveform peaks of an audio file (WAV or anything symphonia decodes).
 //!
-//! cargo run --release -p fretscribe-analysis --example waveform_peaks -- song.wav \
+//! cargo run --release -p fretscribe-demos --example waveform_peaks -- song.wav \
 //!     [--start 0] [--seconds 10] [--columns 40]
 
 use std::path::PathBuf;
