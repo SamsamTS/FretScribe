@@ -9,7 +9,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - [x] 2 Integration tests -> dev/tests/tests
 - [x] 3 Unit tests: core (215 = reference)
 - [x] 4 Unit tests (one commit each): [x] audio (94) [x] analysis (77) [x] notation (46) [x] ui (336) [x] app (51 unit + 3 integration)
-- [ ] 5 Proof (move dev/ away, build/clippy/test --no-run), docs, CI script
+- [x] 5 Proof (dev/check_without_dev.sh passes: build --release, clippy, test --no-run), docs, CI script. DONE
 
 ## Inventory (repo differs from the prompt text)
 - Demos: analysis/examples {beatfit_bench, make_luts, pitchref, spectrogram_png, sync_offset, waveform_peaks}; app/examples {demo_project, ui_preview}; audio/examples/play.rs (has 6 inline tests); ui/examples {grid, legato, nav, note_editor, overview, staff, tab, tracks}_demo.
@@ -20,7 +20,7 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 - No CONTEXT.md in the repo (only in the project docs).
 
 ## Decisions
-- OPEN (stage 5): the prompt assumes `members = ["crates/*", "dev/*"]` is valid when dev/ is missing. It is NOT on cargo 1.97 (non-matching glob = literal path = error; also with an empty dev/; variants `dev/*/`, `dev/**`, `[d]ev/*` all fail). Needs a choice: (A) dev/ as its own nested workspace (root `exclude = ["dev"]`; commands become `--manifest-path dev/Cargo.toml`, separate lock/target) or (B) keep the glob and make "delete dev/" a two-step (rm -rf dev + drop the members line; the CI proof script does both). Until decided: glob kept, proofs use $S/nodev.sh-style temporary patch.
+- DECIDED (option B, one workspace, glob kept; delete dev/ + drop `"dev/*"` from members; documented in CONVENTIONS and checked by dev/check_without_dev.sh). Original problem: the prompt assumes `members = ["crates/*", "dev/*"]` is valid when dev/ is missing. It is NOT on cargo 1.97 (non-matching glob = literal path = error; also with an empty dev/; variants `dev/*/`, `dev/**`, `[d]ev/*` all fail). Needs a choice: (A) dev/ as its own nested workspace (root `exclude = ["dev"]`; commands become `--manifest-path dev/Cargo.toml`, separate lock/target) or (B) keep the glob and make "delete dev/" a two-step (rm -rf dev + drop the members line; the CI proof script does both). Until decided: glob kept, proofs use $S/nodev.sh-style temporary patch.
 - Mover script (reusable): move_tests.py <crate> in the session scratchpad; if lost, rules are: inline `#[cfg(test)] mod X {}` -> dev/tests/unit/<crate>/<module>.rs (X != tests -> <module>_X.rs); external `#[cfg(test)] mod X;` files move to the same relative place (tests -> <module>.rs); stub = `#[cfg(all(test, dev_tests))] #[path = "<../ * (depth+3)>dev/tests/unit/<crate>/<file>"] mod X;`; each crate with tests gets the same build.rs (copy crates/core/build.rs).
 - core hand cases: `testkit` (shared fixtures, feature test-support) moved to dev/tests/unit/core/testkit.rs, gated `all(any(test, feature="test-support"), dev_tests)`; edit.rs `finish()` undo/redo self-check moved into tests::check_undo_redo, called under `#[cfg(all(test, dev_tests))]`.
 - Demos live in dev/demos/examples/*.rs, auto-discovered (no [[example]] entries needed); run with `cargo run --release -p fretscribe-demos --example <name>`. Names: beatfit_bench, make_luts, pitchref, sync_offset, waveform_peaks, demo_project, ui_preview, play. No shared helpers, so src/lib.rs is a stub.
@@ -31,6 +31,9 @@ Resume: read this file, `git log --oneline`, continue at the first unchecked sta
 
 - audio hand cases: test-only helpers `Prepared::from_channels` (resample.rs) and `Player::headless` (player.rs) moved as inherent impls into child modules `test_support` (dev/tests/unit/audio/{resample,player}_support.rs), gated like the tests.
 - analysis hand case: `#[cfg(test)] impl Lut { grey }` moved to child module `test_support` (dev/tests/unit/analysis/lut_support.rs).
+- Final verification with dev/ present: `cargo test --workspace --release` = app 51+3, analysis 77, audio 94, core 215, notation 46, ui 336 (all equal to the AFTER reference), 0 failures. `cargo clippy --workspace --all-targets`: 1 warning (type_complexity in the staff tests), identical on main (pre-existing, not touched).
+- Footgun: moving dev/ away and back with `mv` keeps old mtimes, so cargo may keep a stale build.rs result (no `dev_tests`) -> `touch dev/tests/unit`. Deleting and restoring via git, and the proof script (works on a copy), are not affected.
+- CONTEXT.md (project doc, not in the repo) got a "Tests and demos live in dev/" section.
 
 ## Removed (pruning)
 Demos/export tests (commit "prune demos"): analysis/examples/spectrogram_png.rs, analysis/tests/export_spectrogram_png.rs, analysis/tests/export_waveform_png.rs (PNG export tools); ui/examples/{grid,legato,nav,note_editor,overview,staff,tab,tracks}_demo.rs (widgets already in the app); ui dev-deps eframe + image dropped (demo-only); analysis `[[test]]` entries dropped.
