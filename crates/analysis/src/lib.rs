@@ -12,7 +12,8 @@ pub mod pitchref;
 pub mod sync;
 mod render;
 mod spectrogram;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/analysis/spectrogram_tests.rs"]
 mod spectrogram_tests;
 pub mod waveform;
 

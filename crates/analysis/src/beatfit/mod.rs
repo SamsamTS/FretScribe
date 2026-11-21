@@ -16,7 +16,8 @@
 mod fit;
 #[doc(hidden)]
 pub mod synth;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/analysis/beatfit.rs"]
 mod tests;
 
 
