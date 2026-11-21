@@ -233,10 +233,9 @@ impl TrackLane<'_> {
 
         if self.shown_rows > 0 && self.shown_rows == self.configured_rows {
             let key = Id::new(("resize-drag", id));
-            let header_end = pos2(rect.left() + LANE_HEADER_WIDTH, spec_rect.bottom());
-            let handles = [(wave_rect.bottom(), wave_rect.left(), "resize"), (header_end.y + px(BORDER_PX), rect.left(), "resize-header")];
+            let handles = [(wave_rect.bottom(), wave_rect.left(), "resize"), (rect.bottom(), rect.left(), "resize-header")];
             for (bottom, left, tag) in handles {
-                let right = if tag == "resize" { wave_rect.right() } else { header_end.x };
+                let right = if tag == "resize" { wave_rect.right() } else { timeline_left };
                 let handle = Rect::from_min_max(pos2(left, bottom - RESIZE_HANDLE_PT), pos2(right, bottom));
                 let response = ui.interact(handle, ui.id().with((tag, id)), Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeVertical);
                 if response.drag_started() {
