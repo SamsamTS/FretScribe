@@ -210,11 +210,12 @@ pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Res
 
 /// A rounded panel `width` wide holding groups of buttons (`groups` gives the size of each; `add(ui, i)`
 /// draws button `i` counted across groups). Each group wraps onto as many centred rows as needed, with a
-/// separator between groups.
+/// separator between groups. The panel hugs its widest row and never exceeds `width`.
 pub fn tool_panel(ui: &mut Ui, width: f32, groups: &[usize], mut add: impl FnMut(&mut Ui, usize)) {
     const PAD: f32 = 4.0;
-    let inner = width - 2.0 * PAD - 2.0;
-    let per = (((inner + PAD) / (BUTTON + PAD)) as usize).max(1);
+    let per = ((((width - 2.0 * PAD - 2.0) + PAD) / (BUTTON + PAD)) as usize).max(1);
+    let widest = groups.iter().map(|&n| n.min(per)).max().unwrap_or(1) as f32;
+    let inner = widest * (BUTTON + PAD) - PAD;
     Frame::new().fill(theme::PANEL_BG).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(GROUP_RADIUS)).inner_margin(PAD).show(ui, |ui| {
         ui.set_width(inner);
         ui.spacing_mut().item_spacing.y = PAD;

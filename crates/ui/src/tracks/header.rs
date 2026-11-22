@@ -122,6 +122,7 @@ impl TrackHeader {
         let ppp = ui.ctx().pixels_per_point();
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, BASE_BG);
+        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, theme::BORDER_STRONG));
         painter.rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, if is_source { theme::accent() } else { theme::TEXT });
 
         ui.set_opacity(opacity_for(audible));
@@ -228,10 +229,14 @@ impl TrackHeader {
         if vol.clicked() {
             ui.memory_mut(|m| m.toggle_popup(vol_id));
         }
-        kit::popup(ui, vol_id, &vol.clone().on_hover_text("Volume"), false, |ui| {
+        let range = 0.0..=Track::MAX_VOLUME * 100.0;
+        let mut wheeled = track.volume * 100.0;
+        if kit::wheel_value(ui, &vol, &mut wheeled, &range, 5.0, false) {
+            events.push(TrackEvent::VolumeChanged { id, volume: wheeled / 100.0 });
+        }
+        kit::popup(ui, vol_id, &vol.clone().on_hover_text("Volume (scroll to change)"), false, |ui| {
             kit::style_slider(ui);
             ui.spacing_mut().slider_width = 150.0;
-            let range = 0.0..=Track::MAX_VOLUME * 100.0;
             let mut percent = track.volume * 100.0;
             let slider = ui.add(Slider::new(&mut percent, range.clone()).show_value(false).trailing_fill(true));
             if slider.double_clicked() {
