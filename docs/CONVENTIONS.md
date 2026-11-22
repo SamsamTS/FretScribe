@@ -18,6 +18,10 @@ Code quality: idiomatic Rust, no unwrap in non-test code, unit tests for logic, 
 
 Theme: see THEME_CONTRACT.md for colours, fonts, icons, shared widgets and layout rules.
 
+## UI widgets
+- Colours, sizes and fonts come from `ui::theme`; icons are the SVGs of `crates/ui/assets/icons` drawn with `kit::icon_at`/`kit::ibtn` (a new icon is one file plus one line in the `kit` icon list). Toolbar-like panels use `kit::tool_panel`; popups use `kit::popup`.
+- Wheel input is read once at window level by `nav` and consumed before widgets. A widget inside the lanes that needs the plain wheel must read it with `kit::wheel`/`wheel_value` (they claim it for the frame); reading `raw_scroll_delta` directly will not work there.
+
 ## Tests and demos
 
 Every test, example and CLI tool lives under `dev/`, which can be deleted without touching the product:

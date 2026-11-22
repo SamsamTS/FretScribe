@@ -248,11 +248,13 @@ pub fn hint(ui: &mut Ui, text: &str) {
     ui.label(egui::RichText::new(text).size(12.0).color(theme::HINT));
 }
 
-/// Scroll-wheel notches over `r`: +1 for a notch up, -1 for one down. The scroll is consumed.
+/// Scroll-wheel notches over `r`: +1 for a notch up, -1 for one down. The scroll is consumed, and the
+/// plain wheel is kept from the lanes' vertical scroll while the pointer is over `r`.
 pub fn wheel(ui: &Ui, r: &Response) -> i32 {
     if !r.hovered() {
         return 0;
     }
+    crate::nav::own_plain_wheel(ui.ctx(), r.rect);
     ui.input_mut(|i| {
         let y = i.raw_scroll_delta.y;
         i.raw_scroll_delta = Vec2::ZERO;

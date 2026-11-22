@@ -157,7 +157,7 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 ## 2026-11-17 - core: view state in the project file; ui: tab toolbar and track tools
 
 - core: `ViewState::{scroll_y, pitch}` and `UiState::{notation_collapsed, lane_options, tab_options, snap_on, overview_snap, lane_rows}`, all serde-defaulted, so older files load unchanged. `UiState::guitar_8vb` (default true) drives `StaffOptions::guitar_octave`.
-- ui: `tab_view::{collapse_row, sheet_tools, tab_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `sheet_tools`/`tab_tools` sit in the header column of their lanes); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
+- ui: `tab_view::{collapse_row, notation_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `notation_tools` is one panel in the header column of the sheet lane); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
 - app: navigation runs at the start of the frame on the previous frame's regions (the sheet and tab no longer lag behind the lanes while scrolling); restoring a window that started maximised sends the remembered size.
 
 ## 2026-11-18 - ui/app: shared note placement and grid thinning
@@ -171,3 +171,8 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 ## 2026-11-21 - app: wheel parity
 - `ViewController::run` is the only thing that advances the view (the app no longer calls `update`). `NavRegions::grid` is the timeline column only (headers excluded, notation panel included), `lanes` the scrolling timeline area. New `ViewController::{zoom_at, zoom_at_centre, wheel_rows}`, `WheelActions::rows`, `TrackLanes::wheel_rows`; overview zoom buttons use `zoom_at_centre`; `nav::notches` is no longer re-exported.
 - Horizontal wheel scroll: a fixed `ViewTuning::scroll_x_points_per_notch` (120) whatever the zoom, then the left edge snaps to the nearest quarter-note line (at least one quarter per notch). Scroll limits: one measure before the first and after the last (`maths::scroll_limits`, `Geometry { width, lo_sec, hi_sec }`, `ViewController::set_geometry(width, lo, hi)`). Removed `quarter_notes_per_notch`, `overscroll_fraction`, `quarter_sec_at`; `scroll_time` takes the `TempoMap`.
+
+## 2026-11-22 - ui: left panel restyle
+- Track header: two rows (identity, then mute/solo/volume/offset) plus the note-tool panel. Volume and offset are dropdown buttons with popups; there is no separate offset drag handle (dragging the offset button moves the audio; `HeaderOutput::offset_handle` is that button). The colour chip and `tracks::icons` are gone: roles use the `role-*` project icons, and the left band is the accent colour for the source track only (`Track::color` is no longer read by the header). The `...` menu is a plain popup with the roles listed inline.
+- `tab_view::notation_tools` replaces `sheet_tools`/`tab_tools` (one wrapping panel: sheet tools, separator, tab tools). New `kit::tool_panel` (hugs its widest row, centred rows, groups split by a separator).
+- `nav::own_plain_wheel(ctx, rect)`: a widget over the lanes keeps the unmodified wheel instead of the vertical scroll (`kit::wheel`/`wheel_value` call it). Modified wheels still zoom/scroll.

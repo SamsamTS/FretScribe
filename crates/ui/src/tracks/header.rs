@@ -1,7 +1,7 @@
 //! Left column of a lane: identity, mixer controls and sync controls of one track.
 
 use egui::text::{CCursor, CCursorRange};
-use egui::{pos2, vec2, Align, Align2, Color32, FontId, Key, Label, Modifiers, Painter, Rect, Response, RichText, Sense, Slider, TextEdit, Ui, UiBuilder};
+use egui::{pos2, vec2, Align, Align2, Color32, FontId, Key, Label, Modifiers, Rect, Response, RichText, Sense, Slider, TextEdit, Ui, UiBuilder};
 use fretscribe_core::{Track, TrackRole};
 
 use super::events::TrackEvent;
@@ -51,18 +51,21 @@ pub fn volume_text(volume: f32) -> String {
     }
 }
 
-fn button(ui: &Ui, rect: Rect, salt: &str, enabled: bool, paint: impl FnOnce(&Painter, bool)) -> Response {
-    let response = ui.interact(rect, ui.id().with(salt), if enabled { Sense::click() } else { Sense::hover() });
-    paint(&ui.painter_at(rect), response.hovered() && enabled);
+/// A toolbar-style icon button (`on`: toggled look) filling `rect`.
+fn icon_button(ui: &Ui, rect: Rect, salt: &str, name: &str, on: bool) -> Response {
+    let response = ui.interact(rect, ui.id().with(salt), Sense::click());
+    kit::button_bg(ui, rect, response.hovered(), false, on, None, 6);
+    kit::icon_at(ui, name, rect, 16.0);
     response
 }
 
-/// A toolbar-style icon button (`on`: toggled look) filling `rect`.
-fn icon_button(ui: &Ui, rect: Rect, salt: &str, name: &str, on: bool) -> Response {
-    button(ui, rect, salt, true, |_, hovered| {
-        kit::button_bg(ui, rect, hovered, false, on, None, 6);
-        kit::icon_at(ui, name, rect, 16.0);
-    })
+/// Opens the popup `salt` on a click of `anchor` and shows `add` while it is open.
+fn dropdown(ui: &Ui, salt: &str, anchor: &Response, right: bool, add: impl FnOnce(&mut Ui)) {
+    let id = ui.id().with(salt);
+    if anchor.clicked() {
+        ui.memory_mut(|m| m.toggle_popup(id));
+    }
+    kit::popup(ui, id, anchor, right, add);
 }
 
 const ROW_H: [f32; 2] = [26.0, 30.0];
@@ -132,8 +135,8 @@ impl TrackHeader {
         let id = track.id;
 
         let grip_rect = Rect::from_center_size(pos2(content.left() + 7.0, content.top() + ROW_H[0] + 2.0), vec2(14.0, 24.0));
-        let grip = button(ui, grip_rect, "grip", true, |_, _| kit::icon_at(ui, "grip", grip_rect, 20.0));
-        let grip = grip.interact(Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
+        kit::icon_at(ui, "grip", grip_rect, 20.0);
+        let grip = ui.interact(grip_rect, ui.id().with("grip"), Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
         kit::icon_at(ui, role_icon(track.role), sq(content, 0, 18.0, SQ), 20.0);
         let star_rect = sq(content, 0, cw - 3.0 * SQ, SQ);
         let more_rect = sq(content, 0, cw - 2.0 * SQ, SQ);
@@ -171,11 +174,7 @@ impl TrackHeader {
             events.push(TrackEvent::CollapseToggled(id));
         }
         let more = icon_button(ui, more_rect, "more", "more", false);
-        let menu_id = ui.id().with(("menu", id));
-        if more.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(menu_id));
-        }
-        kit::popup(ui, menu_id, &more, true, |ui| {
+        dropdown(ui, "menu", &more, true, |ui| {
             ui.set_min_width(230.0);
             let mut close = false;
             if ui.button("Rename").clicked() {
@@ -225,26 +224,16 @@ impl TrackHeader {
         }
         let w = (cw - 82.0 - 4.0) / 2.0;
         let vol = dd_button(ui, row_rect(content, 1, 82.0, w), "vol", &volume_text(track.volume));
-        let vol_id = ui.id().with(("vol-popup", id));
-        if vol.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(vol_id));
-        }
         let range = 0.0..=Track::MAX_VOLUME * 100.0;
-        if vol.hovered() {
-            crate::nav::own_plain_wheel(ui.ctx(), vol.rect);
-        }
         let mut wheeled = track.volume * 100.0;
         if kit::wheel_value(ui, &vol, &mut wheeled, &range, 5.0, false) {
             events.push(TrackEvent::VolumeChanged { id, volume: wheeled / 100.0 });
         }
-        kit::popup(ui, vol_id, &vol.clone().on_hover_text("Volume (scroll to change)"), false, |ui| {
+        dropdown(ui, "vol-popup", &vol.clone().on_hover_text("Volume (scroll to change)"), false, |ui| {
             kit::style_slider(ui);
             ui.spacing_mut().slider_width = 150.0;
             let mut percent = track.volume * 100.0;
             let slider = ui.add(Slider::new(&mut percent, range.clone()).show_value(false).trailing_fill(true));
-            if slider.hovered() {
-                crate::nav::own_plain_wheel(ui.ctx(), slider.rect);
-            }
             if slider.double_clicked() {
                 events.push(TrackEvent::VolumeChanged { id, volume: 1.0 });
             } else if slider.changed() | kit::wheel_value(ui, &slider, &mut percent, &range, 5.0, false) {
@@ -256,11 +245,7 @@ impl TrackHeader {
         let offset_handle = dd_button(ui, row_rect(content, 1, 82.0 + w + 4.0, w), "offset", &format_offset(offset_sec))
             .on_hover_text("Click for sync options, drag to move the audio")
             .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-        let off_id = ui.id().with(("off-popup", id));
-        if offset_handle.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(off_id));
-        }
-        kit::popup(ui, off_id, &offset_handle, true, |ui| {
+        dropdown(ui, "off-popup", &offset_handle, true, |ui| {
             ui.horizontal(|ui| {
                 let cell = |ui: &mut Ui, w: f32| ui.allocate_exact_size(vec2(w, ROW_H[1]), Sense::hover()).0;
                 let field = cell(ui, 86.0);

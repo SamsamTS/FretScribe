@@ -208,7 +208,7 @@ impl TabView<'_> {
         if state.string_colors { Stroke::new(1.0_f32, color.gamma_multiply(0.45)) } else { neutral }
     }
 
-    /// The strip; the host draws the tools ([`sheet_tools`], [`tab_tools`]) itself.
+    /// The strip; the host draws the tools ([`notation_tools`]) itself.
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
         let mut events = Vec::new();
         let st = self.style;
