@@ -242,6 +242,9 @@ impl TrackHeader {
             ui.spacing_mut().slider_width = 150.0;
             let mut percent = track.volume * 100.0;
             let slider = ui.add(Slider::new(&mut percent, range.clone()).show_value(false).trailing_fill(true));
+            if slider.hovered() {
+                crate::nav::own_plain_wheel(ui.ctx(), slider.rect);
+            }
             if slider.double_clicked() {
                 events.push(TrackEvent::VolumeChanged { id, volume: 1.0 });
             } else if slider.changed() | kit::wheel_value(ui, &slider, &mut percent, &range, 5.0, false) {
