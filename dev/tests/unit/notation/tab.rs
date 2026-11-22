@@ -204,14 +204,31 @@ fn grace_note_hammers_into_its_main_note() {
 }
 
 #[test]
-fn unlinked_grace_note_prefers_the_main_notes_string() {
+fn picked_grace_notes_prefer_strings_other_than_their_main_note_and_each_other() {
     let mut f = fixture();
     let main = f.add(66, 1.0, 2.0);
-    let grace = f.add(64, 0.9, 1.0);
-    f.notes[grace].grace_of = Some(GraceNote { main: f.notes[main].id, kind: GraceKind::Acciaccatura });
+    let (g1, g2) = (f.add(64, 0.8, 0.9), f.add(62, 0.9, 1.0));
+    for g in [g1, g2] {
+        f.notes[g].grace_of = Some(GraceNote { main: f.notes[main].id, kind: GraceKind::Acciaccatura });
+    }
     f.lock(main, 4, 7);
     f.solve();
-    assert_eq!(f.at(grace), Some((4, 5)));
+    let strings: Vec<u8> = [main, g1, g2].iter().map(|&i| f.at(i).unwrap().0).collect();
+    assert!(strings[0] != strings[1] && strings[0] != strings[2] && strings[1] != strings[2], "{strings:?}");
+}
+
+#[test]
+fn a_phrase_is_played_across_strings_in_one_position_rather_than_shifting_along_one() {
+    // D4 Eb4 D4 | C4 | C4 Bb3 C4: frets 7 8 7 5 5 3 5 on the G string, or 7 8 7 then 10 10 8 10 on the D string.
+    let mut f = fixture();
+    let ids = f.seq(&[62, 63, 62, 60, 60, 58, 60]);
+    f.legato(ids[0], ids[1], Legato::HammerOn);
+    f.legato(ids[1], ids[2], Legato::PullOff);
+    f.legato(ids[4], ids[5], Legato::PullOff);
+    f.legato(ids[5], ids[6], Legato::HammerOn);
+    f.lock(ids[0], 3, 7);
+    f.solve();
+    assert_eq!([3, 4, 5, 6].map(|i| f.at(ids[i]).unwrap().0), [2, 2, 2, 2]);
 }
 
 #[test]
