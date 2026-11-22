@@ -4,7 +4,6 @@
 mod events;
 mod geometry;
 mod header;
-mod icons;
 mod lane;
 mod lanes;
 mod offset;

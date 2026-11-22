@@ -84,7 +84,6 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, grid: &note_grid, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
-            let tab_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_style.height(strings, s.tab_state.show_stems)));
             let out = TabView {
                 project: &s.project,
                 times: &s.times,
@@ -98,8 +97,9 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             }
             .show(ui, &view, &mut s.tab_state);
             tab_events = out.events;
-            tab_events.extend(tab_view::tab_tools(ui, tab_lane, &mut s.tab_state));
-            s.staff_dirty |= tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb, &mut s.ui.strict_beats);
+            let (changed, events) = tab_view::notation_tools(ui, sheet_lane, &mut s.ui.guitar_8vb, &mut s.ui.strict_beats, &mut s.tab_state);
+            s.staff_dirty |= changed;
+            tab_events.extend(events);
         }
         tab_view::collapse_button(ui, row, &mut collapsed);
         s.notation_collapsed = collapsed;
@@ -107,12 +107,9 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let notation_rect = panel.response.rect;
     let lines = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_lines")));
     let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
-    // Under the collapse button only the header column is cut; the sheet strip itself runs to the panel top.
-    let header = notation_rect.left()..=notation_rect.left() + LANE_HEADER_WIDTH;
-    lines.hline(header, (notation_rect.top() + tab_view::TOOLBAR_HEIGHT).round(), stroke);
     let tab_top = (notation_rect.top() + staff_style.height()).round();
     if tab_top < notation_rect.bottom() - 1.0 {
-        lines.hline(notation_rect.x_range(), tab_top, stroke);
+        lines.hline(notation_rect.left() + LANE_HEADER_WIDTH..=notation_rect.right(), tab_top, stroke);
     }
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
     GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);

@@ -1,19 +1,17 @@
 //! Left column of a lane: identity, mixer controls and sync controls of one track.
 
 use egui::text::{CCursor, CCursorRange};
-use egui::{pos2, vec2, Align, Align2, Color32, FontId, Key, Label, Modifiers, Painter, Rect, Response, RichText, Sense, Slider, TextEdit, Ui, UiBuilder};
+use egui::{pos2, vec2, Align, Align2, Color32, FontId, Key, Label, Modifiers, Rect, Response, RichText, Sense, Slider, TextEdit, Ui, UiBuilder};
 use fretscribe_core::{Track, TrackRole};
 
 use super::events::TrackEvent;
 use super::geometry::STRIP_PITCH_PX;
-use super::icons;
 use super::offset::{clamp_offset, format_offset, nudged, parse_offset};
 use crate::note_editor::ActionButton;
 use crate::view::LANE_HEADER_WIDTH;
 use crate::{kit, theme};
 
 const PAD: f32 = 4.0;
-const ICON: f32 = 16.0;
 const NOT_AUDIBLE_OPACITY: f32 = 0.45;
 const BASE_BG: Color32 = theme::PANEL_BG;
 const ROLES: [(TrackRole, &str); 4] = [(TrackRole::Guitar, "Guitar"), (TrackRole::Bass, "Bass"), (TrackRole::Drums, "Drums"), (TrackRole::Other, "Other")];
@@ -53,31 +51,54 @@ pub fn volume_text(volume: f32) -> String {
     }
 }
 
-fn button(ui: &Ui, rect: Rect, salt: &str, enabled: bool, paint: impl FnOnce(&Painter, bool)) -> Response {
-    let response = ui.interact(rect, ui.id().with(salt), if enabled { Sense::click() } else { Sense::hover() });
-    paint(&ui.painter_at(rect), response.hovered() && enabled);
+/// A toolbar-style icon button (`on`: toggled look) filling `rect`.
+fn icon_button(ui: &Ui, rect: Rect, salt: &str, name: &str, on: bool) -> Response {
+    let response = ui.interact(rect, ui.id().with(salt), Sense::click());
+    kit::button_bg(ui, rect, response.hovered(), false, on, None, 6);
+    kit::icon_at(ui, name, rect, 16.0);
     response
 }
 
-fn text_button(ui: &Ui, rect: Rect, salt: &str, label: &str, enabled: bool) -> Response {
-    button(ui, rect, salt, enabled, |p, hovered| {
-        kit::button_bg(ui, rect, hovered, false, false, None, 6);
-        let color = if enabled { theme::TEXT } else { theme::HINT };
-        p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(11.0), color);
-    })
+/// Opens the popup `salt` on a click of `anchor` and shows `add` while it is open.
+fn dropdown(ui: &Ui, salt: &str, anchor: &Response, right: bool, add: impl FnOnce(&mut Ui)) {
+    let id = ui.id().with(salt);
+    if anchor.clicked() {
+        ui.memory_mut(|m| m.toggle_popup(id));
+    }
+    kit::popup(ui, id, anchor, right, add);
 }
 
-/// A toolbar-style icon button (`on`: toggled look) filling `rect`.
-fn icon_button(ui: &Ui, rect: Rect, salt: &str, name: &str, on: bool) -> Response {
-    button(ui, rect, salt, true, |_, hovered| {
-        kit::button_bg(ui, rect, hovered, false, on, None, 6);
-        kit::icon_at(ui, name, rect, 16.0);
-    })
-}
+const ROW_H: [f32; 2] = [26.0, 30.0];
+const SQ: f32 = 24.0;
 
 fn row_rect(content: Rect, row: usize, x: f32, width: f32) -> Rect {
-    let h = content.height() / 3.0;
-    Rect::from_min_size(pos2(content.left() + x, content.top() + h * row as f32), vec2(width, h)).shrink2(vec2(0.0, 1.0))
+    let top = if row == 0 { 0.0 } else { ROW_H[0] + 4.0 };
+    Rect::from_min_size(pos2(content.left() + x, content.top() + top), vec2(width, ROW_H[row]))
+}
+
+/// A square of side `side` centred on row `row`, `x` from the content's left edge.
+fn sq(content: Rect, row: usize, x: f32, side: f32) -> Rect {
+    Rect::from_center_size(row_rect(content, row, x, side).center(), vec2(side, side))
+}
+
+/// A compact dropdown-style button; the caller opens its popup. Also draggable.
+fn dd_button(ui: &Ui, rect: Rect, salt: &str, text: &str) -> Response {
+    let r = ui.interact(rect, ui.id().with(salt), Sense::click_and_drag());
+    let edge = if r.hovered() { theme::BORDER_STRONG } else { theme::BORDER };
+    let p = ui.painter_at(rect);
+    p.rect(rect, egui::CornerRadius::same(theme::CONTROL_RADIUS), theme::INPUT_BG, egui::Stroke::new(1.0_f32, edge), egui::StrokeKind::Inside);
+    p.text(pos2(rect.left() + 10.0, rect.center().y), Align2::LEFT_CENTER, text, FontId::proportional(12.0), theme::TEXT);
+    kit::chevron(&p, pos2(rect.right() - 12.0, rect.center().y));
+    r
+}
+
+fn role_icon(role: TrackRole) -> &'static str {
+    match role {
+        TrackRole::Guitar => "role-guitar",
+        TrackRole::Bass => "role-bass",
+        TrackRole::Drums => "role-drums",
+        TrackRole::Other => "role-other",
+    }
 }
 
 pub struct TrackHeader;
@@ -102,41 +123,27 @@ impl TrackHeader {
                 .max_rect(rect),
         );
         let ppp = ui.ctx().pixels_per_point();
-        let [r, g, b] = track.color;
-        let background = if is_source {
-            let mix = |base: u8, c: u8| (f32::from(base) * 0.8 + f32::from(c) * 0.2) as u8;
-            Color32::from_rgb(mix(BASE_BG.r(), r), mix(BASE_BG.g(), g), mix(BASE_BG.b(), b))
-        } else {
-            BASE_BG
-        };
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, background);
-        painter.rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, Color32::from_rgb(r, g, b));
+        painter.rect_filled(rect, 0.0, BASE_BG);
+        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, theme::BORDER_STRONG));
+        painter.rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, if is_source { theme::accent() } else { theme::TEXT });
 
         ui.set_opacity(opacity_for(audible));
         let content = Rect::from_min_size(rect.min + vec2(PAD + 3.0, 2.0), vec2(LANE_HEADER_WIDTH - 2.0 * PAD - 3.0, STRIP_PITCH_PX as f32 / ppp - 4.0));
         let cw = content.width();
         let mut events = Vec::new();
         let id = track.id;
-        let ink = theme::LABEL;
 
-        let grip = button(ui, row_rect(content, 0, 0.0, 14.0), "grip", true, |p, _| icons::grip(p, row_rect(content, 0, 0.0, 14.0), ink));
-        let grip = grip.interact(Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
-        painter.rect_filled(Rect::from_center_size(row_rect(content, 0, 16.0, 10.0).center(), vec2(10.0, 10.0)), 2.0, Color32::from_rgb(r, g, b));
-        let role_rect = row_rect(content, 0, 30.0, ICON);
-        icons::role(&painter, role_rect, track.role, ink);
-        let mut name_x = 50.0;
-        if is_source {
-            icons::guitar(&painter, row_rect(content, 0, 48.0, ICON), Color32::from_rgb(r, g, b));
-            name_x = 68.0;
-        }
-
-        let menu_rect = row_rect(content, 0, cw - 18.0, 18.0);
-        let chevron_rect = row_rect(content, 0, cw - 36.0, 18.0);
-        let star_rect = row_rect(content, 0, cw - 54.0, 18.0);
+        let grip_rect = Rect::from_center_size(pos2(content.left() + 7.0, content.top() + ROW_H[0] + 2.0), vec2(14.0, 24.0));
+        kit::icon_at(ui, "grip", grip_rect, 20.0);
+        let grip = ui.interact(grip_rect, ui.id().with("grip"), Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
+        kit::icon_at(ui, role_icon(track.role), sq(content, 0, 18.0, SQ), 20.0);
+        let star_rect = sq(content, 0, cw - 3.0 * SQ, SQ);
+        let more_rect = sq(content, 0, cw - 2.0 * SQ, SQ);
+        let chevron_rect = sq(content, 0, cw - SQ, SQ);
 
         let rename_id = ui.id().with(("rename", id));
-        let name_rect = row_rect(content, 0, name_x, cw - 56.0 - name_x);
+        let name_rect = row_rect(content, 0, 46.0, cw - 3.0 * SQ - 50.0);
         if let Some(mut text) = ui.data(|d| d.get_temp::<String>(rename_id)) {
             let edit_id = rename_id.with("edit");
             let response = ui.put(name_rect, TextEdit::singleline(&mut text).id(edit_id));
@@ -153,99 +160,108 @@ impl TrackHeader {
                 ui.data_mut(|d| d.insert_temp(rename_id, text));
             }
         } else {
-            let label = Label::new(RichText::new(&track.name).size(12.0).strong().color(Color32::from_gray(235))).truncate().sense(Sense::click());
-            if ui.put(name_rect, label).double_clicked() {
+            let label = Label::new(RichText::new(track.name.to_uppercase()).size(11.0).strong().color(theme::HINT)).truncate().sense(Sense::click());
+            let named = ui.scope_builder(UiBuilder::new().max_rect(name_rect).layout(egui::Layout::left_to_right(Align::Center)), |ui| ui.add(label)).inner;
+            if named.double_clicked() {
                 ui.data_mut(|d| d.insert_temp(rename_id, track.name.clone()));
             }
         }
 
-        let star = icon_button(ui, star_rect, "star", if is_reference { "star-filled" } else { "star" }, false);
-        if star.on_hover_text("Reference track for sync").clicked() {
+        if icon_button(ui, star_rect, "star", if is_reference { "star-filled" } else { "star" }, false).on_hover_text("Reference track for sync").clicked() {
             events.push(TrackEvent::SetReference(id));
         }
         if icon_button(ui, chevron_rect, "chevron", if track.spectrogram_collapsed { "chevron-right" } else { "chevron-down" }, false).on_hover_text("Show or hide the spectrogram").clicked() {
             events.push(TrackEvent::CollapseToggled(id));
         }
-        let mut menu_ui = ui.new_child(UiBuilder::new().max_rect(menu_rect));
-        menu_ui.menu_button("…", |ui| {
+        let more = icon_button(ui, more_rect, "more", "more", false);
+        dropdown(ui, "menu", &more, true, |ui| {
             ui.set_min_width(230.0);
+            let mut close = false;
             if ui.button("Rename").clicked() {
                 ui.data_mut(|d| d.insert_temp(rename_id, track.name.clone()));
-                ui.close_menu();
+                close = true;
             }
             if ui.add_enabled(!is_reference, egui::Button::new("Set as reference")).clicked() {
                 events.push(TrackEvent::SetReference(id));
-                ui.close_menu();
+                close = true;
             }
             if ui.add_enabled(can_remove, egui::Button::new("Remove")).clicked() {
                 events.push(TrackEvent::RemoveRequested(id));
-                ui.close_menu();
+                close = true;
             }
-            ui.menu_button("Role", |ui| {
-                for (role, label) in ROLES {
-                    if ui.radio(track.role == role, label).clicked() {
-                        events.push(TrackEvent::RoleChanged { id, role });
-                        ui.close_menu();
-                    }
+            ui.separator();
+            for (role, label) in ROLES {
+                if ui.radio(track.role == role, label).clicked() {
+                    events.push(TrackEvent::RoleChanged { id, role });
+                    close = true;
                 }
-            });
+            }
+            ui.separator();
             let mut on = track.use_for_beats;
             if ui.checkbox(&mut on, "Use for beat analysis").changed() {
                 events.push(TrackEvent::UseForBeatsChanged { id, on });
             }
             if ui.add_enabled(!is_source, egui::Button::new("Use as transcription source")).clicked() {
                 events.push(TrackEvent::SetSource(id));
-                ui.close_menu();
+                close = true;
             }
             if is_source {
                 ui.checkbox(move_notes, "Move notes when the offset changes");
             }
+            if close {
+                ui.memory_mut(|m| m.close_popup());
+            }
         });
 
-        let mute = icon_button(ui, row_rect(content, 1, 0.0, 22.0), "mute", "mute", track.muted);
+        let mute = icon_button(ui, sq(content, 1, 18.0, 28.0), "mute", "mute", track.muted);
         if mute.on_hover_text("Mute").clicked() {
             events.push(TrackEvent::MuteToggled(id));
         }
-        let solo = icon_button(ui, row_rect(content, 1, 24.0, 22.0), "solo", "solo", track.solo);
+        let solo = icon_button(ui, sq(content, 1, 48.0, 28.0), "solo", "solo", track.solo);
         let exclusive = solo.clicked() && ui.input(|i| i.modifiers.alt);
         if solo.on_hover_text("Solo (Alt+click: exclusive)").clicked() {
             events.push(TrackEvent::SoloToggled { id, exclusive });
         }
-        let slider_rect = row_rect(content, 1, 50.0, cw - 104.0);
-        let mut slider_ui = ui.new_child(UiBuilder::new().max_rect(slider_rect));
-        kit::style_slider(&mut slider_ui);
-        slider_ui.spacing_mut().slider_width = slider_rect.width();
-        let mut percent = track.volume * 100.0;
-        let slider = slider_ui.add(Slider::new(&mut percent, 0.0..=Track::MAX_VOLUME * 100.0).show_value(false));
-        if slider.double_clicked() {
-            events.push(TrackEvent::VolumeChanged { id, volume: 1.0 });
-        } else if slider.changed() {
-            events.push(TrackEvent::VolumeChanged { id, volume: percent / 100.0 });
+        let w = (cw - 82.0 - 4.0) / 2.0;
+        let vol = dd_button(ui, row_rect(content, 1, 82.0, w), "vol", &volume_text(track.volume));
+        let range = 0.0..=Track::MAX_VOLUME * 100.0;
+        let mut wheeled = track.volume * 100.0;
+        if kit::wheel_value(ui, &vol, &mut wheeled, &range, 5.0, false) {
+            events.push(TrackEvent::VolumeChanged { id, volume: wheeled / 100.0 });
         }
-        painter.text(row_rect(content, 1, cw - 50.0, 50.0).right_center(), Align2::RIGHT_CENTER, volume_text(track.volume), FontId::monospace(10.0), ink);
+        dropdown(ui, "vol-popup", &vol.clone().on_hover_text("Volume (scroll to change)"), false, |ui| {
+            kit::style_slider(ui);
+            ui.spacing_mut().slider_width = 150.0;
+            let mut percent = track.volume * 100.0;
+            let slider = ui.add(Slider::new(&mut percent, range.clone()).show_value(false).trailing_fill(true));
+            if slider.double_clicked() {
+                events.push(TrackEvent::VolumeChanged { id, volume: 1.0 });
+            } else if slider.changed() | kit::wheel_value(ui, &slider, &mut percent, &range, 5.0, false) {
+                events.push(TrackEvent::VolumeChanged { id, volume: percent / 100.0 });
+            }
+        });
 
-        let handle_rect = row_rect(content, 2, 0.0, ICON);
-        let offset_handle = icon_button(ui, handle_rect, "offset-handle", "offset-arrows", false).interact(Sense::drag()).on_hover_text("Drag to move the audio").on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-        offset_field(ui, row_rect(content, 2, 20.0, 86.0), id, offset_sec, is_source && *move_notes, &mut events);
-        if text_button(ui, row_rect(content, 2, 110.0, 62.0), "auto", "Auto sync", !is_reference).on_hover_text("Estimate the offset against the reference track").clicked() {
-            events.push(TrackEvent::SyncRequested(id));
-        }
-        if icon_button(
-            ui,
-            row_rect(content, 2, 176.0, 22.0),
-            "reset",
-            "reset-offset",
-            false,
-        )
-        .on_hover_text("Reset the offset to 0")
-        .clicked()
-        {
-            events.push(TrackEvent::OffsetChanged {
-                id,
-                offset_sec: 0.0,
-                move_notes: is_source && *move_notes,
+        let move_with = is_source && *move_notes;
+        let offset_handle = dd_button(ui, row_rect(content, 1, 82.0 + w + 4.0, w), "offset", &format_offset(offset_sec))
+            .on_hover_text("Click for sync options, drag to move the audio")
+            .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+        dropdown(ui, "off-popup", &offset_handle, true, |ui| {
+            ui.horizontal(|ui| {
+                let cell = |ui: &mut Ui, w: f32| ui.allocate_exact_size(vec2(w, ROW_H[1]), Sense::hover()).0;
+                let field = cell(ui, 86.0);
+                offset_field(ui, field, id, offset_sec, move_with, &mut events);
+                ui.add_enabled_ui(!is_reference, |ui| {
+                    let auto = cell(ui, ROW_H[1]);
+                    if icon_button(ui, auto, "auto", "auto-sync", false).on_hover_text("Auto sync: estimate the offset against the reference track").clicked() {
+                        events.push(TrackEvent::SyncRequested(id));
+                    }
+                });
+                let reset = cell(ui, ROW_H[1]);
+                if icon_button(ui, reset, "reset", "reset-offset", false).on_hover_text("Reset the offset to 0").clicked() {
+                    events.push(TrackEvent::OffsetChanged { id, offset_sec: 0.0, move_notes: move_with });
+                }
             });
-        }
+        });
         if let Some(tools) = tools {
             let free = Rect::from_min_max(
                 pos2(content.left(), content.bottom() + 4.0),
@@ -264,23 +280,15 @@ impl TrackHeader {
 }
 
 fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &[ActionButton], events: &mut Vec<TrackEvent>) {
-    let row_at = |ui: &mut Ui, n: usize| {
-        let top = area.top() + n as f32 * (kit::BUTTON + 4.0);
-        let mut row = ui.new_child(
-            UiBuilder::new()
-                .id_salt(("tools", id, n))
-                .max_rect(Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), kit::BUTTON)))
-                .layout(egui::Layout::left_to_right(Align::Center)),
-        );
-        row.spacing_mut().item_spacing.x = 4.0;
-        row
-    };
-    let mut row = row_at(ui, 0);
-    for b in tools {
-        if row.add_enabled_ui(b.enabled, |ui| kit::ibtn(ui, b.icon, &b.tooltip, false)).inner.clicked() {
+    let mut ui = ui.new_child(UiBuilder::new().id_salt(("tools", id)).max_rect(area));
+    ui.set_clip_rect(ui.clip_rect().intersect(area));
+    ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+    kit::tool_panel(&mut ui, area.width(), &[tools.len()], |ui, i| {
+        let b = &tools[i];
+        if ui.add_enabled_ui(b.enabled, |ui| kit::ibtn(ui, b.icon, &b.tooltip, false)).inner.clicked() {
             events.push(TrackEvent::NoteAction(b.action));
         }
-    }
+    });
 }
 
 fn offset_field(
@@ -295,7 +303,10 @@ fn offset_field(
     let edit_id = state_id.with("edit");
     let editing = ui.memory(|m| m.has_focus(edit_id));
     let mut text = if editing { ui.data(|d| d.get_temp::<String>(state_id)).unwrap_or_else(|| format_offset(offset_sec)) } else { format_offset(offset_sec) };
-    let response = ui.put(rect, TextEdit::singleline(&mut text).id(edit_id).horizontal_align(Align::Center).font(FontId::monospace(11.0)));
+    ui.painter().rect_filled(rect, egui::CornerRadius::same(theme::CONTROL_RADIUS), theme::INPUT_BG);
+    let response = ui.put(rect, TextEdit::singleline(&mut text).id(edit_id).frame(false).horizontal_align(Align::Center).vertical_align(Align::Center).font(FontId::proportional(13.0)));
+    let edge = if response.has_focus() { theme::accent() } else { theme::BORDER };
+    ui.painter().rect_stroke(rect, egui::CornerRadius::same(theme::CONTROL_RADIUS), egui::Stroke::new(1.0_f32, edge), egui::StrokeKind::Inside);
     if response.gained_focus() {
         if let Some(mut state) = TextEdit::load_state(ui.ctx(), edit_id) {
             state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(text.chars().count()))));
