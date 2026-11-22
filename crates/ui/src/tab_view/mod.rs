@@ -396,7 +396,7 @@ pub fn notation_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool, strict_bea
     let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 4.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - crate::staff_view::NOTATION_HEAD_W - TOOLS_MARGIN, lane.bottom()));
     ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
         ui.set_clip_rect(ui.clip_rect().intersect(lane));
-        crate::kit::tool_panel(ui, area.width(), 6, |ui, i| {
+        crate::kit::tool_panel(ui, area.width(), &[2, 4], |ui, i| {
             let (icon, tip, value): (&str, &str, &mut bool) = match i {
                 0 => ("guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", &mut *guitar_8vb),
                 1 => ("rhythm", "Strict beats: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut *strict_beats),

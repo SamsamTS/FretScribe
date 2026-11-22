@@ -75,6 +75,12 @@ icons!(
     "lock",
     "unlock",
     "guitar-8vb",
+    "role-guitar",
+    "role-bass",
+    "role-drums",
+    "role-other",
+    "grip",
+    "more",
 );
 
 pub const BUTTON: f32 = 36.0;
@@ -202,22 +208,31 @@ pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Res
         .response
 }
 
-/// A rounded panel `width` wide holding `count` buttons (`add(ui, i)` draws button `i`), wrapped onto
-/// as many rows as needed, each row centred.
-pub fn tool_panel(ui: &mut Ui, width: f32, count: usize, mut add: impl FnMut(&mut Ui, usize)) {
+/// A rounded panel `width` wide holding groups of buttons (`groups` gives the size of each; `add(ui, i)`
+/// draws button `i` counted across groups). Each group wraps onto as many centred rows as needed, with a
+/// separator between groups.
+pub fn tool_panel(ui: &mut Ui, width: f32, groups: &[usize], mut add: impl FnMut(&mut Ui, usize)) {
     const PAD: f32 = 4.0;
     let inner = width - 2.0 * PAD - 2.0;
     let per = (((inner + PAD) / (BUTTON + PAD)) as usize).max(1);
     Frame::new().fill(theme::PANEL_BG).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(GROUP_RADIUS)).inner_margin(PAD).show(ui, |ui| {
         ui.set_width(inner);
         ui.spacing_mut().item_spacing.y = PAD;
-        for start in (0..count).step_by(per) {
-            let n = per.min(count - start);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = PAD;
-                ui.add_space((inner - (n as f32 * (BUTTON + PAD) - PAD)) / 2.0);
-                (start..start + n).for_each(|i| add(ui, i));
-            });
+        let mut first = 0;
+        for (g, &count) in groups.iter().enumerate() {
+            if g > 0 {
+                let (r, _) = ui.allocate_exact_size(vec2(inner, 1.0), Sense::hover());
+                ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0_f32, theme::BORDER));
+            }
+            for start in (first..first + count).step_by(per) {
+                let n = per.min(first + count - start);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = PAD;
+                    ui.add_space((inner - (n as f32 * (BUTTON + PAD) - PAD)) / 2.0);
+                    (start..start + n).for_each(|i| add(ui, i));
+                });
+            }
+            first += count;
         }
     });
 }
