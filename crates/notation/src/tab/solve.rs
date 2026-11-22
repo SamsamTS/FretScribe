@@ -77,7 +77,6 @@ struct Item {
 
 #[derive(Clone, Copy)]
 struct Pos {
-    fret: Option<f32>,
     string: f32,
 }
 
@@ -238,17 +237,13 @@ fn finish_item(notes: &[Note], ctx: &Ctx, groups: Vec<Group>) -> Item {
     Item { groups, offsets, notes: flat, conflicts, apart }
 }
 
-fn summarize(ctx: &Ctx, placed: impl Iterator<Item = (u8, u8)>) -> Option<Pos> {
-    let (mut fret_sum, mut fretted, mut string_sum, mut n) = (0.0, 0.0, 0.0, 0.0);
-    for (string, fret) in placed {
+fn summarize(placed: impl Iterator<Item = (u8, u8)>) -> Option<Pos> {
+    let (mut sum, mut n) = (0.0, 0.0);
+    for (string, _) in placed {
         n += 1.0;
-        string_sum += f32::from(string);
-        if ctx.fretted(fret) {
-            fretted += 1.0;
-            fret_sum += f32::from(fret);
-        }
+        sum += f32::from(string);
     }
-    (n > 0.0).then(|| Pos { fret: (fretted > 0.0).then(|| fret_sum / fretted), string: string_sum / n })
+    (n > 0.0).then(|| Pos { string: sum / n })
 }
 
 fn ends(item: &Item, pick: impl Fn(&Group) -> usize) -> Vec<usize> {
@@ -333,8 +328,8 @@ fn combos(item: &Item, ctx: &Ctx) -> Vec<Combo> {
     found
         .into_iter()
         .map(|(cost, slots)| {
-            let entry = summarize(ctx, firsts.iter().filter_map(|&i| slots[i]));
-            let exit = summarize(ctx, lasts.iter().filter_map(|&i| slots[i]));
+            let entry = summarize(firsts.iter().filter_map(|&i| slots[i]));
+            let exit = summarize(lasts.iter().filter_map(|&i| slots[i]));
             let frets = slots.iter().flatten().map(|s| s.1).filter(|&f| ctx.fretted(f));
             let reach = frets.clone().min().zip(frets.max());
             Combo { slots, reach, cost, entry, exit }
@@ -476,7 +471,7 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
             .then(|| {
                 let last = &items[lo - 1];
                 let lasts = ends(last, |g| g.members.len() - 1);
-                summarize(&ctx, lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
+                summarize(lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
             })
             .flatten();
         let start_anchor = (lo > 0)

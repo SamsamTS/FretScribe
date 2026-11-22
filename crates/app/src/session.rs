@@ -558,14 +558,24 @@ impl Session {
         player.play();
     }
 
-    /// Plays the selected region from its start, with the loop switched on or off first.
+    /// Pauses when playing; otherwise plays the selected region with the loop switched on or off first, resuming
+    /// from the playhead when it is inside the region and from the region start when it is not.
     pub fn play_selection(&mut self, looped: bool) {
         let Some(r) = self.region else { return };
+        if self.player.as_ref().is_some_and(|p| p.is_playing()) {
+            if let Some(p) = &self.player {
+                p.pause();
+            }
+            return;
+        }
         self.ui.loop_enabled = looped;
         self.play_region = true;
         self.player_resync(false);
+        let at = self.ui.playhead_sec;
         if let Some(p) = &self.player {
-            p.seek(r.start_sec);
+            if !(r.start_sec..r.end_sec).contains(&at) {
+                p.seek(r.start_sec);
+            }
             p.play();
         }
     }
