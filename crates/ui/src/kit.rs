@@ -202,14 +202,24 @@ pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Res
         .response
 }
 
-/// The rounded panel of a tool group whose buttons wrap onto several rows.
-pub fn tool_panel(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    Frame::new()
-        .fill(theme::PANEL_BG)
-        .stroke(Stroke::new(1.0_f32, theme::BORDER))
-        .corner_radius(CornerRadius::same(GROUP_RADIUS))
-        .inner_margin(4.0)
-        .show(ui, |ui| ui.horizontal_wrapped(add));
+/// A rounded panel `width` wide holding `count` buttons (`add(ui, i)` draws button `i`), wrapped onto
+/// as many rows as needed, each row centred.
+pub fn tool_panel(ui: &mut Ui, width: f32, count: usize, mut add: impl FnMut(&mut Ui, usize)) {
+    const PAD: f32 = 4.0;
+    let inner = width - 2.0 * PAD - 2.0;
+    let per = (((inner + PAD) / (BUTTON + PAD)) as usize).max(1);
+    Frame::new().fill(theme::PANEL_BG).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(GROUP_RADIUS)).inner_margin(PAD).show(ui, |ui| {
+        ui.set_width(inner);
+        ui.spacing_mut().item_spacing.y = PAD;
+        for start in (0..count).step_by(per) {
+            let n = per.min(count - start);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = PAD;
+                ui.add_space((inner - (n as f32 * (BUTTON + PAD) - PAD)) / 2.0);
+                (start..start + n).for_each(|i| add(ui, i));
+            });
+        }
+    });
 }
 
 pub fn sep(ui: &mut Ui) {

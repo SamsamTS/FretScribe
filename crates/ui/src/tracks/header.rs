@@ -116,12 +116,7 @@ impl TrackHeader {
         );
         let ppp = ui.ctx().pixels_per_point();
         let [r, g, b] = track.color;
-        let background = if is_source {
-            let mix = |base: u8, c: u8| (f32::from(base) * 0.8 + f32::from(c) * 0.2) as u8;
-            Color32::from_rgb(mix(BASE_BG.r(), r), mix(BASE_BG.g(), g), mix(BASE_BG.b(), b))
-        } else {
-            BASE_BG
-        };
+        let background = BASE_BG;
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, background);
         painter.rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, Color32::from_rgb(r, g, b));
@@ -138,7 +133,7 @@ impl TrackHeader {
         let grip = grip.interact(Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
         icons::role(&painter, row_rect(content, 0, 18.0, ICON), track.role, ink);
         let name_x = 40.0;
-        let name_color = if is_source { Color32::from_rgb(r, g, b).gamma_multiply(0.9) } else { theme::HINT };
+        let name_color = theme::HINT;
 
         let chevron_rect = row_rect(content, 0, cw - 18.0, 18.0);
         let menu_rect = row_rect(content, 0, cw - 36.0, 18.0);
@@ -282,11 +277,10 @@ fn tool_grid(ui: &mut Ui, area: Rect, id: u64, tools: &[ActionButton], events: &
     let mut ui = ui.new_child(UiBuilder::new().id_salt(("tools", id)).max_rect(area));
     ui.set_clip_rect(ui.clip_rect().intersect(area));
     ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-    kit::tool_panel(&mut ui, |ui| {
-        for b in tools {
-            if ui.add_enabled_ui(b.enabled, |ui| kit::ibtn(ui, b.icon, &b.tooltip, false)).inner.clicked() {
-                events.push(TrackEvent::NoteAction(b.action));
-            }
+    kit::tool_panel(&mut ui, area.width(), tools.len(), |ui, i| {
+        let b = &tools[i];
+        if ui.add_enabled_ui(b.enabled, |ui| kit::ibtn(ui, b.icon, &b.tooltip, false)).inner.clicked() {
+            events.push(TrackEvent::NoteAction(b.action));
         }
     });
 }
