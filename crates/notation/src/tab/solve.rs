@@ -350,7 +350,9 @@ fn string_jump(ctx: &Ctx, from: Option<Pos>, to: Option<Pos>) -> f32 {
 /// The hand window (its lowest fret) after playing `combo`, and what moving it cost.
 fn reposition(ctx: &Ctx, anchor: Option<u8>, combo: &Combo) -> (Option<u8>, f32) {
     let Some((lo, hi)) = combo.reach else {
-        return (anchor, anchor.map_or(0.0, |a| OPEN_REACH * f32::from(a.saturating_sub(ctx.capo + ctx.opts.max_hand_span))));
+        // Without a position yet, the hand rests at the nut.
+        let a = anchor.unwrap_or(ctx.capo);
+        return (Some(a), OPEN_REACH * f32::from(a.saturating_sub(ctx.capo + ctx.opts.max_hand_span)));
     };
     let Some(a) = anchor else { return (Some(lo), 0.0) };
     let span = ctx.opts.max_hand_span;
@@ -376,8 +378,7 @@ fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo))
 }
 
 /// Best combo index per item.
-fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<Pos>) -> Vec<usize> {
-    let start_anchor = start.and_then(|p| p.fret).map(|f| f.round() as u8);
+fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<Pos>, start_anchor: Option<u8>) -> Vec<usize> {
     // Cost of the best path into each combo, and the hand window that path ends with.
     let mut states: Vec<(f32, Option<u8>)> = options[0]
         .iter()
@@ -478,9 +479,16 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
                 summarize(&ctx, lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
             })
             .flatten();
+        let start_anchor = (lo > 0)
+            .then(|| {
+                let last = &items[lo - 1];
+                let lasts = ends(last, |g| g.members.len() - 1);
+                lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret).map(|s| s.1).filter(|&f| ctx.fretted(f)).min()
+            })
+            .flatten();
         let range: Vec<&Item> = items[lo..=hi].iter().collect();
         let options: Vec<Vec<Combo>> = range.iter().map(|it| combos(it, &ctx)).collect();
-        let picks = viterbi(&ctx, &range, &options, start);
+        let picks = viterbi(&ctx, &range, &options, start, start_anchor);
 
         for ((item, combos), &pick) in range.iter().zip(&options).zip(&picks) {
             let Some(combo) = combos.get(pick) else { continue };
