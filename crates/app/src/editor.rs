@@ -84,7 +84,6 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, grid: &note_grid, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
             staff_events = out.events;
-            let tab_lane = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_style.height(strings, s.tab_state.show_stems)));
             let out = TabView {
                 project: &s.project,
                 times: &s.times,
@@ -98,8 +97,9 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             }
             .show(ui, &view, &mut s.tab_state);
             tab_events = out.events;
-            tab_events.extend(tab_view::tab_tools(ui, tab_lane, &mut s.tab_state));
-            s.staff_dirty |= tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb, &mut s.ui.strict_beats);
+            let (changed, events) = tab_view::notation_tools(ui, sheet_lane, &mut s.ui.guitar_8vb, &mut s.ui.strict_beats, &mut s.tab_state);
+            s.staff_dirty |= changed;
+            tab_events.extend(events);
         }
         tab_view::collapse_button(ui, row, &mut collapsed);
         s.notation_collapsed = collapsed;

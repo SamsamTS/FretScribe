@@ -202,6 +202,16 @@ pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Res
         .response
 }
 
+/// The rounded panel of a tool group whose buttons wrap onto several rows.
+pub fn tool_panel(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    Frame::new()
+        .fill(theme::PANEL_BG)
+        .stroke(Stroke::new(1.0_f32, theme::BORDER))
+        .corner_radius(CornerRadius::same(GROUP_RADIUS))
+        .inner_margin(4.0)
+        .show(ui, |ui| ui.horizontal_wrapped(add));
+}
+
 pub fn sep(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(1.0, 22.0), Sense::hover());
     ui.painter().vline(rect.center().x, rect.y_range(), Stroke::new(1.0_f32, theme::BORDER));

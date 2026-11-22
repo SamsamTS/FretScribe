@@ -97,7 +97,7 @@ fn lane_top(h: &Harness, index: usize) -> f32 {
 fn mute_button_and_add_row_emit_events() {
     let mut h = Harness::new();
     let top = lane_top(&h, 1);
-    let mute = Pos2::new(4.0 + 3.0 + 11.0, top + 2.0 + (STRIP_PITCH_PX as f32 - 4.0) / 3.0 * 1.5);
+    let mute = Pos2::new(4.0 + 3.0 + 18.0 + 13.0, top + 2.0 + 30.0 + 15.0);
     assert_eq!(h.click(mute), vec![TrackEvent::MuteToggled(2)]);
     for t in &mut h.project.tracks {
         t.spectrogram_collapsed = true;
