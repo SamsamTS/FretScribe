@@ -653,20 +653,26 @@ fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
     if ctx.wants_keyboard_input() {
         return request;
     }
-    let (space, undo, redo) = ctx.input(|i| {
+    // Transport keys are taken before the widgets see them, so a focused button does not turn Space into a click;
+    // dialogs and popups keep their keys.
+    let modal = ctx.memory(|m| m.any_popup_open() || m.areas().visible_layer_ids().iter().any(|l| l.order == egui::Order::Middle));
+    if !modal {
+        let play = ctx.input_mut(|i| {
+            [(M::COMMAND, Some(true)), (M::SHIFT, Some(false)), (M::NONE, None)].into_iter().find_map(|(m, looped)| i.consume_key(m, Key::Space).then_some(looped))
+        });
+        match play {
+            Some(Some(looped)) => s.play_selection(looped),
+            Some(None) => s.toggle_play(),
+            None => {}
+        }
+    }
+    let (undo, redo) = ctx.input(|i| {
         let cmd = i.modifiers.command;
         (
-            i.key_pressed(egui::Key::Space) && !cmd && !i.modifiers.shift,
             cmd && i.key_pressed(egui::Key::Z) && !i.modifiers.shift,
             cmd && (i.key_pressed(egui::Key::Y) || (i.key_pressed(egui::Key::Z) && i.modifiers.shift)),
         )
     });
-    if space {
-        s.toggle_play();
-    }
-    if let Some(looped) = ctx.input(|i| i.key_pressed(Key::Space).then_some(i.modifiers).and_then(|m| if m.command { Some(true) } else { m.shift.then_some(false) })) {
-        s.play_selection(looped);
-    }
     if undo {
         s.undo_redo(false);
     } else if redo {
