@@ -9,7 +9,7 @@ use super::events::TrackEvent;
 use crate::nav::maths::smooth;
 use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
 use super::lane::{LaneOptions, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
-use crate::note_editor::HeaderTools;
+use crate::note_editor::ActionButton;
 use crate::view::RegionSelection;
 use crate::spectro::{white, GhostShape, SpectroEvent, SpectroStyle};
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
@@ -113,7 +113,7 @@ pub struct TrackLanes<'a> {
     /// Guitar focus range and strength, see `SpectrogramView::focus`.
     pub focus: Option<(f32, f32, f32)>,
     /// The tool grid of the source track's header.
-    pub tools: Option<&'a HeaderTools>,
+    pub tools: Option<&'a [ActionButton]>,
     /// The region selection (drawn on every lane, edited by right-drag), its snap points and the audio length.
     pub region: Option<RegionSelection>,
     pub region_snap: &'a [f64],

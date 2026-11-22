@@ -545,36 +545,33 @@ impl Session {
     }
 
     pub fn toggle_play(&mut self) {
-        let Some(player) = &self.player else { return };
-        if player.is_playing() {
-            player.pause();
-            return;
-        }
-        if std::mem::take(&mut self.play_region) {
-            self.player_resync(false);
-        }
-        let Some(player) = &self.player else { return };
-        player.seek(self.ui.playhead_sec);
-        player.play();
+        self.play_pause(false);
     }
 
     /// Pauses when playing; otherwise switches the loop on or off and plays the selected region, resuming from the
     /// playhead when it is inside the region and from the region start when it is not. Without a selection it plays
     /// from the playhead like plain play.
     pub fn play_selection(&mut self, looped: bool) {
-        if self.player.as_ref().is_some_and(|p| p.is_playing()) {
-            self.toggle_play();
+        if !self.player.as_ref().is_some_and(|p| p.is_playing()) {
+            self.ui.loop_enabled = looped;
+            if let Some(r) = self.region.filter(|r| !(r.start_sec..r.end_sec).contains(&self.ui.playhead_sec)) {
+                self.seek(r.start_sec);
+            }
+        }
+        self.play_pause(self.region.is_some());
+    }
+
+    /// Pauses, or plays from the playhead with the player bound to the selected region or not.
+    fn play_pause(&mut self, bound: bool) {
+        let Some(player) = &self.player else { return };
+        if player.is_playing() {
+            player.pause();
             return;
         }
-        self.ui.loop_enabled = looped;
-        self.play_region = self.region.is_some();
+        self.play_region = bound;
         self.player_resync(false);
-        let Some(r) = self.region else { return self.toggle_play() };
-        let at = self.ui.playhead_sec;
         if let Some(p) = &self.player {
-            if !(r.start_sec..r.end_sec).contains(&at) {
-                p.seek(r.start_sec);
-            }
+            p.seek(self.ui.playhead_sec);
             p.play();
         }
     }

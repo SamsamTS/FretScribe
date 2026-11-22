@@ -75,18 +75,14 @@ struct Item {
     apart: Vec<(usize, usize)>,
 }
 
-#[derive(Clone, Copy)]
-struct Pos {
-    string: f32,
-}
-
 struct Combo {
     slots: Vec<Slot>,
     /// Lowest and highest fretted fret of the combo.
     reach: Option<(u8, u8)>,
     cost: f32,
-    entry: Option<Pos>,
-    exit: Option<Pos>,
+    /// Mean string of the first and last notes of each group.
+    entry: Option<f32>,
+    exit: Option<f32>,
 }
 
 fn is_locked(n: &Note) -> bool {
@@ -237,13 +233,10 @@ fn finish_item(notes: &[Note], ctx: &Ctx, groups: Vec<Group>) -> Item {
     Item { groups, offsets, notes: flat, conflicts, apart }
 }
 
-fn summarize(placed: impl Iterator<Item = (u8, u8)>) -> Option<Pos> {
-    let (mut sum, mut n) = (0.0, 0.0);
-    for (string, _) in placed {
-        n += 1.0;
-        sum += f32::from(string);
-    }
-    (n > 0.0).then(|| Pos { string: sum / n })
+/// Mean string of `placed`.
+fn summarize(placed: impl Iterator<Item = (u8, u8)>) -> Option<f32> {
+    let strings: Vec<f32> = placed.map(|(string, _)| f32::from(string)).collect();
+    (!strings.is_empty()).then(|| strings.iter().sum::<f32>() / strings.len() as f32)
 }
 
 fn ends(item: &Item, pick: impl Fn(&Group) -> usize) -> Vec<usize> {
@@ -337,9 +330,9 @@ fn combos(item: &Item, ctx: &Ctx) -> Vec<Combo> {
         .collect()
 }
 
-fn string_jump(ctx: &Ctx, from: Option<Pos>, to: Option<Pos>) -> f32 {
+fn string_jump(ctx: &Ctx, from: Option<f32>, to: Option<f32>) -> f32 {
     let (Some(a), Some(b)) = (from, to) else { return 0.0 };
-    ctx.opts.string_jump_weight * (a.string - b.string).abs()
+    ctx.opts.string_jump_weight * (a - b).abs()
 }
 
 /// The hand window (its lowest fret) after playing `combo`, and what moving it cost.
@@ -373,7 +366,7 @@ fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo))
 }
 
 /// Best combo index per item.
-fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<Pos>, start_anchor: Option<u8>) -> Vec<usize> {
+fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<f32>, start_anchor: Option<u8>) -> Vec<usize> {
     // Cost of the best path into each combo, and the hand window that path ends with.
     let mut states: Vec<(f32, Option<u8>)> = options[0]
         .iter()
@@ -467,20 +460,15 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
         }
     };
     for (lo, hi) in windows {
-        let start = (lo > 0)
+        // The notes the previous item ended with: their mean string and the hand window they leave.
+        let before: Vec<(u8, u8)> = (lo > 0)
             .then(|| {
                 let last = &items[lo - 1];
-                let lasts = ends(last, |g| g.members.len() - 1);
-                summarize(lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
+                ends(last, |g| g.members.len() - 1).iter().filter_map(|&i| notes[last.notes[i]].string_fret).collect()
             })
-            .flatten();
-        let start_anchor = (lo > 0)
-            .then(|| {
-                let last = &items[lo - 1];
-                let lasts = ends(last, |g| g.members.len() - 1);
-                lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret).map(|s| s.1).filter(|&f| ctx.fretted(f)).min()
-            })
-            .flatten();
+            .unwrap_or_default();
+        let start = summarize(before.iter().copied());
+        let start_anchor = before.iter().map(|s| s.1).filter(|&f| ctx.fretted(f)).min();
         let range: Vec<&Item> = items[lo..=hi].iter().collect();
         let options: Vec<Vec<Combo>> = range.iter().map(|it| combos(it, &ctx)).collect();
         let picks = viterbi(&ctx, &range, &options, start, start_anchor);

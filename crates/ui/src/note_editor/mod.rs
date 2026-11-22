@@ -20,7 +20,7 @@ mod editor_tests;
 mod testkit;
 
 pub use action::{apply, ActionError, Applied, NoteAction};
-pub use buttons::{action_buttons, header_tools, show_action_row, ActionButton, HeaderTools, HINT};
+pub use buttons::{action_buttons, header_tools, show_action_row, ActionButton, HINT};
 pub use clip::Clipboard;
 pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_aim, plan_extend, valid_kinds, plan_slide_end, Creation, DrawFeedback, DrawPlan, LinkAim, LinkStart, NewNote, Pt, Ref, Sticky};
 pub use exact::{apply_exact, fields_for, ExactError, ExactFields};

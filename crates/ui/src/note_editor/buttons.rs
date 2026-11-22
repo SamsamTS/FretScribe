@@ -42,24 +42,17 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap)
     ]
 }
 
-/// What the source track header shows: the action buttons.
-pub struct HeaderTools {
-    pub buttons: Vec<ActionButton>,
-}
-
-/// The header grid: link mode (L) instead of linking a selection.
-pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap) -> HeaderTools {
+/// The buttons of the source track header: link mode (L) instead of linking a selection.
+pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap) -> Vec<ActionButton> {
     let mut buttons = action_buttons(project, selection, keymap);
     let link = &mut buttons[0];
     link.action = NoteAction::LinkHover;
     link.enabled = true;
-    link.tooltip = match keymap.shortcut_label(link.action) {
-        Some(keys) => {
-            format!("Link the selected notes, or start linking from the hovered note; again to cycle the link type ({keys})")
-        }
-        None => "Link the selected notes, or start linking from the hovered note; again to cycle the link type".to_owned(),
-    };
-    HeaderTools { buttons }
+    link.tooltip = "Link the selected notes, or start linking from the hovered note; again to cycle the link type".to_owned();
+    if let Some(keys) = keymap.shortcut_label(link.action) {
+        link.tooltip += &format!(" ({keys})");
+    }
+    buttons
 }
 
 /// Returns the clicked command; shows the hint instead of the row when nothing is selected.

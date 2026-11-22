@@ -680,7 +680,7 @@ impl NoteEditor {
         if action == NoteAction::LinkHover {
             // L while linking cycles the kind of the link being drawn, on a linked note the kind of its link.
             if let State::Link(l) = &mut self.state {
-                let shown = l.start.as_ref().map(|s| s.kind).or(l.kind).or(self.feedback.as_ref().and_then(|f| f.link));
+                let shown = l.kind.or(self.feedback.as_ref().and_then(|f| f.link));
                 let at = l.valid.iter().position(|k| Some(*k) == shown);
                 let Some(&next) = at.map_or(l.valid.first(), |i| l.valid.get((i + 1) % l.valid.len())) else { return Vec::new() };
                 l.kind = Some(next);
@@ -704,7 +704,7 @@ impl NoteEditor {
         let mut result = apply(env.project, &self.selection, action, env.grid);
         if action == NoteAction::LinkHover && result.as_ref().is_ok_and(|d| d.edit.is_none()) {
             // Nothing to link (already linked notes): L cycles their link type.
-            if let Ok(cycled) = apply(env.project, &self.selection, NoteAction::CycleLinkType, env.grid).ok().filter(|d| d.edit.is_some()).ok_or(()) {
+            if let Some(cycled) = apply(env.project, &self.selection, NoteAction::CycleLinkType, env.grid).ok().filter(|d| d.edit.is_some()) {
                 (action, result) = (NoteAction::CycleLinkType, Ok(cycled));
             }
         }
