@@ -61,6 +61,18 @@ fn take_whole(v: &mut f64) -> f64 {
     whole
 }
 
+const WHEEL_OWNER: &str = "nav_wheel_owner";
+
+/// Lets the widget at `rect` keep the plain (unmodified) wheel while the pointer is over it, instead of
+/// the lanes' vertical scroll. Call every frame the widget is hovered; the claim lasts one frame.
+pub fn own_plain_wheel(ctx: &Context, rect: Rect) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(WHEEL_OWNER), [rect.min.x, rect.min.y, rect.max.x, rect.max.y]));
+}
+
+fn is_plain(e: &Event) -> bool {
+    matches!(e, Event::MouseWheel { modifiers: m, .. } if !(m.alt || m.ctrl || m.shift || m.command))
+}
+
 /// Removes the wheel events it uses from `events`.
 pub fn read_wheel(events: &mut Vec<Event>, pointer: Option<Pos2>, r: &NavRegions, t: &ViewTuning, acc: &mut WheelAccum) -> WheelActions {
     let mut claimed = false;
@@ -137,9 +149,14 @@ impl ViewController {
         // gap as dt, which would make the animation jump. Start with a nominal frame instead.
         let was_animating = self.is_animating();
         let tuning = self.tuning;
+        let owner = ctx.data_mut(|d| d.remove_temp::<[f32; 4]>(egui::Id::new(WHEEL_OWNER))).map(|[a, b, c, e]| Rect::from_min_max(Pos2::new(a, b), Pos2::new(c, e)));
         let (pos, wheel, pressed, down, delta, dt) = ctx.input_mut(|i| {
             let pos = i.pointer.hover_pos();
-            let wheel = read_wheel(&mut i.events, pos, r, &tuning, &mut self.wheel);
+            let owned = owner.zip(pos).is_some_and(|(o, p)| o.contains(p));
+            let (held, mut rest): (Vec<_>, Vec<_>) = std::mem::take(&mut i.events).into_iter().partition(|e| owned && is_plain(e));
+            let wheel = read_wheel(&mut rest, pos, r, &tuning, &mut self.wheel);
+            rest.extend(held);
+            i.events = rest;
             if wheel.claimed {
                 i.smooth_scroll_delta = Vec2::ZERO;
                 i.raw_scroll_delta = Vec2::ZERO;

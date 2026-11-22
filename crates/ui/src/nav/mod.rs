@@ -6,7 +6,7 @@ mod input;
 pub mod maths;
 pub mod tuning;
 
-pub use input::{read_wheel, NavContext, NavRegions, WheelAccum, WheelActions};
+pub use input::{own_plain_wheel, read_wheel, NavContext, NavRegions, WheelAccum, WheelActions};
 pub use maths::{Geometry, Hover, PitchRange};
 pub use tuning::ViewTuning;
 

@@ -230,6 +230,9 @@ impl TrackHeader {
             ui.memory_mut(|m| m.toggle_popup(vol_id));
         }
         let range = 0.0..=Track::MAX_VOLUME * 100.0;
+        if vol.hovered() {
+            crate::nav::own_plain_wheel(ui.ctx(), vol.rect);
+        }
         let mut wheeled = track.volume * 100.0;
         if kit::wheel_value(ui, &vol, &mut wheeled, &range, 5.0, false) {
             events.push(TrackEvent::VolumeChanged { id, volume: wheeled / 100.0 });
