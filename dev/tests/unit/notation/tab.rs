@@ -343,3 +343,24 @@ fn editing_several_notes_in_one_call_matches_sequential_calls() {
         assert!(placed(&one).iter().chain(&placed(&seq)).all(Option::is_some));
     }
 }
+
+#[test]
+fn a_chord_passage_stays_in_the_position_of_the_locked_note_before_it_whatever_came_earlier() {
+    // A low C locked at the 8th fret, a C/Eb dyad, a G, then a four-note chord: all around frets 8-11.
+    for earlier in [&[][..], &[55, 57, 59, 60, 59, 57], &[52, 55, 57, 59, 60]] {
+        let mut f = fixture();
+        let n = earlier.len() as f64;
+        for (i, &m) in earlier.iter().enumerate() {
+            f.add(m, i as f64, i as f64 + 0.9);
+        }
+        let low = f.add(48, n, n + 0.9);
+        let dyad = [f.add(60, n + 1.0, n + 1.9), f.add(63, n + 1.0, n + 1.9)];
+        let single = f.add(55, n + 2.0, n + 2.9);
+        let chord: Vec<usize> = [60, 63, 67, 75].iter().map(|&m| f.add(m, n + 3.0, n + 3.9)).collect();
+        f.lock(low, 0, 8);
+        f.solve();
+        assert_eq!(dyad.map(|i| f.at(i)), [Some((2, 10)), Some((3, 8))], "after {earlier:?}");
+        assert_eq!(f.at(single), Some((1, 10)));
+        assert_eq!(chord.iter().map(|&i| f.at(i)).collect::<Vec<_>>(), [Some((2, 10)), Some((3, 8)), Some((4, 8)), Some((5, 11))]);
+    }
+}

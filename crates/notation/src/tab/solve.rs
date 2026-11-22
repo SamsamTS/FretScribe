@@ -365,42 +365,55 @@ fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo))
     count * OVERLAP_PENALTY
 }
 
-/// Best combo index per item.
-fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<f32>, start_anchor: Option<u8>) -> Vec<usize> {
-    // Cost of the best path into each combo, and the hand window that path ends with.
-    let mut states: Vec<(f32, Option<u8>)> = options[0]
-        .iter()
-        .map(|c| {
-            let (anchor, moved) = reposition(ctx, start_anchor, c);
-            (c.cost + string_jump(ctx, start, c.entry) + moved, anchor)
-        })
-        .collect();
-    let mut back: Vec<Vec<usize>> = Vec::new();
-    for k in 1..items.len() {
-        let mut next = Vec::with_capacity(options[k].len());
-        let mut from = Vec::with_capacity(options[k].len());
-        for cur in &options[k] {
-            let (best, cost, anchor) = options[k - 1]
-                .iter()
-                .enumerate()
-                .map(|(j, prev)| {
-                    let (anchor, moved) = reposition(ctx, states[j].1, cur);
-                    let step = string_jump(ctx, prev.exit, cur.entry) + moved + same_string_overlaps(ctx, (items[k - 1], prev), (items[k], cur));
-                    (j, states[j].0 + step, anchor)
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-                .unwrap_or((0, 0.0, None));
-            next.push((cost + cur.cost, anchor));
-            from.push(best);
-        }
-        states = next;
-        back.push(from);
+/// Going from an open string to a high position takes the hand as far as an open string was far from it.
+fn back_from_open(ctx: &Ctx, prev: &Combo, cur: &Combo) -> f32 {
+    match (prev.reach, cur.reach) {
+        (None, Some((lo, _))) => OPEN_REACH * f32::from(lo.saturating_sub(ctx.capo + ctx.opts.max_hand_span)),
+        _ => 0.0,
     }
-    let mut at = states.iter().enumerate().min_by(|a, b| a.1 .0.total_cmp(&b.1 .0)).map_or(0, |(i, _)| i);
-    let mut picks = vec![at];
-    for from in back.iter().rev() {
-        at = from[at];
-        picks.push(at);
+}
+
+/// One way to reach a combo: the hand window it leaves, the cost of the best path, and the state of the
+/// previous item it came from.
+struct State {
+    anchor: Option<u8>,
+    combo: usize,
+    cost: f32,
+    from: usize,
+}
+
+/// Best combo index per item: Viterbi over (combo, hand window) states, so the cost of having moved the hand
+/// is paid by the path that moved it.
+fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<f32>, start_anchor: Option<u8>) -> Vec<usize> {
+    let first = options[0].iter().enumerate().map(|(combo, c)| {
+        let (anchor, moved) = reposition(ctx, start_anchor, c);
+        State { anchor, combo, cost: c.cost + string_jump(ctx, start, c.entry) + moved, from: 0 }
+    });
+    let mut layers: Vec<Vec<State>> = vec![first.collect()];
+    for k in 1..items.len() {
+        let mut next: Vec<State> = Vec::new();
+        for (combo, cur) in options[k].iter().enumerate() {
+            let first_of_combo = next.len();
+            for (from, prev) in layers[k - 1].iter().enumerate() {
+                let before = &options[k - 1][prev.combo];
+                let (anchor, moved) = reposition(ctx, prev.anchor, cur);
+                let step = string_jump(ctx, before.exit, cur.entry) + moved + back_from_open(ctx, before, cur) + same_string_overlaps(ctx, (items[k - 1], before), (items[k], cur));
+                let cost = prev.cost + step + cur.cost;
+                match next[first_of_combo..].iter_mut().find(|s| s.anchor == anchor) {
+                    Some(s) if s.cost <= cost => {}
+                    Some(s) => *s = State { anchor, combo, cost, from },
+                    None => next.push(State { anchor, combo, cost, from }),
+                }
+            }
+        }
+        layers.push(next);
+    }
+    let mut at = layers.last().and_then(|l| l.iter().enumerate().min_by(|a, b| a.1.cost.total_cmp(&b.1.cost))).map_or(0, |(i, _)| i);
+    let mut picks = Vec::with_capacity(items.len());
+    for layer in layers.iter().rev() {
+        let state = &layer[at];
+        picks.push(state.combo);
+        at = state.from;
     }
     picks.reverse();
     picks
