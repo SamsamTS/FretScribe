@@ -20,9 +20,9 @@ mod editor_tests;
 mod testkit;
 
 pub use action::{apply, ActionError, Applied, NoteAction};
-pub use buttons::{action_buttons, header_tools, show_action_row, ActionButton, HeaderTools, HINT};
+pub use buttons::{action_buttons, header_tools, show_action_row, ActionButton, HINT};
 pub use clip::Clipboard;
-pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_aim, plan_extend, plan_slide_end, Creation, DrawFeedback, DrawPlan, LinkAim, LinkStart, NewNote, Pt, Ref, Sticky};
+pub use draw::{commit_creation, feedback, ghost_of, interval_label, plan_chain, plan_draw, plan_aim, plan_extend, valid_kinds, plan_slide_end, Creation, DrawFeedback, DrawPlan, LinkAim, LinkStart, NewNote, Pt, Ref, Sticky};
 pub use exact::{apply_exact, fields_for, ExactError, ExactFields};
 pub use grace_entry::{EntryKey, EntryStep, GraceEntry};
 pub use keymap::{KeyChord, Keymap, KeymapError};
@@ -42,7 +42,6 @@ pub struct EditCtx<'a> {
     pub grid: &'a SnapGrid,
     pub px_per_sec: f64,
     pub threshold_px: f64,
-    pub onsets: Option<&'a [f64]>,
     /// Snapping disabled by the modifier.
     pub alt: bool,
 }
@@ -50,7 +49,6 @@ pub struct EditCtx<'a> {
 impl<'a> EditCtx<'a> {
     pub(crate) fn opts(&self, sticky: Sticky) -> SnapOpts<'a> {
         let mut opts = SnapOpts::new(self.grid, self.threshold_px, self.px_per_sec);
-        opts.onset_targets = self.onsets;
         opts.disabled = self.alt;
         (opts.sticky_start, opts.sticky_end) = sticky;
         opts

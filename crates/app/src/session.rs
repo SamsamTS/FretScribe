@@ -93,7 +93,6 @@ pub struct Session {
     pub keep_pitch: bool,
     pub overlay_mix: f32,
     pub follow: bool,
-    pub snap_to_onsets: bool,
     pub overview_snap: bool,
     pub dirty: bool,
     pub edits_since_autosave: u32,
@@ -112,6 +111,8 @@ pub struct Session {
     pub sync_dialog: Option<SyncDialog>,
     pub toasts: Vec<Toast>,
     pub synced: Vec<PlayerCall>,
+    /// The player is bound to the selected region (Ctrl/Shift+Space or the play-selection button); plain play ignores it.
+    pub play_region: bool,
     pub audio_len_sec: f64,
     pub snap_on: bool,
     pub synth_on: bool,
@@ -129,6 +130,9 @@ fn style_of(ui: &UiState, luts: &LutSet) -> SpectroStyle {
         lut: luts.luts[luts.index_of(&ui.lut_name)].clone(),
     }
 }
+
+/// A playhead this close to the end of the region counts as having reached it (playback stops a few frames short).
+const END_MARGIN_SEC: f64 = 0.05;
 
 impl Session {
     pub fn new(file: ProjectFile, path: Option<PathBuf>, store: AudioStore, settings: &Settings, luts: LutSet) -> Self {
@@ -173,7 +177,6 @@ impl Session {
             keep_pitch: settings.keep_pitch,
             overlay_mix: 0.0,
             follow: settings.follow_playhead,
-            snap_to_onsets: settings.snap_to_onsets,
             overview_snap: true,
             dirty: false,
             edits_since_autosave: 0,
@@ -189,6 +192,7 @@ impl Session {
             sync_dialog: None,
             toasts: Vec::new(),
             synced: Vec::new(),
+            play_region: false,
             audio_len_sec,
             snap_on: true,
             synth_on: false,
@@ -512,7 +516,14 @@ impl Session {
     pub fn player_resync(&mut self, all: bool) {
         let Some(player) = &self.player else { return };
         let mode_speed = (self.speed, self.keep_pitch);
-        let next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        if !self.play_region {
+            next.iter_mut().for_each(|c| {
+                if let PlayerCall::Region(r) = c {
+                    *r = None;
+                }
+            });
+        }
         let calls = if all { next.clone() } else { player_sync::diff(&self.synced, &next) };
         player_sync::apply(player, &calls);
         self.synced = next;
@@ -537,21 +548,42 @@ impl Session {
     }
 
     pub fn toggle_play(&mut self) {
+        self.play_pause(false);
+    }
+
+    /// Pauses when playing; otherwise switches the loop on or off and plays the selected region, resuming from the
+    /// playhead when it is inside the region and from the region start when it is not. Without a selection it plays
+    /// from the playhead like plain play.
+    pub fn play_selection(&mut self, looped: bool) {
+        if !self.player.as_ref().is_some_and(|p| p.is_playing()) {
+            self.ui.loop_enabled = looped;
+            if let Some(r) = self.region.filter(|r| !(r.start_sec..r.end_sec - END_MARGIN_SEC).contains(&self.ui.playhead_sec)) {
+                self.seek(r.start_sec);
+            }
+        }
+        self.play_pause(self.region.is_some());
+    }
+
+    /// Pauses, or plays from the playhead with the player bound to the selected region or not.
+    fn play_pause(&mut self, bound: bool) {
         let Some(player) = &self.player else { return };
         if player.is_playing() {
             player.pause();
             return;
         }
-        let start = self.region.map_or(self.ui.playhead_sec, |r| if (r.start_sec..r.end_sec).contains(&self.ui.playhead_sec) { self.ui.playhead_sec } else { r.start_sec });
-        player.seek(start);
-        player.play();
+        self.play_region = bound;
+        self.player_resync(false);
+        if let Some(p) = &self.player {
+            p.seek(self.ui.playhead_sec);
+            p.play();
+        }
     }
 
     pub fn stop(&mut self) {
         if let Some(p) = &self.player {
             p.stop();
         }
-        self.ui.playhead_sec = self.region.map_or(0.0, |r| r.start_sec);
+        self.ui.playhead_sec = self.region.filter(|_| self.play_region).map_or(0.0, |r| r.start_sec);
     }
 
     pub fn seek(&mut self, sec: f64) {

@@ -34,8 +34,6 @@ pub enum NoteAction {
     SelectPrevious { extend: bool },
     /// Starts the link drawing mode (UI state only).
     LinkHover,
-    /// Selects the previous / next `SnapGrid::presets` entry (UI state only, wraps around).
-    SnapPreset { next: bool },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -57,7 +55,6 @@ pub struct Applied {
     pub message: Option<String>,
     pub open_exact: Option<u64>,
     pub link_hover: bool,
-    pub snap_grid: Option<SnapGrid>,
     /// Main note whose grace entry should start.
     pub grace_entry: Option<u64>,
     /// Notes whose links or pitches changed, for the tab solver to re-run on.
@@ -96,17 +93,6 @@ fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Pro
     Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
 }
 
-fn step_preset(grid: &SnapGrid, by: i32) -> SnapGrid {
-    let presets = SnapGrid::presets();
-    let n = presets.len() as i32;
-    let index = match presets.iter().position(|p| p.grid == *grid) {
-        Some(i) => (i as i32 + by).rem_euclid(n),
-        None if by > 0 => 0,
-        None => n - 1,
-    };
-    presets[index as usize].grid.clone()
-}
-
 fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {
     notes.iter().filter(|n| set.contains(&n.id))
 }
@@ -127,10 +113,6 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
         NoteAction::SelectNext { extend } | NoteAction::SelectPrevious { extend } => {
             selection.step(matches!(action, NoteAction::SelectNext { .. }), extend, &order);
             return Ok(Applied { selection: Some(selection), ..Applied::default() });
-        }
-        NoteAction::SnapPreset { next } => {
-            let grid = step_preset(grid, if next { 1 } else { -1 });
-            return Ok(Applied { message: Some(format!("Snap {}", grid.label())), snap_grid: Some(grid), ..Applied::default() });
         }
         NoteAction::LinkHover if sel.ids.is_empty() => return Ok(Applied { link_hover: true, ..Applied::default() }),
         _ => {}
@@ -186,7 +168,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             if delta == 0.0 {
                 return Ok(Applied::default());
             }
-            let view = EditCtx { project, tempo: &tempo, grid, px_per_sec: 1.0, threshold_px: 0.0, onsets: None, alt: true };
+            let view = EditCtx { project, tempo: &tempo, grid, px_per_sec: 1.0, threshold_px: 0.0, alt: true };
             let set: HashSet<u64> = moved.iter().copied().collect();
             let changes: Vec<_> = selected(&project.notes, &set).map(|n| shifted(&view, n, delta, 0)).collect();
             let edit = super::modify::apply_changes(project, &changes, "Nudge")?;
@@ -294,7 +276,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::SnapPreset { .. } => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } => Ok(Applied::default()),
     }
 }
 

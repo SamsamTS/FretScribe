@@ -21,26 +21,6 @@ pub struct SnapGrid {
     pub divisions: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SnapPreset {
-    pub name: &'static str,
-    pub grid: SnapGrid,
-}
-
-/// Label of one division, as shown in the grid dropdowns.
-const PRESETS: [(&str, &[u8]); 10] = [
-    ("1/4", &[1]),
-    ("1/8", &[2]),
-    ("1/8T", &[3]),
-    ("1/16", &[4]),
-    ("1/16T", &[6]),
-    ("1/32", &[8]),
-    ("1/32T", &[12]),
-    ("1/8 + 1/8T", &[2, 3]),
-    ("1/16 + 1/8T", &[4, 3]),
-    ("1/16 + 1/16T", &[4, 6]),
-];
-
 pub fn division_name(division: u8) -> &'static str {
     match division {
         1 => "1/4",
@@ -93,18 +73,6 @@ impl SnapGrid {
         let other = if triplet { self.straight() } else { self.triplet() };
         let (straight, trip) = if triplet { (other, division) } else { (division, other) };
         Self { divisions: straight.into_iter().chain(trip).collect() }
-    }
-
-    pub fn presets() -> Vec<SnapPreset> {
-        PRESETS
-            .iter()
-            .map(|&(name, divisions)| SnapPreset {
-                name,
-                grid: Self {
-                    divisions: divisions.to_vec(),
-                },
-            })
-            .collect()
     }
 
     /// Supported divisions, coarsest first, without duplicates; never empty.

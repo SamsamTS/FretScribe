@@ -18,7 +18,7 @@ pub(crate) fn at(beat: f64) -> TimePos {
 pub(crate) fn with_ctx<R>(p: &Project, grid: &[u8], alt: bool, f: impl FnOnce(&EditCtx) -> R) -> R {
     let tempo = TempoMap::new(&p.measures);
     let grid = SnapGrid::new(grid);
-    f(&EditCtx { project: p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, alt })
+    f(&EditCtx { project: p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, alt })
 }
 
 /// Seconds of a beat in the first measure at 120 bpm.

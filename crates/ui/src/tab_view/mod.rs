@@ -397,13 +397,21 @@ fn lane_tools(ui: &mut Ui, lane: Rect, caption: &str, add: impl FnOnce(&mut Ui))
 }
 
 /// The sheet's tools, in the header column of the sheet lane: guitar 8vb (the guitar is written an octave
-/// above its sound).
-pub fn sheet_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool) {
+/// above its sound) and strict beats. Returns whether either changed.
+pub fn sheet_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool, strict_beats: &mut bool) -> bool {
+    let mut changed = false;
     lane_tools(ui, lane, "Sheet", |ui| {
-        if crate::kit::ibtn(ui, "guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", *guitar_8vb).clicked() {
-            *guitar_8vb = !*guitar_8vb;
+        for (icon, tip, value) in [
+            ("guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", &mut *guitar_8vb),
+            ("rhythm", "Strict beats: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut *strict_beats),
+        ] {
+            if crate::kit::ibtn(ui, icon, tip, *value).clicked() {
+                *value = !*value;
+                changed = true;
+            }
         }
     });
+    changed
 }
 
 /// The tab's tools, in the header column of the tab lane.

@@ -90,7 +90,7 @@ fn drawing_snaps_across_a_tempo_change() {
     let (m1, m2) = (p.measures[0].id, p.measures[1].id);
     let tempo = TempoMap::new(&p.measures);
     let grid = fretscribe_core::SnapGrid::default();
-    let ctx = EditCtx { project: &p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, onsets: None, alt: false };
+    let ctx = EditCtx { project: &p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, alt: false };
     let start = Pt { sec: tempo.pos_to_sec(TimePos::at(m1, 3.0)), midi: 60.0 };
     let end = Pt { sec: tempo.pos_to_sec(TimePos::at(m2, 1.02)), midi: 60.0 };
     let c = plan_draw(start, end, false, (None, None), &ctx).unwrap().creation;
@@ -127,7 +127,7 @@ fn committing_a_slide_is_one_undoable_edit_with_fresh_ids() {
 }
 
 fn aim(p: &Project, src: u64, cur: Pt, on: Option<u64>) -> LinkAim {
-    with_ctx(p, &[4, 3], false, |ctx| plan_aim(src, cur, on, (None, None), ctx))
+    with_ctx(p, &[4, 3], false, |ctx| plan_aim(src, cur, on, (None, None), None, ctx))
 }
 
 fn start(p: &Project, src: u64, cur: Pt) -> LinkStart {

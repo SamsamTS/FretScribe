@@ -204,14 +204,31 @@ fn grace_note_hammers_into_its_main_note() {
 }
 
 #[test]
-fn unlinked_grace_note_prefers_the_main_notes_string() {
+fn picked_grace_notes_prefer_strings_other_than_their_main_note_and_each_other() {
     let mut f = fixture();
     let main = f.add(66, 1.0, 2.0);
-    let grace = f.add(64, 0.9, 1.0);
-    f.notes[grace].grace_of = Some(GraceNote { main: f.notes[main].id, kind: GraceKind::Acciaccatura });
+    let (g1, g2) = (f.add(64, 0.8, 0.9), f.add(62, 0.9, 1.0));
+    for g in [g1, g2] {
+        f.notes[g].grace_of = Some(GraceNote { main: f.notes[main].id, kind: GraceKind::Acciaccatura });
+    }
     f.lock(main, 4, 7);
     f.solve();
-    assert_eq!(f.at(grace), Some((4, 5)));
+    let strings: Vec<u8> = [main, g1, g2].iter().map(|&i| f.at(i).unwrap().0).collect();
+    assert!(strings[0] != strings[1] && strings[0] != strings[2] && strings[1] != strings[2], "{strings:?}");
+}
+
+#[test]
+fn a_phrase_is_played_across_strings_in_one_position_rather_than_shifting_along_one() {
+    // D4 Eb4 D4 | C4 | C4 Bb3 C4: frets 7 8 7 5 5 3 5 on the G string, or 7 8 7 then 10 10 8 10 on the D string.
+    let mut f = fixture();
+    let ids = f.seq(&[62, 63, 62, 60, 60, 58, 60]);
+    f.legato(ids[0], ids[1], Legato::HammerOn);
+    f.legato(ids[1], ids[2], Legato::PullOff);
+    f.legato(ids[4], ids[5], Legato::PullOff);
+    f.legato(ids[5], ids[6], Legato::HammerOn);
+    f.lock(ids[0], 3, 7);
+    f.solve();
+    assert_eq!([3, 4, 5, 6].map(|i| f.at(ids[i]).unwrap().0), [2, 2, 2, 2]);
 }
 
 #[test]
@@ -319,6 +336,44 @@ fn editing_several_notes_in_one_call_matches_sequential_calls() {
             seq.range(i, false);
         }
         let placed = |f: &Fixture| f.notes.iter().map(|n| n.string_fret).collect::<Vec<_>>();
-        assert_eq!(placed(&one), placed(&seq), "lock at {lock_at:?}");
+        // The hand window carries the history of the path, which sequential calls see only through the last note
+        // before each window: the notes after the last edit may differ in near ties, the others must not.
+        let last = edited[edited.len() - 1];
+        assert_eq!(placed(&one)[..=last], placed(&seq)[..=last], "lock at {lock_at:?}");
+        assert!(placed(&one).iter().chain(&placed(&seq)).all(Option::is_some));
+    }
+}
+
+#[test]
+fn a_chord_passage_stays_in_the_position_of_the_locked_note_before_it_whatever_came_earlier() {
+    // A low C locked at the 8th fret, a C/Eb dyad, a G, then a four-note chord: all around frets 8-11.
+    for earlier in [&[][..], &[55, 57, 59, 60, 59, 57], &[52, 55, 57, 59, 60]] {
+        let mut f = fixture();
+        let n = earlier.len() as f64;
+        for (i, &m) in earlier.iter().enumerate() {
+            f.add(m, i as f64, i as f64 + 0.9);
+        }
+        let low = f.add(48, n, n + 0.9);
+        let dyad = [f.add(60, n + 1.0, n + 1.9), f.add(63, n + 1.0, n + 1.9)];
+        let single = f.add(55, n + 2.0, n + 2.9);
+        let chord: Vec<usize> = [60, 63, 67, 75].iter().map(|&m| f.add(m, n + 3.0, n + 3.9)).collect();
+        f.lock(low, 0, 8);
+        f.solve();
+        assert_eq!(dyad.map(|i| f.at(i)), [Some((2, 10)), Some((3, 8))], "after {earlier:?}");
+        assert_eq!(f.at(single), Some((1, 10)));
+        assert_eq!(chord.iter().map(|&i| f.at(i)).collect::<Vec<_>>(), [Some((2, 10)), Some((3, 8)), Some((4, 8)), Some((5, 11))]);
+    }
+}
+
+#[test]
+fn a_long_phrase_up_the_neck_stays_there_rather_than_dropping_to_a_low_position() {
+    let mut f = fixture();
+    let ids = f.seq(&[74, 72, 74, 72, 67, 70, 67, 63, 62, 63, 62, 67, 70, 67, 63]);
+    f.lock(ids[0], 5, 10);
+    f.legato(ids[4], ids[5], Legato::HammerOn);
+    f.legato(ids[5], ids[6], Legato::PullOff);
+    f.solve();
+    for i in ids {
+        assert!(f.at(i).is_some_and(|(_, fret)| fret >= 7), "{i}: {:?}", f.at(i));
     }
 }

@@ -6,6 +6,11 @@
 //! grace notes with their main note. Combos of an item are enumerated by backtracking, then
 //! transitions between items are scored. Constraints that cannot always hold (distinct strings,
 //! skipping a note) are tried hard first and relaxed only when no combo exists.
+//!
+//! The hand is modelled as a window of `max_hand_span` frets: playing inside it is free, moving it costs
+//! `movement_weight` per fret (leaps beyond a couple of frets cost more), and crossing strings costs
+//! `string_jump_weight` per string. So a phrase is rather played across strings in one position than slid
+//! along one string. The window is part of the Viterbi state, so the path that moves it pays for it.
 
 use std::collections::HashMap;
 
@@ -18,10 +23,19 @@ type Slot = Option<(u8, u8)>;
 const CLUSTER_SEC: f64 = 0.040;
 const OVERLAP_EPS: f64 = 1e-6;
 const BEND_MAX_SEMITONES: u8 = 4;
+/// Cost per fret of an open string being further from the hand than the first position.
+
+
+const OPEN_FREE: u8 = 2;
+const OPEN_REACH: f32 = 0.75;
+/// Cost per fret of playing above the low edge of the hand window, which keeps the hand low in its position.
+const DRIFT: f32 = 0.3;
+/// Hand moves beyond `NEAR_SHIFT` frets cost `1 + FAR_FACTOR` times as much per fret.
+const NEAR_SHIFT: u8 = 2;
+const FAR_FACTOR: f32 = 2.0;
 const SKIP_PENALTY: f32 = 1e6;
 const OVERLAP_PENALTY: f32 = 1e5;
 const SPAN_PENALTY: f32 = 50.0;
-const OPEN_REACH: f32 = 0.75;
 const SEARCH_CAP: usize = 20_000;
 const KEEP_COMBOS: usize = 120;
 
@@ -62,20 +76,19 @@ struct Item {
     offsets: Vec<usize>,
     notes: Vec<usize>,
     conflicts: Vec<(usize, usize)>,
-    graces: Vec<(usize, usize)>,
-}
-
-#[derive(Clone, Copy)]
-struct Pos {
-    fret: Option<f32>,
-    string: f32,
+    /// Pairs of picked (not linked) grace notes and the notes they are best played apart from: their main
+    /// note and the other graces of it.
+    apart: Vec<(usize, usize)>,
 }
 
 struct Combo {
     slots: Vec<Slot>,
+    /// Lowest and highest fretted fret of the combo.
+    reach: Option<(u8, u8)>,
     cost: f32,
-    entry: Option<Pos>,
-    exit: Option<Pos>,
+    /// Mean string of the first and last notes of each group.
+    entry: Option<f32>,
+    exit: Option<f32>,
 }
 
 fn is_locked(n: &Note) -> bool {
@@ -203,7 +216,7 @@ fn build_items(notes: &[Note], ctx: &Ctx) -> Vec<Item> {
 
 fn finish_item(notes: &[Note], ctx: &Ctx, groups: Vec<Group>) -> Item {
     let mut offsets = Vec::new();
-    let mut flat = Vec::new();
+    let mut flat: Vec<usize> = Vec::new();
     let mut owner = Vec::new();
     for (g, group) in groups.iter().enumerate() {
         offsets.push(flat.len());
@@ -211,33 +224,25 @@ fn finish_item(notes: &[Note], ctx: &Ctx, groups: Vec<Group>) -> Item {
         owner.extend(std::iter::repeat_n(g, group.members.len()));
     }
     let mut conflicts = Vec::new();
-    let mut graces = Vec::new();
+    let mut apart: Vec<(usize, usize)> = Vec::new();
+    let main_of = |b: usize| notes[flat[b]].grace_of.and_then(|g| flat.iter().position(|&i| notes[i].id == g.main));
     for b in 0..flat.len() {
         for a in 0..b {
             if owner[a] != owner[b] && ctx.overlap(flat[a], flat[b]) {
                 conflicts.push((a, b));
             }
         }
-        if let Some(grace) = notes[flat[b]].grace_of {
-            if let Some(main) = flat.iter().position(|&i| notes[i].id == grace.main) {
-                graces.push((b, main));
-            }
+        if let Some(main) = main_of(b) {
+            apart.extend([(b, main)].into_iter().chain((0..b).filter(|&a| main_of(a) == Some(main)).map(|a| (a, b))).filter(|&(x, y)| owner[x] != owner[y]));
         }
     }
-    Item { groups, offsets, notes: flat, conflicts, graces }
+    Item { groups, offsets, notes: flat, conflicts, apart }
 }
 
-fn summarize(ctx: &Ctx, placed: impl Iterator<Item = (u8, u8)>) -> Option<Pos> {
-    let (mut fret_sum, mut fretted, mut string_sum, mut n) = (0.0, 0.0, 0.0, 0.0);
-    for (string, fret) in placed {
-        n += 1.0;
-        string_sum += f32::from(string);
-        if ctx.fretted(fret) {
-            fretted += 1.0;
-            fret_sum += f32::from(fret);
-        }
-    }
-    (n > 0.0).then(|| Pos { fret: (fretted > 0.0).then(|| fret_sum / fretted), string: string_sum / n })
+/// Mean string of `placed`.
+fn summarize(placed: impl Iterator<Item = (u8, u8)>) -> Option<f32> {
+    let strings: Vec<f32> = placed.map(|(string, _)| f32::from(string)).collect();
+    (!strings.is_empty()).then(|| strings.iter().sum::<f32>() / strings.len() as f32)
 }
 
 fn ends(item: &Item, pick: impl Fn(&Group) -> usize) -> Vec<usize> {
@@ -301,8 +306,8 @@ impl Search<'_> {
     }
 
     fn grace_bonus(&self) -> f32 {
-        let shared = self.item.graces.iter().filter(|&&(g, m)| matches!((self.slots[g], self.slots[m]), (Some(a), Some(b)) if a.0 == b.0));
-        self.ctx.opts.grace_bonus * shared.count() as f32
+        let spread = self.item.apart.iter().filter(|&&(a, b)| matches!((self.slots[a], self.slots[b]), (Some(x), Some(y)) if x.0 != y.0));
+        self.ctx.opts.grace_bonus * spread.count() as f32
     }
 }
 
@@ -322,22 +327,39 @@ fn combos(item: &Item, ctx: &Ctx) -> Vec<Combo> {
     found
         .into_iter()
         .map(|(cost, slots)| {
-            let entry = summarize(ctx, firsts.iter().filter_map(|&i| slots[i]));
-            let exit = summarize(ctx, lasts.iter().filter_map(|&i| slots[i]));
-            Combo { slots, cost, entry, exit }
+            let entry = summarize(firsts.iter().filter_map(|&i| slots[i]));
+            let exit = summarize(lasts.iter().filter_map(|&i| slots[i]));
+            let frets = slots.iter().flatten().map(|s| s.1).filter(|&f| ctx.fretted(f));
+            let reach = frets.clone().min().zip(frets.max());
+            Combo { slots, reach, cost, entry, exit }
         })
         .collect()
 }
 
-fn movement(ctx: &Ctx, from: Option<Pos>, to: Option<Pos>) -> f32 {
+fn string_jump(ctx: &Ctx, from: Option<f32>, to: Option<f32>) -> f32 {
     let (Some(a), Some(b)) = (from, to) else { return 0.0 };
-    let capo = f32::from(ctx.capo);
-    let distance = match (a.fret, b.fret) {
-        (Some(x), Some(y)) => (x - y).abs(),
-        (Some(x), None) | (None, Some(x)) => (x - capo) * OPEN_REACH,
-        (None, None) => 0.0,
+    ctx.opts.string_jump_weight * (a - b).abs()
+}
+
+/// The hand window (its lowest fret) after playing `combo`, and what moving it cost.
+fn reposition(ctx: &Ctx, anchor: Option<u8>, combo: &Combo) -> (Option<u8>, f32) {
+    let Some((lo, hi)) = combo.reach else {
+        // Without a position yet, the hand rests at the nut.
+        let a = anchor.unwrap_or(ctx.capo);
+        return (Some(a), OPEN_REACH * f32::from(a.saturating_sub(ctx.capo + OPEN_FREE)));
     };
-    ctx.opts.movement_weight * distance + ctx.opts.string_jump_weight * (a.string - b.string).abs()
+    let Some(a) = anchor else { return (Some(lo), 0.0) };
+    let span = ctx.opts.max_hand_span;
+    if lo >= a && hi <= a.saturating_add(span) {
+        return (Some(a), DRIFT * f32::from(lo - a));
+    }
+    let next = if lo < a { lo } else { hi.saturating_sub(span).min(lo) };
+    (Some(next), shift_cost(ctx, next.abs_diff(a)))
+}
+
+/// Cost of moving the hand window by `frets`: a step or two is cheap, a leap along the neck is not.
+fn shift_cost(ctx: &Ctx, frets: u8) -> f32 {
+    ctx.opts.movement_weight * (f32::from(frets) + FAR_FACTOR * f32::from(frets.saturating_sub(NEAR_SHIFT)))
 }
 
 fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo)) -> f32 {
@@ -354,34 +376,55 @@ fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo))
     count * OVERLAP_PENALTY
 }
 
-/// Best combo index per item.
-fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<Pos>) -> Vec<usize> {
-    let mut costs: Vec<f32> = options[0].iter().map(|c| c.cost + movement(ctx, start, c.entry)).collect();
-    let mut back: Vec<Vec<usize>> = Vec::new();
-    for k in 1..items.len() {
-        let mut next = Vec::with_capacity(options[k].len());
-        let mut from = Vec::with_capacity(options[k].len());
-        for cur in &options[k] {
-            let (best, cost) = options[k - 1]
-                .iter()
-                .enumerate()
-                .map(|(j, prev)| {
-                    let step = movement(ctx, prev.exit, cur.entry) + same_string_overlaps(ctx, (items[k - 1], prev), (items[k], cur));
-                    (j, costs[j] + step)
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-                .unwrap_or((0, 0.0));
-            next.push(cost + cur.cost);
-            from.push(best);
-        }
-        costs = next;
-        back.push(from);
+/// Going from an open string to a high position takes the hand as far as an open string was far from it.
+fn back_from_open(ctx: &Ctx, prev: &Combo, cur: &Combo) -> f32 {
+    match (prev.reach, cur.reach) {
+        (None, Some((lo, _))) => OPEN_REACH * f32::from(lo.saturating_sub(ctx.capo + OPEN_FREE)),
+        _ => 0.0,
     }
-    let mut at = costs.iter().enumerate().min_by(|a, b| a.1.total_cmp(b.1)).map_or(0, |(i, _)| i);
-    let mut picks = vec![at];
-    for from in back.iter().rev() {
-        at = from[at];
-        picks.push(at);
+}
+
+/// One way to reach a combo: the hand window it leaves, the cost of the best path, and the state of the
+/// previous item it came from.
+struct State {
+    anchor: Option<u8>,
+    combo: usize,
+    cost: f32,
+    from: usize,
+}
+
+/// Best combo index per item: Viterbi over (combo, hand window) states, so the cost of having moved the hand
+/// is paid by the path that moved it.
+fn viterbi(ctx: &Ctx, items: &[&Item], options: &[Vec<Combo>], start: Option<f32>, start_anchor: Option<u8>) -> Vec<usize> {
+    let first = options[0].iter().enumerate().map(|(combo, c)| {
+        let (anchor, moved) = reposition(ctx, start_anchor, c);
+        State { anchor, combo, cost: c.cost + string_jump(ctx, start, c.entry) + moved, from: 0 }
+    });
+    let mut layers: Vec<Vec<State>> = vec![first.collect()];
+    for k in 1..items.len() {
+        let mut next: Vec<State> = Vec::new();
+        for (combo, cur) in options[k].iter().enumerate() {
+            let first_of_combo = next.len();
+            for (from, prev) in layers[k - 1].iter().enumerate() {
+                let before = &options[k - 1][prev.combo];
+                let (anchor, moved) = reposition(ctx, prev.anchor, cur);
+                let step = string_jump(ctx, before.exit, cur.entry) + moved + back_from_open(ctx, before, cur) + same_string_overlaps(ctx, (items[k - 1], before), (items[k], cur));
+                let cost = prev.cost + step + cur.cost;
+                match next[first_of_combo..].iter_mut().find(|s| s.anchor == anchor) {
+                    Some(s) if s.cost <= cost => {}
+                    Some(s) => *s = State { anchor, combo, cost, from },
+                    None => next.push(State { anchor, combo, cost, from }),
+                }
+            }
+        }
+        layers.push(next);
+    }
+    let mut at = layers.last().and_then(|l| l.iter().enumerate().min_by(|a, b| a.1.cost.total_cmp(&b.1.cost))).map_or(0, |(i, _)| i);
+    let mut picks = Vec::with_capacity(items.len());
+    for layer in layers.iter().rev() {
+        let state = &layer[at];
+        picks.push(state.combo);
+        at = state.from;
     }
     picks.reverse();
     picks
@@ -441,16 +484,18 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
         }
     };
     for (lo, hi) in windows {
-        let start = (lo > 0)
+        // The notes the previous item ended with: their mean string and the hand window they leave.
+        let before: Vec<(u8, u8)> = (lo > 0)
             .then(|| {
                 let last = &items[lo - 1];
-                let lasts = ends(last, |g| g.members.len() - 1);
-                summarize(&ctx, lasts.iter().filter_map(|&i| notes[last.notes[i]].string_fret))
+                ends(last, |g| g.members.len() - 1).iter().filter_map(|&i| notes[last.notes[i]].string_fret).collect()
             })
-            .flatten();
+            .unwrap_or_default();
+        let start = summarize(before.iter().copied());
+        let start_anchor = before.iter().map(|s| s.1).filter(|&f| ctx.fretted(f)).min();
         let range: Vec<&Item> = items[lo..=hi].iter().collect();
         let options: Vec<Vec<Combo>> = range.iter().map(|it| combos(it, &ctx)).collect();
-        let picks = viterbi(&ctx, &range, &options, start);
+        let picks = viterbi(&ctx, &range, &options, start, start_anchor);
 
         for ((item, combos), &pick) in range.iter().zip(&options).zip(&picks) {
             let Some(combo) = combos.get(pick) else { continue };

@@ -172,7 +172,7 @@ fn grace_on_a_grace_note_starts_an_entry_on_its_main_and_h_toggles_the_legato() 
 }
 
 #[test]
-fn beat_nudge_moves_whole_beats_and_snap_presets_wrap() {
+fn beat_nudge_moves_whole_beats() {
     let mut p = project();
     let a = add(&mut p, 60, 1.0, 2.0);
     let applied = run(&mut p, &[a], NoteAction::NudgeBeat(2)).unwrap();
@@ -180,14 +180,6 @@ fn beat_nudge_moves_whole_beats_and_snap_presets_wrap() {
     assert_eq!(p.note(a).unwrap().start, at(3.0));
     run(&mut p, &[a], NoteAction::NudgeBeat(-1)).unwrap();
     assert_eq!(p.note(a).unwrap().start, at(2.0));
-
-    let grid = |d: &[u8]| SnapGrid::new(d);
-    let step = |g: &SnapGrid, next| apply(&mut project(), &sel(&[]), NoteAction::SnapPreset { next }, g).unwrap().snap_grid.unwrap();
-    assert_eq!(step(&grid(&[4, 3]), true), grid(&[4, 6]));
-    assert_eq!(step(&grid(&[4, 3]), false), grid(&[2, 3]));
-    assert_eq!(step(&grid(&[4, 6]), true), grid(&[1]));
-    assert_eq!(step(&grid(&[1]), false), grid(&[4, 6]));
-    assert_eq!(step(&grid(&[4, 8]), true), grid(&[1]));
 }
 
 #[test]

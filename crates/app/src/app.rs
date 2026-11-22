@@ -643,29 +643,42 @@ fn reveal(path: &Path) {
 }
 
 fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
-    let save = ctx
-        .input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
-        .then_some(Request::Save);
-    if ctx.wants_keyboard_input() {
-        return save;
+    use egui::{Key, Modifiers as M};
+    // Shortcuts that work everywhere; the shifted one first, as `consume_key` ignores extra Shift.
+    let request = ctx.input_mut(|i| {
+        [(M::COMMAND | M::SHIFT, Key::S, Request::SaveAs), (M::COMMAND, Key::S, Request::Save), (M::COMMAND, Key::T, Request::AddTrack), (M::COMMAND, Key::O, Request::Open)]
+            .into_iter()
+            .find_map(|(m, k, r)| i.consume_key(m, k).then_some(r))
+    });
+    if fretscribe_ui::kit::typing(ctx) {
+        return request;
     }
-    let (space, undo, redo) = ctx.input(|i| {
+    // Transport keys are taken before the widgets see them, so a focused button does not turn Space into a click;
+    // dialogs and popups keep their keys.
+    let modal = ctx.memory(|m| m.any_popup_open() || m.areas().visible_layer_ids().iter().any(|l| l.order == egui::Order::Middle));
+    if !modal {
+        let play = ctx.input_mut(|i| {
+            [(M::COMMAND, Some(true)), (M::SHIFT, Some(false)), (M::NONE, None)].into_iter().find_map(|(m, looped)| i.consume_key(m, Key::Space).then_some(looped))
+        });
+        match play {
+            Some(Some(looped)) => s.play_selection(looped),
+            Some(None) => s.toggle_play(),
+            None => {}
+        }
+    }
+    let (undo, redo) = ctx.input(|i| {
         let cmd = i.modifiers.command;
         (
-            i.key_pressed(egui::Key::Space) && !cmd,
             cmd && i.key_pressed(egui::Key::Z) && !i.modifiers.shift,
             cmd && (i.key_pressed(egui::Key::Y) || (i.key_pressed(egui::Key::Z) && i.modifiers.shift)),
         )
     });
-    if space {
-        s.toggle_play();
-    }
     if undo {
         s.undo_redo(false);
     } else if redo {
         s.undo_redo(true);
     }
-    save
+    request
 }
 
 /// "Locate audio file..." for every track whose file cannot be found.

@@ -76,7 +76,6 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let selected = s.editor.selection.ids.clone();
         let playhead = None;
         let mut collapsed = s.notation_collapsed;
-        let octave = s.ui.guitar_8vb;
         let width = ui.available_width();
         let row = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_view::TOOLBAR_HEIGHT));
         if collapsed {
@@ -100,8 +99,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             .show(ui, &view, &mut s.tab_state);
             tab_events = out.events;
             tab_events.extend(tab_view::tab_tools(ui, tab_lane, &mut s.tab_state));
-            tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb);
-            s.staff_dirty |= octave != s.ui.guitar_8vb;
+            s.staff_dirty |= tab_view::sheet_tools(ui, sheet_lane, &mut s.ui.guitar_8vb, &mut s.ui.strict_beats);
         }
         tab_view::collapse_button(ui, row, &mut collapsed);
         s.notation_collapsed = collapsed;
@@ -129,7 +127,6 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let area = ui.available_rect_before_wrap();
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
         let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
-        let lanes_timeline = Rect::from_min_max(pos2(ruler.left(), ruler.bottom()), area.max);
         seek_origin = ruler.left_top();
         // The corner above the track headers shares the toolbar's background and captions like its groups.
         let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
@@ -137,12 +134,15 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
         let notation_timeline = Rect::from_min_max(pos2(ruler.left(), notation_rect.top()), notation_rect.max);
-        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes: lanes_timeline });
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
         let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
         spectro_events.extend(seek);
-        let measure_starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
+        // Region edges snap to the current grid subdivisions (the measure starts when it has none).
+        let tempo_map = fretscribe_core::TempoMap::new(&s.project.measures);
+        let mut region_points: Vec<f64> = (0..tempo_map.len()).flat_map(|i| tempo_map.grid_lines(i, &s.ui.snap_grid).into_iter().map(|(sec, _)| sec).chain([tempo_map.measure_start_sec(i)])).collect();
+        region_points.extend((!tempo_map.is_empty()).then(|| tempo_map.measure_end_sec(tempo_map.len() - 1, audio_len)));
         let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap);
         let out = TrackLanes {
             project: &s.project,
@@ -152,7 +152,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             selected: &s.editor.selection.ids,
             tools: Some(&tools),
             region: s.region,
-            region_snap: &measure_starts,
+            region_snap: &region_points,
             region_snapping: s.overview_snap,
             audio_len_sec: audio_len,
             wheel_rows: s.ctl.wheel_rows,
@@ -391,17 +391,13 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
         ne::collect(ctx, &src, &events, &s.editor, &s.keymap, &refine)
     };
     let px_per_sec = s.ctl.current.pixels_per_sec;
-    let mut snap_targets: Option<(Vec<f64>, fretscribe_core::SnapGrid)> = None;
+    let mut snap_grid: Option<fretscribe_core::SnapGrid> = None;
     let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
     let tempo = fretscribe_core::TempoMap::new(&s.project.measures);
     for input in tool_inputs.chain(collected.inputs) {
-        let (onset_list, grid) = snap_targets.get_or_insert_with(|| {
-            let onsets = if s.snap_to_onsets { onset_targets(s) } else { Vec::new() };
-            (onsets, if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } })
-        });
+        let grid = snap_grid.get_or_insert_with(|| if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } });
         let mut effects = {
-            let onsets = (!onset_list.is_empty()).then_some(onset_list.as_slice());
-            let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, onsets, now: ctx.input(|i| i.time), hovered };
+            let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, now: ctx.input(|i| i.time), hovered };
             s.editor.handle(&mut env, input)
         };
         for effect in effects.drain(..) {
@@ -412,7 +408,6 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
                     s.infer_affected(&affected);
                 }
                 Effect::Message(m) => s.toast(m, false),
-                Effect::SnapGrid(g) => s.ui.snap_grid = g,
                 Effect::OpenExact(id) => s.exact = ne::fields_for(&s.project, id),
             }
         }
@@ -422,18 +417,6 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     }
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("note_overlay"))).with_clip_rect(geometry.rect);
     ne::paint_overlay(&painter, &geometry, &s.editor, ctx.input(|i| i.pointer.latest_pos()), None);
-}
-
-fn onset_targets(s: &Session) -> Vec<f64> {
-    let mut v: Vec<f64> = s
-        .project
-        .tracks
-        .iter()
-        .filter(|t| t.use_for_beats)
-        .flat_map(|t| s.store.onsets(t.id).iter().map(move |o| o + t.offset_sec))
-        .collect();
-    v.sort_by(f64::total_cmp);
-    v
 }
 
 /// Windows over the editor: exact edit, delete confirmation, sync candidates, tempo and pitch results.

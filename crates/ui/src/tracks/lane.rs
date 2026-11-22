@@ -232,16 +232,19 @@ impl TrackLane<'_> {
         }
 
         if self.shown_rows > 0 && self.shown_rows == self.configured_rows {
-            let handle = Rect::from_min_max(pos2(wave_rect.left(), wave_rect.bottom() - RESIZE_HANDLE_PT), wave_rect.max);
-            let response = ui.interact(handle, ui.id().with(("resize", id)), Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeVertical);
             let key = Id::new(("resize-drag", id));
-            if response.drag_started() {
-                ctx.data_mut(|d| d.insert_temp(key, (self.configured_rows, 0.0_f32)));
-            }
-            if let (true, Some((start, acc))) = (response.dragged(), ctx.data(|d| d.get_temp::<(u32, f32)>(key))) {
-                let acc = acc + response.drag_delta().y;
-                ctx.data_mut(|d| d.insert_temp(key, (start, acc)));
-                resized_rows = Some((clamp_rows(i64::from(start) + (acc * ppp / STRIP_PITCH_PX as f32).round() as i64), false));
+            // The bottom edge of the waveform and, in the header column, of the lane.
+            for (tag, left, right, bottom) in [("resize", wave_rect.left(), wave_rect.right(), wave_rect.bottom()), ("resize-header", rect.left(), timeline_left, rect.bottom())] {
+                let handle = Rect::from_min_max(pos2(left, bottom - RESIZE_HANDLE_PT), pos2(right, bottom));
+                let response = ui.interact(handle, ui.id().with((tag, id)), Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeVertical);
+                if response.drag_started() {
+                    ctx.data_mut(|d| d.insert_temp(key, (self.configured_rows, 0.0_f32)));
+                }
+                if let (true, Some((start, acc))) = (response.dragged(), ctx.data(|d| d.get_temp::<(u32, f32)>(key))) {
+                    let acc = acc + response.drag_delta().y;
+                    ctx.data_mut(|d| d.insert_temp(key, (start, acc)));
+                    resized_rows = Some((clamp_rows(i64::from(start) + (acc * ppp / STRIP_PITCH_PX as f32).round() as i64), false));
+                }
             }
         }
 

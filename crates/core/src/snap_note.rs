@@ -21,7 +21,6 @@ pub struct SnapOpts<'a> {
     pub px_per_sec: f64,
     pub enable_grid_snap: bool,
     pub enable_neighbour_snap: bool,
-    pub onset_targets: Option<&'a [f64]>,
     /// Modifier held: nothing snaps, only the minimal length is enforced.
     pub disabled: bool,
     /// Previous result of the same edge while dragging, for hysteresis.
@@ -37,7 +36,6 @@ impl<'a> SnapOpts<'a> {
             px_per_sec,
             enable_grid_snap: true,
             enable_neighbour_snap: true,
-            onset_targets: None,
             disabled: false,
             sticky_start: None,
             sticky_end: None,
@@ -214,17 +212,7 @@ pub fn snap_edge(
         Edge::End => opts.sticky_end,
     };
     let sticky_sec = sticky.map(|p| tempo.pos_to_sec(p));
-    if let Some(best) = choose(&candidates, sec, sticky_sec) {
-        return best.pos;
-    }
-    let onset = opts
-        .onset_targets
-        .into_iter()
-        .flatten()
-        .copied()
-        .filter(|o| o.is_finite() && (o - sec).abs() <= threshold)
-        .min_by(|a, b| (a - sec).abs().total_cmp(&(b - sec).abs()));
-    onset.map_or(pos, |o| tempo.sec_to_pos(o))
+    choose(&candidates, sec, sticky_sec).map_or(pos, |best| best.pos)
 }
 
 /// The nearest grid position at or after `from` (`forward`) or at or before it.
