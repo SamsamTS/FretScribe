@@ -131,6 +131,9 @@ fn style_of(ui: &UiState, luts: &LutSet) -> SpectroStyle {
     }
 }
 
+/// A playhead this close to the end of the region counts as having reached it (playback stops a few frames short).
+const END_MARGIN_SEC: f64 = 0.05;
+
 impl Session {
     pub fn new(file: ProjectFile, path: Option<PathBuf>, store: AudioStore, settings: &Settings, luts: LutSet) -> Self {
         let ProjectFile { project_id, mut ui, project, history, .. } = file;
@@ -554,7 +557,7 @@ impl Session {
     pub fn play_selection(&mut self, looped: bool) {
         if !self.player.as_ref().is_some_and(|p| p.is_playing()) {
             self.ui.loop_enabled = looped;
-            if let Some(r) = self.region.filter(|r| !(r.start_sec..r.end_sec).contains(&self.ui.playhead_sec)) {
+            if let Some(r) = self.region.filter(|r| !(r.start_sec..r.end_sec - END_MARGIN_SEC).contains(&self.ui.playhead_sec)) {
                 self.seek(r.start_sec);
             }
         }
