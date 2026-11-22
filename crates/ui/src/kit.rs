@@ -81,6 +81,12 @@ pub const BUTTON: f32 = 36.0;
 const GROUP_RADIUS: u8 = 12;
 
 /// Installs the SVG image loaders; call once at start.
+/// Whether a text field has the keyboard. (`Context::wants_keyboard_input` is true for any focused widget, such
+/// as a button that was just clicked or a menu that closed, which must not block the shortcuts.)
+pub fn typing(ctx: &egui::Context) -> bool {
+    ctx.memory(|m| m.focused()).is_some_and(|id| TextEdit::load_state(ctx, id).is_some())
+}
+
 pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
 }

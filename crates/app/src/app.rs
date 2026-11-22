@@ -650,7 +650,7 @@ fn keyboard(ctx: &Context, s: &mut Session) -> Option<Request> {
             .into_iter()
             .find_map(|(m, k, r)| i.consume_key(m, k).then_some(r))
     });
-    if ctx.wants_keyboard_input() {
+    if fretscribe_ui::kit::typing(ctx) {
         return request;
     }
     // Transport keys are taken before the widgets see them, so a focused button does not turn Space into a click;

@@ -78,7 +78,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
         inputs.push(Input::Spectro(event, mods));
     }
 
-    if !ctx.wants_keyboard_input() && editor.in_entry() {
+    if !crate::kit::typing(ctx) && editor.in_entry() {
         ctx.input(|i| {
             if i.key_pressed(Key::Escape) && !cancelled {
                 inputs.push(Input::Escape);
@@ -89,7 +89,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
             inputs.extend(keys.iter().filter(|(k, _)| i.key_pressed(*k)).map(|(_, e)| Input::Entry(*e)));
             inputs.extend(digits.iter().enumerate().filter(|(_, k)| i.key_pressed(**k)).map(|(d, _)| Input::Entry(EntryKey::Digit(d as u8))));
         });
-    } else if !ctx.wants_keyboard_input() {
+    } else if !crate::kit::typing(ctx) {
         ctx.input(|i| {
             if i.key_pressed(Key::Escape) && !cancelled {
                 inputs.push(Input::Escape);
