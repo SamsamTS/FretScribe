@@ -364,3 +364,16 @@ fn a_chord_passage_stays_in_the_position_of_the_locked_note_before_it_whatever_c
         assert_eq!(chord.iter().map(|&i| f.at(i)).collect::<Vec<_>>(), [Some((2, 10)), Some((3, 8)), Some((4, 8)), Some((5, 11))]);
     }
 }
+
+#[test]
+fn a_long_phrase_up_the_neck_stays_there_rather_than_dropping_to_a_low_position() {
+    let mut f = fixture();
+    let ids = f.seq(&[74, 72, 74, 72, 67, 70, 67, 63, 62, 63, 62, 67, 70, 67, 63]);
+    f.lock(ids[0], 5, 10);
+    f.legato(ids[4], ids[5], Legato::HammerOn);
+    f.legato(ids[5], ids[6], Legato::PullOff);
+    f.solve();
+    for i in ids {
+        assert!(f.at(i).is_some_and(|(_, fret)| fret >= 7), "{i}: {:?}", f.at(i));
+    }
+}

@@ -30,7 +30,7 @@ impl Default for TabOptions {
             max_fret: 22,
             max_hand_span: 4,
             position_weight: 0.1,
-            movement_weight: 1.6,
+            movement_weight: 2.0,
             string_jump_weight: 0.3,
             open_string_bonus: 0.3,
             grace_bonus: 1.0,

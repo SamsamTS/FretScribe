@@ -8,9 +8,9 @@
 //! skipping a note) are tried hard first and relaxed only when no combo exists.
 //!
 //! The hand is modelled as a window of `max_hand_span` frets: playing inside it is free, moving it costs
-//! `movement_weight` per fret, and crossing strings costs `string_jump_weight` per string. So a phrase is
-//! rather played across strings in one position than slid along one string. The window travels with the best
-//! path into each combo (not part of the Viterbi state, which keeps the search small).
+//! `movement_weight` per fret (leaps beyond a couple of frets cost more), and crossing strings costs
+//! `string_jump_weight` per string. So a phrase is rather played across strings in one position than slid
+//! along one string. The window is part of the Viterbi state, so the path that moves it pays for it.
 
 use std::collections::HashMap;
 
@@ -24,9 +24,15 @@ const CLUSTER_SEC: f64 = 0.040;
 const OVERLAP_EPS: f64 = 1e-6;
 const BEND_MAX_SEMITONES: u8 = 4;
 /// Cost per fret of an open string being further from the hand than the first position.
+
+
+const OPEN_FREE: u8 = 2;
 const OPEN_REACH: f32 = 0.75;
 /// Cost per fret of playing above the low edge of the hand window, which keeps the hand low in its position.
 const DRIFT: f32 = 0.3;
+/// Hand moves beyond `NEAR_SHIFT` frets cost `1 + FAR_FACTOR` times as much per fret.
+const NEAR_SHIFT: u8 = 2;
+const FAR_FACTOR: f32 = 2.0;
 const SKIP_PENALTY: f32 = 1e6;
 const OVERLAP_PENALTY: f32 = 1e5;
 const SPAN_PENALTY: f32 = 50.0;
@@ -340,7 +346,7 @@ fn reposition(ctx: &Ctx, anchor: Option<u8>, combo: &Combo) -> (Option<u8>, f32)
     let Some((lo, hi)) = combo.reach else {
         // Without a position yet, the hand rests at the nut.
         let a = anchor.unwrap_or(ctx.capo);
-        return (Some(a), OPEN_REACH * f32::from(a.saturating_sub(ctx.capo + ctx.opts.max_hand_span)));
+        return (Some(a), OPEN_REACH * f32::from(a.saturating_sub(ctx.capo + OPEN_FREE)));
     };
     let Some(a) = anchor else { return (Some(lo), 0.0) };
     let span = ctx.opts.max_hand_span;
@@ -348,7 +354,12 @@ fn reposition(ctx: &Ctx, anchor: Option<u8>, combo: &Combo) -> (Option<u8>, f32)
         return (Some(a), DRIFT * f32::from(lo - a));
     }
     let next = if lo < a { lo } else { hi.saturating_sub(span).min(lo) };
-    (Some(next), ctx.opts.movement_weight * f32::from(next.abs_diff(a)))
+    (Some(next), shift_cost(ctx, next.abs_diff(a)))
+}
+
+/// Cost of moving the hand window by `frets`: a step or two is cheap, a leap along the neck is not.
+fn shift_cost(ctx: &Ctx, frets: u8) -> f32 {
+    ctx.opts.movement_weight * (f32::from(frets) + FAR_FACTOR * f32::from(frets.saturating_sub(NEAR_SHIFT)))
 }
 
 fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo)) -> f32 {
@@ -368,7 +379,7 @@ fn same_string_overlaps(ctx: &Ctx, prev: (&Item, &Combo), next: (&Item, &Combo))
 /// Going from an open string to a high position takes the hand as far as an open string was far from it.
 fn back_from_open(ctx: &Ctx, prev: &Combo, cur: &Combo) -> f32 {
     match (prev.reach, cur.reach) {
-        (None, Some((lo, _))) => OPEN_REACH * f32::from(lo.saturating_sub(ctx.capo + ctx.opts.max_hand_span)),
+        (None, Some((lo, _))) => OPEN_REACH * f32::from(lo.saturating_sub(ctx.capo + OPEN_FREE)),
         _ => 0.0,
     }
 }
