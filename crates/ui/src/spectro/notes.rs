@@ -1,9 +1,11 @@
 //! Drawing and hit-testing of the note glyphs over the spectrogram; the geometry is in `glyphs`.
 
+use std::collections::HashSet;
+
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke};
 use fretscribe_core::{midi_to_name, Note, NoteTimes};
 
-use super::glyphs::{chevron, corner_radius, items, label_visible, layout, Glyph, GlyphItem, NoteMetrics, Scene};
+use super::glyphs::{chevron, corner_radius, items_in, label_visible, layout, Glyph, GlyphItem, NoteMetrics, Scene};
 pub use super::glyphs::{HitZone, LinkKind};
 use crate::view::{PitchView, TimelineView};
 
@@ -83,11 +85,38 @@ impl SpectroGeometry {
     }
 }
 
-/// The note, link or arc under `pos` and the zone hit. `hovered` is the note whose free link points
-/// are shown, normally the one reported by the previous frame.
+/// Beyond the strip, in note heights plus pixels, within which off-screen notes are still laid out.
+const CULL_MARGIN_NOTES: f32 = 12.0;
+const CULL_MARGIN_PX: f32 = 40.0;
+
+/// The layout of the notes that can show in a strip, built once per frame and shared by drawing and
+/// hit-testing.
+#[derive(Debug)]
+pub struct NoteScene {
+    items: Vec<GlyphItem>,
+    scene: Scene,
+    metrics: NoteMetrics,
+}
+
+impl NoteScene {
+    pub fn build(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes) -> Self {
+        let metrics = geo.metrics();
+        let margin = CULL_MARGIN_NOTES * metrics.height_px + CULL_MARGIN_PX;
+        let window = (geo.x_to_sec(geo.rect.left() - margin), geo.x_to_sec(geo.rect.right() + margin));
+        let items = items_in(notes, times, Some(window));
+        let scene = layout(geo, &items, &metrics);
+        Self { items, scene, metrics }
+    }
+
+    /// The note, link or arc under `pos` and the zone hit. `hovered` is the note whose free link
+    /// points are shown, normally the one reported by the previous frame.
+    pub fn hit(&self, pos: Pos2, hovered: Option<u64>) -> Option<(u64, HitZone)> {
+        self.scene.hit(pos, hovered, &self.metrics)
+    }
+}
+
 pub fn hit_test(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, pos: Pos2, hovered: Option<u64>) -> Option<(u64, HitZone)> {
-    let m = geo.metrics();
-    layout(geo, &items(notes, times), &m).hit(pos, hovered, &m)
+    NoteScene::build(geo, notes, times).hit(pos, hovered)
 }
 
 struct Look {
@@ -111,6 +140,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     let halo = Stroke::new(m.stroke() + 2.0, faded(BACKING, 0.6));
     let clip = painter.clip_rect();
 
+    let graces: HashSet<u64> = items.iter().filter(|it| it.grace).map(|it| it.id).collect();
     for g in &scene.glyphs {
         let Glyph::Note(r, id) = g else { continue };
         if !r.intersects(clip) {
@@ -121,7 +151,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         painter.rect_filled(*r, radius, faded(BACKING, 0.4));
         painter.rect_filled(*r, radius, faded(color, 0.3));
         painter.rect_stroke(r.expand(1.0), radius, Stroke::new(1.0_f32, faded(BACKING, 0.85)), egui::StrokeKind::Outside);
-        if look.dashed || items.iter().any(|it| it.id == *id && it.grace) {
+        if look.dashed || graces.contains(id) {
             let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
             stroke_path(painter, corners.to_vec(), Stroke::new(1.5_f32, faded(color, 0.95)), true);
         } else {
@@ -169,14 +199,12 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     }
 }
 
-pub fn draw_notes(painter: &Painter, geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, selected: &[u64], opacity: f32, hovered: Option<u64>) {
-    let (m, items) = (geo.metrics(), items(notes, times));
-    let scene = layout(geo, &items, &m);
+pub(crate) fn draw_notes(painter: &Painter, notes: &NoteScene, selected: &[u64], opacity: f32, hovered: Option<u64>) {
     let color_of = |id| if selected.contains(&id) { SELECTED_COLOR } else { NOTE_COLOR };
-    draw_scene(painter, &scene, &items, &m, &Look { dashed: false, opacity, names: true }, color_of, hovered);
+    draw_scene(painter, &notes.scene, &notes.items, &notes.metrics, &Look { dashed: false, opacity, names: true }, color_of, hovered);
 }
 
-pub fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostShape) {
+pub(crate) fn draw_ghost(painter: &Painter, geo: &SpectroGeometry, ghost: &GhostShape) {
     let (m, items) = (geo.metrics(), ghost.items());
     let scene = layout(geo, &items, &m);
     draw_scene(painter, &scene, &items, &m, &Look { dashed: true, opacity: 0.8, names: false }, |_| Color32::WHITE, None);

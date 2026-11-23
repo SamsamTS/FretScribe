@@ -12,7 +12,6 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use crate::error::{AudioError, Result};
-use crate::parallel::parallel_map;
 
 #[derive(Clone)]
 pub struct DecodedAudio {
@@ -144,126 +143,6 @@ pub fn decode_file(path: impl AsRef<Path>) -> Result<DecodedAudio> {
     DecodedAudio::from_interleaved(sample_rate, channels, samples)
 }
 
-/// Decodes several files concurrently. Results keep the input order, each with its own error.
-pub fn decode_files<P: AsRef<Path> + Sync>(paths: &[P]) -> Vec<Result<DecodedAudio>> {
-    parallel_map(paths, |path| decode_file(path))
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::tempdir;
-
-    pub fn wav_bytes(sample_rate: u32, channels: u16, samples: &[i16]) -> Vec<u8> {
-        let data_len = (samples.len() * 2) as u32;
-        let mut out = Vec::new();
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + data_len).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&channels.to_le_bytes());
-        out.extend_from_slice(&sample_rate.to_le_bytes());
-        out.extend_from_slice(&(sample_rate * u32::from(channels) * 2).to_le_bytes());
-        out.extend_from_slice(&(channels * 2).to_le_bytes());
-        out.extend_from_slice(&16u16.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&data_len.to_le_bytes());
-        for s in samples {
-            out.extend_from_slice(&s.to_le_bytes());
-        }
-        out
-    }
-
-    fn sine_i16(freq: f64, rate: u32, frames: usize, amp: f64) -> Vec<i16> {
-        (0..frames)
-            .map(|i| {
-                let t = i as f64 / f64::from(rate);
-                (amp * (std::f64::consts::TAU * freq * t).sin() * 32767.0).round() as i16
-            })
-            .collect()
-    }
-
-    fn write(dir: &Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
-        let path = dir.join(name);
-        File::create(&path).unwrap().write_all(bytes).unwrap();
-        path
-    }
-
-    #[test]
-    fn decodes_mono_wav() {
-        let dir = tempdir().unwrap();
-        let pcm = sine_i16(440.0, 44_100, 22_050, 0.5);
-        let path = write(dir.path(), "mono.wav", &wav_bytes(44_100, 1, &pcm));
-        let audio = decode_file(&path).unwrap();
-        assert_eq!(audio.sample_rate, 44_100);
-        assert_eq!(audio.channels, 1);
-        assert_eq!(audio.frames(), 22_050);
-        assert!((audio.duration_sec - 0.5).abs() < 1e-9);
-        assert_eq!(audio.interleaved, audio.mono);
-        for (decoded, &raw) in audio.mono.iter().zip(&pcm) {
-            assert!((decoded - f32::from(raw) / 32768.0).abs() < 1e-3);
-        }
-    }
-
-    #[test]
-    fn decodes_stereo_wav_and_mixes_down() {
-        let dir = tempdir().unwrap();
-        let frames = 4_800;
-        let mut pcm = Vec::new();
-        for i in 0..frames {
-            pcm.push(16_384);
-            pcm.push(if i % 2 == 0 { -16_384 } else { 0 });
-        }
-        let path = write(dir.path(), "stereo.wav", &wav_bytes(48_000, 2, &pcm));
-        let audio = decode_file(&path).unwrap();
-        assert_eq!((audio.sample_rate, audio.channels), (48_000, 2));
-        assert_eq!(audio.frames(), frames);
-        assert_eq!(audio.interleaved.len(), frames * 2);
-        assert!((audio.duration_sec - 0.1).abs() < 1e-9);
-        assert!((audio.interleaved[0] - 0.5).abs() < 1e-3);
-        assert!((audio.interleaved[1] + 0.5).abs() < 1e-3);
-        assert!(audio.mono[0].abs() < 1e-3);
-        assert!((audio.mono[1] - 0.25).abs() < 1e-3);
-    }
-
-    #[test]
-    fn reports_missing_and_garbage_files() {
-        let dir = tempdir().unwrap();
-        assert!(matches!(
-            decode_file(dir.path().join("nope.wav")),
-            Err(AudioError::Io(_))
-        ));
-        let junk = write(dir.path(), "junk.mp3", &[7u8; 4096]);
-        assert!(matches!(decode_file(&junk), Err(AudioError::Decode(_))));
-        let empty = write(dir.path(), "empty.wav", &wav_bytes(44_100, 1, &[]));
-        assert!(decode_file(&empty).is_err());
-    }
-
-    #[test]
-    fn decode_files_keeps_order_and_reports_each_error() {
-        let dir = tempdir().unwrap();
-        let a = write(dir.path(), "a.wav", &wav_bytes(44_100, 1, &sine_i16(440.0, 44_100, 4_410, 0.5)));
-        let b = write(dir.path(), "b.wav", &wav_bytes(48_000, 2, &[1_000; 9_600]));
-        let missing = dir.path().join("missing.wav");
-        let results = decode_files(&[a, missing, b]);
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0].as_ref().map(|r| r.sample_rate).ok(), Some(44_100));
-        assert!(matches!(results[1], Err(AudioError::Io(_))));
-        assert_eq!(results[2].as_ref().map(|r| (r.sample_rate, r.channels)).ok(), Some((48_000, 2)));
-    }
-
-    #[test]
-    fn from_interleaved_validates_layout() {
-        assert!(DecodedAudio::from_interleaved(0, 1, vec![0.0]).is_err());
-        assert!(DecodedAudio::from_interleaved(44_100, 0, vec![0.0]).is_err());
-        assert!(matches!(
-            DecodedAudio::from_interleaved(44_100, 2, vec![0.0]),
-            Err(AudioError::Empty)
-        ));
-        let audio = DecodedAudio::from_interleaved(10, 2, vec![1.0, 3.0, 2.0, 2.0, 9.0]).unwrap();
-        assert_eq!(audio.mono, [2.0, 2.0]);
-        assert_eq!(audio.interleaved.len(), 4);
-    }
-}
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/audio/decode.rs"]
+pub(crate) mod tests;

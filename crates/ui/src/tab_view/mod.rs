@@ -10,7 +10,8 @@ mod colors;
 mod draw;
 mod edit;
 mod menu;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/tab_view.rs"]
 mod tests;
 
 use egui::{pos2, vec2, Color32, Key, Modifiers, Rect, Response, Sense, Stroke, Ui};
@@ -52,7 +53,7 @@ impl Default for TabStyle {
             selected: Color32::from_rgb(110, 180, 255),
             error: Color32::from_rgb(235, 80, 80),
             background: crate::theme::WINDOW_BG,
-            playhead: Color32::from_rgb(255, 90, 80),
+            playhead: crate::theme::PLAYHEAD,
             flash: Color32::from_rgb(255, 200, 70),
             stem_height: 36.0,
         }
@@ -207,7 +208,7 @@ impl TabView<'_> {
         if state.string_colors { Stroke::new(1.0_f32, color.gamma_multiply(0.45)) } else { neutral }
     }
 
-    /// The strip; the host draws the tools ([`sheet_tools`], [`tab_tools`]) itself.
+    /// The strip; the host draws the tools ([`notation_tools`]) itself.
     pub fn show(self, ui: &mut Ui, view: &TimelineView, state: &mut TabViewState) -> TabOutput {
         let mut events = Vec::new();
         let st = self.style;
@@ -384,43 +385,36 @@ pub fn collapse_button(ui: &mut Ui, row: Rect, collapsed: &mut bool) {
             *collapsed = !*collapsed;
         }
     });
+    ui.painter().text(pos2(at.right() + 8.0, at.center().y), egui::Align2::LEFT_CENTER, "SHEET & TAB", egui::FontId::proportional(11.0), crate::theme::HINT);
 }
 
-/// A captioned tool group at the top left of a lane's header column (`lane` is the lane's full rect).
-fn lane_tools(ui: &mut Ui, lane: Rect, caption: &str, add: impl FnOnce(&mut Ui)) {
-    let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 10.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - TOOLS_MARGIN, lane.bottom()));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)), |ui| {
+/// The sheet and tab tools in one wrapping panel at the top left of the notation header column
+/// (`lane` is the sheet lane's rect): guitar 8vb, strict beats, then the tab's toggles. Returns whether
+/// a sheet option changed, plus the tab's events.
+pub fn notation_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool, strict_beats: &mut bool, state: &mut TabViewState) -> (bool, Vec<TabViewEvent>) {
+    let (mut changed, mut events) = (false, Vec::new());
+    let area = Rect::from_min_max(pos2(lane.left() + TOOLS_MARGIN, lane.top() + 4.0), pos2(lane.left() + crate::view::LANE_HEADER_WIDTH - crate::staff_view::NOTATION_HEAD_W - TOOLS_MARGIN, lane.bottom()));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
         ui.set_clip_rect(ui.clip_rect().intersect(lane));
-        crate::kit::group_at(ui, caption, true, add);
-    });
-}
-
-/// The sheet's tools, in the header column of the sheet lane: guitar 8vb (the guitar is written an octave
-/// above its sound).
-pub fn sheet_tools(ui: &mut Ui, lane: Rect, guitar_8vb: &mut bool) {
-    lane_tools(ui, lane, "Sheet", |ui| {
-        if crate::kit::ibtn(ui, "guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", *guitar_8vb).clicked() {
-            *guitar_8vb = !*guitar_8vb;
-        }
-    });
-}
-
-/// The tab's tools, in the header column of the tab lane.
-pub fn tab_tools(ui: &mut Ui, lane: Rect, state: &mut TabViewState) -> Vec<TabViewEvent> {
-    let mut events = Vec::new();
-    lane_tools(ui, lane, "Tab", |ui| {
-        let toggle = |ui: &mut Ui, icon: &str, tip: &str, value: &mut bool| {
+        crate::kit::tool_panel(ui, area.width(), &[2, 4], |ui, i| {
+            let (icon, tip, value): (&str, &str, &mut bool) = match i {
+                0 => ("guitar-8vb", "Guitar 8vb: write the sheet an octave above the sound", &mut *guitar_8vb),
+                1 => ("rhythm", "Strict beats: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut *strict_beats),
+                2 => ("apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards),
+                3 => ("rhythm", "Rhythm stems", &mut state.show_stems),
+                4 => ("string-colors", "String colors", &mut state.string_colors),
+                _ => {
+                    if crate::kit::ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
+                        events.push(TabViewEvent::ReinferRequested);
+                    }
+                    return;
+                }
+            };
             if crate::kit::ibtn(ui, icon, tip, *value).clicked() {
                 *value = !*value;
+                changed |= i < 2;
             }
-        };
-        toggle(ui, "apply-following", "Update previous notes too: also re-solve the automatic notes before an edited note", &mut state.propagate_backwards);
-        toggle(ui, "rhythm", "Rhythm stems", &mut state.show_stems);
-        toggle(ui, "string-colors", "String colors", &mut state.string_colors);
-        crate::kit::sep(ui);
-        if crate::kit::ibtn(ui, "re-infer-tab", "Re-infer tab: recomputes the string and fret of every unlocked note", false).clicked() {
-            events.push(TabViewEvent::ReinferRequested);
-        }
+        });
     });
-    events
+    (changed, events)
 }

@@ -13,9 +13,13 @@ pub mod pitch;
 pub mod snap;
 pub mod snap_note;
 pub mod tempo;
+#[cfg(all(any(test, feature = "test-support"), dev_tests))]
+#[path = "../../../dev/tests/unit/core/testkit.rs"]
+pub mod testkit;
 pub mod tracks;
 pub mod undo;
 
+pub use uuid::Uuid;
 pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
 pub use error::{CoreError, EditError, UndoError};
 pub use grace::{
@@ -38,9 +42,8 @@ pub use persist::{
     GAMMA_RANGE, LEVELS_MIN_GAP, Q_RANGE,
 };
 pub use pitch::{
-    cents_of, cents_off, freq_to_midi_float, midi_to_freq, midi_to_name, ref_from_cents, PitchRef,
-};
-pub use snap::{division_name, SnapGrid, SnapPreset, SNAP_DIVISIONS, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
+    cents_of, cents_off, freq_to_midi_float, midi_to_freq, midi_to_name, ref_from_cents, PitchRef, parse_pitch, pitch_class_name, A4_MIDI, A4_RANGE_HZ};
+pub use snap::{division_name, SnapGrid, SNAP_DIVISIONS, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
 pub use snap_note::{
     add_beats, effective_divisions, min_subdivision_beats, snap_edge, snap_note, snap_resized,
     step_on_grid, Edge, SnapOpts,

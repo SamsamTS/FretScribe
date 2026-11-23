@@ -11,7 +11,9 @@ const STOP_EPS: f64 = 1e-6;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Geometry {
     pub width: f64,
-    pub audio_len_sec: f64,
+    /// The view may show nothing before `lo_sec` nor after `hi_sec` (one measure beyond the grid).
+    pub lo_sec: f64,
+    pub hi_sec: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -77,11 +79,47 @@ pub fn zoom_pps(pps: f64, notches: f64, t: &ViewTuning) -> f64 {
     (pps * t.zoom_per_notch.powf(notches)).clamp(t.min_pps, t.max_pps)
 }
 
-pub fn clamp_scroll(scroll_sec: f64, pps: f64, geo: Geometry, t: &ViewTuning) -> f64 {
-    let visible = geo.width / pps;
-    let lo = -t.overscroll_fraction * visible;
-    let hi = geo.audio_len_sec - (1.0 - t.overscroll_fraction) * visible;
-    scroll_sec.clamp(lo, hi.max(lo))
+pub fn clamp_scroll(scroll_sec: f64, pps: f64, geo: Geometry, _t: &ViewTuning) -> f64 {
+    scroll_sec.clamp(geo.lo_sec, (geo.hi_sec - geo.width / pps).max(geo.lo_sec))
+}
+
+/// One measure before the first and after the last (by its own length); the grid, or `0..audio_len`
+/// without one.
+pub fn scroll_limits(map: &TempoMap, audio_len_sec: f64) -> (f64, f64) {
+    let Some(last) = map.len().checked_sub(1) else { return (0.0, audio_len_sec) };
+    let end = map.measure_end_sec(last, map.measure_start_sec(last) + map.measure_duration_sec(last));
+    (map.measure_start_sec(0) - map.measure_duration_sec(0), end + map.measure_duration_sec(last))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Round {
+    Nearest,
+    Down,
+    Up,
+}
+
+/// The quarter-note line of the grid at (`Nearest`), before (`Down`) or after (`Up`) `sec`; a
+/// measure's last, shorter quarter ends on the next barline. Before the first measure and after the
+/// last the first / last tempo continues.
+pub fn snap_quarter(map: &TempoMap, sec: f64, round: Round) -> f64 {
+    if map.is_empty() || !sec.is_finite() {
+        return sec;
+    }
+    let (i, beat) = map.sec_to_beat_position(sec);
+    let (start, spb, len) = (map.measure_start_sec(i), 60.0 / map.effective_bpm(i), map.beats_in_measure(i));
+    let at = |b: f64| match map.measures().get(i + 1) {
+        Some(next) if b >= len - 1e-9 => next.start_sec,
+        _ => start + b * spb,
+    };
+    let near = beat.round();
+    let (lo, hi) = if (beat - near).abs() < 1e-9 { (near, near) } else { (beat.floor(), beat.ceil()) };
+    let (a, b) = (at(lo), at(hi));
+    match round {
+        Round::Down => a,
+        Round::Up => b,
+        Round::Nearest if sec - a <= b - sec => a,
+        Round::Nearest => b,
+    }
 }
 
 /// `scroll_sec` and `pps` describe the target view. A previous anchor with the same key is reused
@@ -155,16 +193,24 @@ pub fn zoom_target(
     }
 }
 
-pub fn scroll_time_target(scroll_sec: f64, pps: f64, notches: f64, quarter_sec: f64, geo: Geometry, t: &ViewTuning) -> f64 {
-    clamp_scroll(scroll_sec + notches * t.quarter_notes_per_notch * quarter_sec, pps, geo, t)
-}
-
-/// Duration of a quarter note at the tempo realised by the measure containing `sec`.
-pub fn quarter_sec_at(map: &TempoMap, sec: f64) -> f64 {
-    if map.is_empty() {
-        return 0.5;
-    }
-    60.0 / map.effective_bpm(map.sec_to_beat_position(sec).0)
+/// Each notch moves the view by a fixed number of points whatever the zoom, then its left edge
+/// snaps to the nearest quarter-note line (at least one quarter when the step is shorter), within
+/// the scroll limits.
+pub fn scroll_time_target(scroll_sec: f64, pps: f64, notches: f64, map: &TempoMap, geo: Geometry, t: &ViewTuning) -> f64 {
+    let (dir, step) = (notches.signum(), t.scroll_x_points_per_notch / pps);
+    let max = (geo.hi_sec - geo.width / pps).max(geo.lo_sec);
+    (0..notches.round().abs() as u32).fold(clamp_scroll(scroll_sec, pps, geo, t), |cur, _| {
+        let mut next = snap_quarter(map, cur + dir * step, Round::Nearest);
+        if (next - cur).abs() < 1e-9 {
+            next = if dir > 0.0 { snap_quarter(map, cur + 1e-6, Round::Up) } else { snap_quarter(map, cur - 1e-6, Round::Down) };
+        }
+        if next > max {
+            next = snap_quarter(map, max, Round::Down).max(cur.min(max));
+        } else if next < geo.lo_sec {
+            next = snap_quarter(map, geo.lo_sec, Round::Up).min(cur.max(geo.lo_sec));
+        }
+        next
+    })
 }
 
 pub fn measure_at(map: &TempoMap, sec: f64) -> Option<MeasureSpan> {
@@ -211,194 +257,6 @@ pub fn scroll_y_target(y: f64, notches: f64, pitch: f64, max: f64) -> f64 {
     (0..n.unsigned_abs()).fold(y.clamp(0.0, max), |y, _| step_stop(y, pitch, max, n > 0))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use fretscribe_core::{generate_measures, set_tempo, TimeSignature};
-
-    const T: ViewTuning = ViewTuning::DEFAULT;
-    const GEO: Geometry = Geometry { width: 1000.0, audio_len_sec: 100.0 };
-
-    fn close(a: f64, b: f64) {
-        assert!((a - b).abs() < 1e-9, "{a} != {b}");
-    }
-
-    fn hover(x: f64, scroll: f64, pps: f64, m: Option<(f64, f64)>) -> Hover {
-        Hover {
-            x,
-            sec: scroll + x / pps,
-            measure: m.map(|(start, end)| MeasureSpan { index: 0, start, end }),
-        }
-    }
-
-    fn screen(t: &ZoomTarget, sec: f64) -> f64 {
-        (sec - t.scroll_sec) * t.pps
-    }
-
-    #[test]
-    fn fitting_measure_keeps_its_centre_and_stays_visible() {
-        for (scroll, pps, span, notches) in [(0.0, 100.0, (2.0, 4.0), 1.0), (0.0, 100.0, (2.0, 4.0), -3.0), (5.0, 100.0, (5.2, 7.2), 1.0), (0.0, 100.0, (7.0, 9.8), -2.0)] {
-            let before_x = ((span.0 + span.1) / 2.0 - scroll) * pps;
-            let h = hover(before_x, scroll, pps, Some(span));
-            let z = zoom_target(scroll, pps, &h, None, notches, GEO, &T);
-            assert!(matches!(z.anchor.key, AnchorKey::Measure(0) | AnchorKey::MeasureEdge(0, _)));
-            let (l, r) = (screen(&z, span.0), screen(&z, span.1));
-            assert!(l >= T.edge_margin_px - 1e-9 && r <= GEO.width - T.edge_margin_px + 1e-9, "{l} {r}");
-            if z.anchor.key == AnchorKey::Measure(0) && z.shift.abs() < 1e-9 {
-                close(screen(&z, (span.0 + span.1) / 2.0), before_x);
-            }
-        }
-    }
-
-    #[test]
-    fn measure_near_the_edge_is_shifted_minimally() {
-        let h = hover(110.0, 0.0, 100.0, Some((0.1, 2.1)));
-        let z = zoom_target(0.0, 100.0, &h, None, 1.0, GEO, &T);
-        close(screen(&z, 0.1), T.edge_margin_px);
-        assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, false));
-        let h = hover(950.0, 20.0, 100.0, Some((28.5, 30.5)));
-        let z = zoom_target(20.0, 100.0, &h, None, -1.0, GEO, &T);
-        close(screen(&z, 30.5), GEO.width - T.edge_margin_px);
-    }
-
-    #[test]
-    fn measure_drifts_towards_the_cursor_by_at_most_its_width_change() {
-        let m = Some((24.0, 26.0));
-        let centre = |cursor: f64, notches: f64| {
-            let z = zoom_target(20.0, 100.0, &hover(cursor, 20.0, 100.0, m), None, notches, GEO, &T);
-            screen(&z, 25.0)
-        };
-        close(centre(700.0, 1.0), 550.0);
-        close(centre(700.0, -1.0), 540.0);
-        close(centre(300.0, 1.0), 450.0);
-        close(centre(520.0, 1.0), 520.0);
-        close(centre(500.0, 1.0), 500.0);
-    }
-
-    #[test]
-    fn drifting_measure_stops_flush_against_the_nearest_side() {
-        let h = hover(990.0, 0.0, 100.0, Some((8.5, 10.5)));
-        let z = zoom_target(0.0, 100.0, &h, None, 1.0, GEO, &T);
-        close(screen(&z, 10.5), GEO.width - T.edge_margin_px);
-        let h = hover(5.0, 0.0, 100.0, Some((0.5, 2.5)));
-        let z = zoom_target(0.0, 100.0, &h, None, 1.0, GEO, &T);
-        close(screen(&z, 0.5), T.edge_margin_px);
-    }
-
-    #[test]
-    fn too_wide_measure_slides_to_the_cursor_side_edge_in_limited_steps() {
-        let h = hover(300.0, 20.0, 100.0, Some((20.0, 30.0)));
-        let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
-        assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, false));
-        close(screen(&z, 20.0), T.edge_margin_px);
-        assert!(screen(&z, 30.0) > GEO.width);
-        // Cursor on the right: it moves towards the right edge by a limited amount per notch.
-        let h = hover(700.0, 20.0, 100.0, Some((20.0, 40.0)));
-        let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
-        close(screen(&z, 20.0), -(250.0 + 500.0));
-        let z2 = zoom_target(z.scroll_sec, z.pps, &h, Some(z.anchor), 0.0, GEO, &T);
-        close(screen(&z2, 20.0), -(250.0 + 500.0) - 250.0);
-        let mut z = z2;
-        for _ in 0..10 {
-            z = zoom_target(z.scroll_sec, z.pps, &h, Some(z.anchor), 0.0, GEO, &T);
-        }
-        assert_eq!(z.anchor.key, AnchorKey::MeasureEdge(0, true));
-        close(screen(&z, 40.0), GEO.width - T.edge_margin_px);
-    }
-
-    #[test]
-    fn extremely_wide_measure_zooms_at_the_cursor() {
-        let h = hover(300.0, 20.0, 100.0, Some((20.0, 80.0)));
-        let z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
-        assert!(matches!(z.anchor.key, AnchorKey::Cursor(300)));
-        close(screen(&z, h.sec), 300.0);
-        let h = hover(400.0, 20.0, 100.0, None);
-        assert!(matches!(zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T).anchor.key, AnchorKey::Cursor(_)));
-    }
-
-    #[test]
-    fn zoom_is_clamped() {
-        let h = hover(500.0, 20.0, 100.0, None);
-        assert_eq!(zoom_target(20.0, 100.0, &h, None, 100.0, GEO, &T).pps, T.max_pps);
-        assert_eq!(zoom_target(20.0, 100.0, &h, None, -100.0, GEO, &T).pps, T.min_pps);
-    }
-
-    #[test]
-    fn notches_accumulate_on_the_target() {
-        let h = hover(500.0, 20.0, 100.0, None);
-        let once = zoom_target(20.0, 100.0, &h, None, 3.0, GEO, &T);
-        let mut z = zoom_target(20.0, 100.0, &h, None, 1.0, GEO, &T);
-        for _ in 0..2 {
-            z = zoom_target(z.scroll_sec, z.pps, &h, Some(z.anchor), 1.0, GEO, &T);
-        }
-        close(z.pps, 100.0 * 1.25_f64.powi(3));
-        close(z.pps, once.pps);
-        close(z.scroll_sec, once.scroll_sec);
-        let sum: f64 = (0..3).map(|_| 1.0).sum();
-        close(scroll_time_target(0.0, 100.0, sum, 0.5, GEO, &T), 1.5);
-    }
-
-    #[test]
-    fn scroll_is_clamped_to_the_overscroll_fraction() {
-        let visible = GEO.width / 100.0;
-        close(clamp_scroll(-50.0, 100.0, GEO, &T), -T.overscroll_fraction * visible);
-        close(clamp_scroll(500.0, 100.0, GEO, &T), 100.0 - (1.0 - T.overscroll_fraction) * visible);
-        let short = Geometry { audio_len_sec: 2.0, ..GEO };
-        close(clamp_scroll(5.0, 100.0, short, &T), -T.overscroll_fraction * visible);
-    }
-
-    #[test]
-    fn quarter_note_step_follows_the_tempo_at_the_view_centre() {
-        let mut next = 1;
-        let mut ms = generate_measures(0.0, 8.0, 120.0, TimeSignature::COMMON, &mut next);
-        set_tempo(&mut ms, 2, 60.0).unwrap();
-        let map = TempoMap::new(&ms);
-        close(quarter_sec_at(&map, 1.0), 0.5);
-        close(quarter_sec_at(&map, 5.0), 1.0);
-        close(quarter_sec_at(&TempoMap::new(&[]), 5.0), 0.5);
-        assert_eq!(measure_at(&map, 5.0).map(|m| (m.index, m.start, m.end)), Some((2, 4.0, 8.0)));
-        assert_eq!(measure_at(&map, -1.0), None);
-        assert_eq!(measure_at(&map, 99.0), None);
-    }
-
-    #[test]
-    fn vertical_stops_are_multiples_of_the_pitch_then_the_exact_bottom() {
-        let (p, max) = (17.0, 60.0);
-        assert_eq!(snap_y(0.0, p, max), 0.0);
-        assert_eq!(snap_y(8.0, p, max), 0.0);
-        assert_eq!(snap_y(9.0, p, max), 17.0);
-        assert_eq!(snap_y(52.0, p, max), 51.0);
-        assert_eq!(snap_y(57.0, p, max), 60.0);
-        assert_eq!(snap_y(999.0, p, max), 60.0);
-        assert_eq!(snap_y(30.0, p, 0.0), 0.0);
-        let stops: Vec<f64> = (0..8).scan(0.0, |y, _| { *y = scroll_y_target(*y, 1.0, p, max); Some(*y) }).collect();
-        assert_eq!(stops, [17.0, 34.0, 51.0, 60.0, 60.0, 60.0, 60.0, 60.0]);
-        assert_eq!(scroll_y_target(60.0, -1.0, p, max), 51.0);
-        assert_eq!(scroll_y_target(51.0, -2.0, p, max), 17.0);
-        assert_eq!(scroll_y_target(0.0, -1.0, p, max), 0.0);
-        assert_eq!(scroll_y_target(0.0, 3.0, p, max), 51.0);
-        assert_eq!(scroll_y_target(0.0, 1.0, p, 0.0), 0.0);
-        assert_eq!(max_scroll_y(100.0, 300.0), 0.0);
-        assert_eq!(max_scroll_y(300.0, 100.0), 200.0);
-    }
-
-    #[test]
-    fn smoothing_converges_monotonically_without_overshoot() {
-        let mut x = 0.0;
-        for _ in 0..200 {
-            let next = smooth(x, 10.0, 1.0 / 60.0, 55.0);
-            assert!(next >= x && next <= 10.0);
-            x = next;
-        }
-        assert!((x - 10.0).abs() < 1e-3);
-        assert_eq!(smooth(3.0, 9.0, 0.016, 0.0), 9.0);
-        assert_eq!(smooth(3.0, 9.0, 0.0, 55.0), 3.0);
-    }
-
-    #[test]
-    fn smoothing_is_frame_rate_independent() {
-        let run = |hz: f64| (0..(hz * 0.2).round() as usize).fold(0.0, |x, _| smooth(x, 10.0, 1.0 / hz, 55.0));
-        close(run(60.0), run(120.0));
-        close(run(60.0), run(240.0));
-    }
-}
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/nav/maths.rs"]
+mod tests;

@@ -3,6 +3,7 @@
 
 pub mod beatfit;
 mod cqt;
+mod dsp;
 mod display;
 mod error;
 pub mod lut;
@@ -11,7 +12,8 @@ pub mod pitchref;
 pub mod sync;
 mod render;
 mod spectrogram;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/analysis/spectrogram_tests.rs"]
 mod spectrogram_tests;
 pub mod waveform;
 
@@ -23,6 +25,6 @@ pub use error::AnalysisError;
 pub use lut::{discover_luts, Lut, LUT_SIZE};
 pub use spectrogram::{
     compute_spectrogram, compute_spectrogram_streaming, Spectrogram, SpectrogramChunk,
-    SpectrogramInfo, SpectrogramParams, SpectrogramStream, WindowKind,
+    SpectrogramInfo, SpectrogramParams, SpectrogramStream,
 };
 pub use waveform::{render_rgba as render_waveform_rgba, WaveformPyramid, WAVEFORM_GAMMA};

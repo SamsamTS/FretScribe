@@ -8,6 +8,7 @@ mod readout;
 mod ruler;
 mod waveform;
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use egui::{pos2, vec2, Color32, ColorImage, Context, FontId, Painter, Pos2, Rect, Response, Sense, Stroke, TextureHandle, TextureOptions, Ui};
@@ -15,7 +16,7 @@ use fretscribe_analysis::{Levels, Lut, Spectrogram};
 use fretscribe_core::{midi_to_name, Note, NoteTimes, PitchRef, Tuning};
 
 pub use glyphs::{link_points, note_glyphs, Glyph, LinkPoint, NoteMetrics, Side};
-pub use notes::{hit_test, GhostGlyph, GhostShape, HitZone, LinkKind, SpectroGeometry};
+pub use notes::{hit_test, GhostGlyph, GhostShape, HitZone, LinkKind, NoteScene, SpectroGeometry};
 pub use readout::{is_natural, open_pitches, place_readout, readout, Readout};
 pub use ruler::{format_time, paint_seek_line, ruler_step, show_time_ruler};
 pub use waveform::{Peak, WaveformView};
@@ -35,8 +36,7 @@ const BAND_HIGHLIGHT_ALPHA: u8 = 32;
 pub(crate) fn white(alpha: u8) -> Color32 {
     Color32::from_rgba_premultiplied(alpha, alpha, alpha, alpha)
 }
-const OPEN_STRING: Color32 = Color32::from_rgb(255, 200, 90);
-const PLAYHEAD: Color32 = Color32::from_rgb(255, 90, 80);
+use crate::theme::{ACCENT_AMBER as OPEN_STRING, PLAYHEAD};
 
 /// Global display parameters, identical for every spectrogram of the application.
 #[derive(Clone, Debug)]
@@ -67,6 +67,8 @@ pub struct HoverInfo {
 
 pub struct SpectroOutput {
     pub events: Vec<SpectroEvent>,
+    /// The notes' layout of this frame, for hit-testing outside the widget.
+    pub scene: Rc<NoteScene>,
     pub hover: Option<HoverInfo>,
     pub hovered_note: Option<(u64, HitZone)>,
     pub geometry: SpectroGeometry,
@@ -83,7 +85,7 @@ struct CacheKey {
     a4: u32,
     levels: [u32; 2],
     gamma: u32,
-    lut: String,
+    lut: usize,
     data: (usize, usize, usize),
     revision: u64,
     offset: u64,
@@ -204,7 +206,7 @@ impl<'a> SpectrogramView<'a> {
             a4: self.pitch_ref.a4_hz().to_bits(),
             levels: [self.style.levels.black.to_bits(), self.style.levels.white.to_bits()],
             gamma: self.style.gamma.to_bits(),
-            lut: self.style.lut.name.clone(),
+            lut: Arc::as_ptr(&self.style.lut) as usize,
             data: (s.data.as_ptr() as usize, s.n_frames, s.n_rows),
             revision: self.revision,
             offset: self.audio_offset_sec.to_bits(),
@@ -296,7 +298,8 @@ impl<'a> SpectrogramView<'a> {
         let hover = response.hover_pos().filter(|p| rect.contains(*p)).map(|pos| HoverInfo { pos, time_sec: geo.x_to_sec(pos.x), midi_float: geo.y_to_midi(pos.y) });
         let hover_key = response.id.with("hovered_note");
         let previous: Option<u64> = ui.data(|d| d.get_temp(hover_key)).flatten();
-        let hovered_note = hover.and_then(|h| hit_test(&geo, self.notes, times, h.pos, previous));
+        let scene = Rc::new(NoteScene::build(&geo, self.notes, times));
+        let hovered_note = hover.and_then(|h| scene.hit(h.pos, previous));
         let hovered_id = hovered_note.map(|(id, _)| id);
         if hovered_id != previous {
             ui.data_mut(|d| d.insert_temp(hover_key, hovered_id));
@@ -311,9 +314,9 @@ impl<'a> SpectrogramView<'a> {
             painter.rect_filled(above, 0.0, shade);
             painter.rect_filled(below, 0.0, shade);
         }
-        let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
+        let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
         self.draw_guides(&painter, &labels, &geo, cursor_midi);
-        notes::draw_notes(&painter, &geo, self.notes, times, self.selected, self.note_opacity, hovered_id);
+        notes::draw_notes(&painter, &scene, self.selected, self.note_opacity, hovered_id);
         if let Some(ghost) = self.ghost {
             notes::draw_ghost(&painter, &geo, ghost);
         }
@@ -324,16 +327,17 @@ impl<'a> SpectrogramView<'a> {
             self.draw_readout(&painter, &geo, h);
         }
 
-        let events = pointer::events(ui, &response, &geo, pitch_ruler, |pos| hit_test(&geo, self.notes, times, pos, None).is_none());
-        SpectroOutput { events, hover, hovered_note, geometry: geo, pitch_ruler, response }
+        let events = pointer::events(ui, &response, &geo, pitch_ruler, |pos| scene.hit(pos, None).is_none());
+        SpectroOutput { events, scene, hover, hovered_note, geometry: geo, pitch_ruler, response }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/spectro.rs"]
 mod tests;
 
 const REGION_FILL: Color32 = Color32::from_rgba_premultiplied(40, 30, 11, 40);
-const REGION_EDGE: Color32 = Color32::from_rgb(255, 200, 90);
+use crate::theme::ACCENT_AMBER as REGION_EDGE;
 
 /// The selected region over `rect` (whose left edge is x = 0 of `view`): a faint fill and two edge lines.
 pub fn paint_region(painter: &Painter, rect: Rect, view: &TimelineView, start: f64, end: f64) {

@@ -7,17 +7,18 @@ use fretscribe_notation::staff::{LinkKind, StaffLayout, StaffLink};
 
 use super::Paint;
 
-struct Head {
+#[derive(Clone, Copy)]
+struct Anchor {
     x: f32,
     y: f32,
     up: bool,
 }
 
-fn head(p: &Paint, layout: &StaffLayout, id: u64, last: bool) -> Option<Head> {
+fn head(p: &Paint, layout: &StaffLayout, id: u64, last: bool) -> Option<Anchor> {
     let r = layout.note_ref(id)?;
     let e = &layout.events[if last { r.last } else { r.first }];
     let n = e.notes.iter().find(|n| n.id == id)?;
-    Some(Head { x: p.px(e.x_sec), y: p.py(n.step), up: e.stem_up })
+    Some(Anchor { x: p.px(e.x_sec), y: p.py(n.step), up: e.stem_up })
 }
 
 fn arrow_head(p: &Paint, tip: Pos2, up: bool, color: Color32) {
@@ -33,8 +34,8 @@ fn label(p: &Paint, at: Pos2, text: &str, color: Color32) {
 fn draw_one(p: &Paint, layout: &StaffLayout, link: &StaffLink, color: Color32) {
     let hw = p.head_w(1.0);
     let (Some(from), Some(to)) = (head(p, layout, link.from, false), head(p, layout, link.to, true)) else { return };
-    let to_first = head(p, layout, link.to, false).unwrap_or(Head { x: to.x, y: to.y, up: to.up });
-    let from_last = head(p, layout, link.from, true).unwrap_or(Head { x: from.x, y: from.y, up: from.up });
+    let to_first = head(p, layout, link.to, false).unwrap_or(to);
+    let from_last = head(p, layout, link.from, true).unwrap_or(from);
     let end_x = layout.note_ref(link.to).map_or(to.x, |r| p.px(layout.events[r.last].x_end_sec));
     match link.kind {
         LinkKind::Slide => {
@@ -44,8 +45,7 @@ fn draw_one(p: &Paint, layout: &StaffLayout, link: &StaffLink, color: Color32) {
             let a = pos2(from.x + hw + 0.3 * p.s, from.y);
             let b = pos2(end_x.max(a.x + 2.0 * p.s), to.y);
             let up = to.y < from.y;
-            let ctrl = pos2(b.x, a.y);
-            p.p.add(Shape::QuadraticBezier(egui::epaint::QuadraticBezierShape::from_points_stroke([a, ctrl, b], false, Color32::TRANSPARENT, egui::Stroke::new(1.3_f32, color))));
+            p.bezier(a, pos2(b.x, a.y), b, 1.3, color);
             arrow_head(p, b, up, color);
             if let Some(text) = &link.label {
                 label(p, pos2(b.x, b.y - 0.9 * p.s), text, color);
@@ -67,7 +67,13 @@ fn draw_one(p: &Paint, layout: &StaffLayout, link: &StaffLink, color: Color32) {
 }
 
 pub(super) fn draw(p: &Paint, layout: &StaffLayout, selected: &[u64]) {
+    let clip = p.p.clip_rect();
+    let x_of = |id, last| layout.note_ref(id).map(|r| { let e = &layout.events[if last { r.last } else { r.first }]; if last { e.x_end_sec } else { e.x_sec } }).map(|s| p.px(s));
     for link in &layout.links {
+        // Links entirely left or right of the visible area are not laid out.
+        if x_of(link.to, true).is_some_and(|x| x + 4.0 * p.s < clip.left()) || x_of(link.from, false).is_some_and(|x| x - 4.0 * p.s > clip.right()) {
+            continue;
+        }
         let sel = selected.contains(&link.from) || selected.contains(&link.to);
         draw_one(p, layout, link, if sel { p.style.selected } else { p.style.ink });
     }

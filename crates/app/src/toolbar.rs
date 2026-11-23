@@ -27,7 +27,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 0.0);
         ui.horizontal_top(|ui| {
             ui.set_width(ui.available_width());
-            project(ui, s, &mut requests);
+            project(ui, &mut requests);
             history(ui, s);
             tuning(ui, s);
             kit::right_aligned(ui, "display", |ui| display(ui, s));
@@ -44,8 +44,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     requests
 }
 
-fn project(ui: &mut Ui, s: &Session, requests: &mut Vec<Request>) {
-    let _ = s;
+fn project(ui: &mut Ui, requests: &mut Vec<Request>) {
     group(ui, "Project", |ui| {
         let mut push = |ui: &mut Ui, icon, request, tip| {
             if ibtn(ui, icon, tip, false).clicked() {
@@ -58,11 +57,11 @@ fn project(ui: &mut Ui, s: &Session, requests: &mut Vec<Request>) {
             ibtn(ui, "settings", "Settings (not available yet)", false)
         });
         sep(ui);
-        push(ui, "add-track", Request::AddTrack, "Add an audio track");
-        push(ui, "open", Request::Open, "Open a project");
+        push(ui, "add-track", Request::AddTrack, "Add an audio track (Ctrl+T)");
+        push(ui, "open", Request::Open, "Open a project (Ctrl+O)");
         push(ui, "save", Request::Save, "Save (Ctrl+S)");
-        push(ui, "save-as", Request::SaveAs, "Save under a new name");
-        ui.add_enabled_ui(false, |ui| ibtn(ui, "export", "Export arrives with Prompt 12", false));
+        push(ui, "save-as", Request::SaveAs, "Save under a new name (Ctrl+Shift+S)");
+        ui.add_enabled_ui(false, |ui| ibtn(ui, "export", "Export is not available yet", false));
     });
 }
 
@@ -125,12 +124,12 @@ fn transport(ui: &mut Ui, s: &mut Session) {
         }
         sep(ui);
         let has_region = s.region.is_some();
-        let play_region = ui.add_enabled_ui(has_region, |ui| ibtn(ui, "play-selection", if has_region { "Play selection" } else { "Select a region first: drag on the overview" }, false)).inner;
-        if let (true, Some(r), Some(p)) = (play_region.clicked(), s.region, &s.player) {
-            p.seek(r.start_sec);
-            p.play();
+        let play_region = ui.add_enabled_ui(has_region, |ui| ibtn(ui, "play-selection", if has_region { "Play selection: Ctrl+Space looped, Shift+Space once" } else { "Select a region first: drag on the overview" }, false)).inner;
+        if play_region.clicked() {
+            let looped = s.ui.loop_enabled;
+            s.play_selection(looped);
         }
-        if toggle(ui, "loop", "Repeat the selection (or the whole file when nothing is selected)", &mut s.ui.loop_enabled) {
+        if toggle(ui, "loop", "Repeat the whole file, or the selection when played with Ctrl+Space or the play-selection button", &mut s.ui.loop_enabled) {
             s.player_resync(false);
         }
         toggle(ui, "follow-playhead", "Follow the playhead", &mut s.follow);
@@ -164,17 +163,7 @@ fn grid(ui: &mut Ui, s: &mut Session) {
         }
         s.policy = if follow { NotePolicy::FollowGrid } else { NotePolicy::KeepAudioPosition };
         sep(ui);
-        let keys = |next| {
-            s.keymap
-                .shortcut_label(fretscribe_ui::note_editor::NoteAction::SnapPreset { next })
-                .unwrap_or_default()
-        };
-        let snap_tip = format!(
-            "Snap to the grid ({} / {}: previous / next preset)",
-            keys(false),
-            keys(true)
-        );
-        toggle(ui, "snap", &snap_tip, &mut s.snap_on);
+        toggle(ui, "snap", "Snap to the grid", &mut s.snap_on);
         for (triplet, options, id, tip) in [
             (
                 false,
@@ -212,10 +201,6 @@ fn grid(ui: &mut Ui, s: &mut Session) {
             if let Some(division) = next {
                 s.ui.snap_grid = s.ui.snap_grid.with(triplet, division);
             }
-        }
-        toggle(ui, "snap-onsets", "Adds the detected onsets of the beat-analysis tracks as snap targets", &mut s.snap_to_onsets);
-        if toggle(ui, "rhythm", "Strict beats. Sheet: a note crosses a main beat only if it starts on one (syncopations are tied). Off: tied only when no single value fits", &mut s.ui.strict_beats) {
-            s.staff_dirty = true;
         }
         sep(ui);
         if ibtn(ui, "auto-fit-grid", "Fits the measures to the onsets of the beat-analysis tracks", false).clicked() {
@@ -271,11 +256,12 @@ fn display(ui: &mut Ui, s: &mut Session) {
         if s.ui.spectro_q != s.q_applied && !ui.input(|i| i.pointer.any_down()) {
             s.q_changed();
         }
-        if kit::is_open(ui, "lut") {
-            let dir = s.luts.dir.clone();
-            s.luts = crate::luts::LutSet::scan(dir.as_deref());
+        let (open_id, open) = (egui::Id::new("lut_menu_was_open"), kit::is_open(ui, "lut"));
+        if open && !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
+            s.luts = crate::luts::LutSet::scan(s.luts.dir.clone().as_deref());
         }
-        let names: Vec<String> = s.luts.luts.iter().map(|l| l.name.clone()).collect();
+        ui.data_mut(|d| d.insert_temp(open_id, open));
+        let names = s.luts.names().to_vec();
         let current = s.luts.index_of(&s.ui.lut_name);
         let (_, picked) = Field::new(&names[current], "Spectrogram colour map").dropdown(ui, "lut", &names, Some(current));
         if let Some(i) = picked {
@@ -465,17 +451,6 @@ fn listening(ui: &mut Ui, s: &mut Session) {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_reference;
-
-    #[test]
-    fn reference_accepts_hz_and_cents_within_range() {
-        assert_eq!(parse_reference("437.5"), Some(437.5));
-        assert_eq!(parse_reference("442 Hz"), Some(442.0));
-        let cents = parse_reference("-14c").unwrap();
-        assert!((cents - 436.5).abs() < 0.2, "{cents}");
-        assert_eq!(parse_reference("500"), None);
-        assert_eq!(parse_reference("abc"), None);
-    }
-}
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/app/toolbar.rs"]
+mod tests;

@@ -23,11 +23,13 @@ pub enum Base {
     SixtyFourth,
 }
 
+const WHOLE_TICKS: i64 = 4 * fretscribe_core::TICKS_PER_BEAT;
+
 impl Base {
     const ALL: [Self; 7] = [Self::Whole, Self::Half, Self::Quarter, Self::Eighth, Self::Sixteenth, Self::ThirtySecond, Self::SixtyFourth];
 
     pub fn ticks(self) -> i64 {
-        192 >> self as u32
+        WHOLE_TICKS >> self as u32
     }
 
     /// Flags (or beams) a note of this value carries.
@@ -78,7 +80,7 @@ static VALUES: LazyLock<Vec<Duration>> = LazyLock::new(|| {
 });
 
 /// Main-beat length in ticks: the written beat, or a group of three for compound meters.
-pub fn main_beat_ticks(numerator: u8, denominator: u8) -> i64 {
+pub(crate) fn main_beat_ticks(numerator: u8, denominator: u8) -> i64 {
     let unit = TICKS_PER_BEAT * 4 / i64::from(denominator);
     if denominator >= 8 && numerator > 3 && numerator.is_multiple_of(3) {
         unit * 3
@@ -87,7 +89,7 @@ pub fn main_beat_ticks(numerator: u8, denominator: u8) -> i64 {
     }
 }
 
-pub struct Context<'a> {
+pub(crate) struct Context<'a> {
     /// Notes obey the beat-crossing rule (rests always do).
     pub beat_rule: bool,
     pub beat: i64,
@@ -121,7 +123,7 @@ impl Context<'_> {
 
 /// Fewest values covering `from..to` (ticks from the measure start), longest first among equals.
 /// Falls back to ignoring the beat rules, and drops what no value can express.
-pub fn split(ctx: &Context, from: i64, to: i64, rest: bool) -> Vec<(i64, Duration)> {
+pub(crate) fn split(ctx: &Context, from: i64, to: i64, rest: bool) -> Vec<(i64, Duration)> {
     let n = (to - from).max(0) as usize;
     for pass in 0..3 {
         let strict = pass == 0 && (rest || ctx.beat_rule);

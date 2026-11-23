@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use fretscribe_core::PitchRef;
 
@@ -26,7 +26,6 @@ pub const XFADE_SEC: f64 = 0.005;
 const MIN_SUB_CHUNK: usize = 4;
 const GAIN_RAMP_SEC: f64 = 0.010;
 const MIN_REGION_SEC: f64 = 0.02;
-const PEAK_RELEASE_SEC: f64 = 0.3;
 const UNITY_EPS: f64 = 1e-6;
 const LIMITER_KNEE: f32 = 0.8;
 
@@ -43,7 +42,6 @@ pub(crate) struct Shared {
     position_bits: AtomicU64,
     pub playing: AtomicBool,
     pub shutdown: AtomicBool,
-    pub peaks: Mutex<Vec<(u64, f32)>>,
 }
 
 impl Shared {
@@ -52,7 +50,6 @@ impl Shared {
             position_bits: AtomicU64::new(0.0f64.to_bits()),
             playing: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
-            peaks: Mutex::new(Vec::new()),
         })
     }
 
@@ -106,7 +103,6 @@ pub(crate) struct TrackState {
     muted: bool,
     solo: bool,
     gain: Ramp,
-    peak: f32,
     stretch: [Stretcher; 2],
     primed: [bool; 2],
 }
@@ -130,7 +126,6 @@ impl TrackState {
             muted,
             solo,
             gain: Ramp::new(0.0),
-            peak: 0.0,
             stretch: [Stretcher::new(rate), Stretcher::new(rate)],
             primed: [false; 2],
         }
@@ -246,7 +241,6 @@ pub(crate) struct Engine {
     rate: f64,
     xfade: u32,
     ramp_frames: f64,
-    peak_block_decay: f32,
     rx: Receiver<Command>,
     shared: Arc<Shared>,
     tracks: Vec<TrackState>,
@@ -280,12 +274,10 @@ impl Engine {
         let probe = Stretcher::new(sample_rate);
         let latency = (probe.input_latency() as f64, probe.output_latency() as f64);
         let preroll_frames = ((2.0 * latency.0) as usize).max(256);
-        let peak_decay = (-1.0 / (PEAK_RELEASE_SEC * rate)).exp() as f32;
         Self {
             rate,
             xfade: (XFADE_SEC * rate).round().max(1.0) as u32,
             ramp_frames: GAIN_RAMP_SEC * rate,
-            peak_block_decay: peak_decay.powi(BLOCK_FRAMES as i32),
             rx,
             shared,
             tracks: Vec::new(),
@@ -328,9 +320,6 @@ impl Engine {
             self.apply(command);
         }
         out.fill(0.0);
-        for track in &mut self.tracks {
-            track.peak *= self.peak_block_decay;
-        }
 
         let mut done = 0;
         while self.running && done < BLOCK_FRAMES {
@@ -347,10 +336,6 @@ impl Engine {
 
     fn publish(&self) {
         self.shared.set_position(self.reported_pos().max(0.0) / self.rate);
-        if let Ok(mut peaks) = self.shared.peaks.try_lock() {
-            peaks.clear();
-            peaks.extend(self.tracks.iter().map(|t| (t.id, t.peak)));
-        }
     }
 
     fn reported_pos(&self) -> f64 {
@@ -374,7 +359,6 @@ impl Engine {
                 for track in &mut tracks {
                     if let Some(old) = self.tracks.iter().find(|o| o.id == track.id) {
                         track.gain.cur = old.gain.cur;
-                        track.peak = old.peak;
                     }
                 }
                 self.tracks = tracks;
@@ -668,16 +652,13 @@ impl Engine {
                     }
                 }
             }
-            let mut peak = track.peak;
             for k in 0..n {
                 let gain = track.gain.next();
                 for c in 0..2 {
                     let v = track_buf[2 * k + c] * gain;
                     mix[2 * k + c] += v;
-                    peak = peak.max(v.abs());
                 }
             }
-            track.peak = peak;
         }
     }
 
@@ -718,78 +699,6 @@ impl Engine {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ramp_reaches_target_in_the_requested_frames() {
-        let mut ramp = Ramp::new(0.0);
-        ramp.set(1.0, 100.0);
-        let values: Vec<f32> = (0..120).map(|_| ramp.next()).collect();
-        assert!((values[49] - 0.5).abs() < 1e-5);
-        assert_eq!(values[99], 1.0);
-        assert_eq!(values[119], 1.0);
-        ramp.set(0.25, 50.0);
-        let first = ramp.next();
-        assert!((first - (1.0 - 0.75 / 50.0)).abs() < 1e-6);
-        let steps = std::iter::repeat_with(|| ramp.next()).take(60).collect::<Vec<_>>();
-        assert!(steps.windows(2).all(|w| w[1] <= w[0]));
-        assert_eq!(steps[48], 0.25);
-        assert_eq!(*steps.last().unwrap(), 0.25);
-    }
-
-    #[test]
-    fn soft_limiter_is_transparent_bounded_and_monotonic() {
-        for x in [-0.8f32, -0.3, 0.0, 0.5, 0.8] {
-            assert_eq!(soft_limit(x), x);
-        }
-        let mut previous = soft_limit(0.8);
-        for i in 0..400 {
-            let x = 0.8 + i as f32 * 0.05;
-            let y = soft_limit(x);
-            assert!(y >= previous && y <= 1.0, "{x} {y}");
-            assert_eq!(soft_limit(-x), -y);
-            previous = y;
-        }
-    }
-
-    #[test]
-    fn direct_voice_counts_samples_exactly() {
-        let mut voice = Voice::new(1_000.0, 0.5, SpeedMode::ChangePitch, 0, (2_880.0, 2_000.0));
-        assert!(!voice.stretching);
-        for _ in 0..1_000 {
-            assert_eq!(voice.plan(64), 0);
-            voice.advance(64, 0);
-        }
-        assert_eq!(voice.pos, 1_000.0 + 64_000.0 * 0.5);
-    }
-
-    #[test]
-    fn stretched_voice_consumes_the_right_number_of_input_frames() {
-        for speed in [0.25, 0.5, 0.8, 1.5, 2.0] {
-            let mut voice = Voice::new(5_000.0, speed, SpeedMode::PreservePitch, 1, (2_880.0, 2_000.0));
-            assert!(voice.stretching);
-            let start = voice.pos;
-            assert!((start - 5_000.0).abs() <= 0.5);
-            let mut total = 0usize;
-            let mut frames = 0usize;
-            for n in [64, 7, 64, 13, 4, 64, 64] {
-                let m = voice.plan(n);
-                assert!(m >= 1, "speed {speed} chunk {n}");
-                voice.advance(n, m);
-                total += m;
-                frames += n;
-            }
-            assert!((total as f64 - frames as f64 * speed).abs() < 1.0);
-            assert!((voice.pos - start - frames as f64 * speed).abs() < 1.0);
-        }
-    }
-
-    #[test]
-    fn unity_speed_bypasses_the_stretcher_in_both_modes() {
-        assert!(!stretches(SpeedMode::PreservePitch, 1.0));
-        assert!(!stretches(SpeedMode::ChangePitch, 0.5));
-        assert!(stretches(SpeedMode::PreservePitch, 0.5));
-    }
-}
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/audio/engine.rs"]
+mod tests;

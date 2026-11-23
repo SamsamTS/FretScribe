@@ -2,15 +2,16 @@
 
 mod label;
 mod solve;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/notation/tab.rs"]
 mod tests;
 
 use fretscribe_core::Tuning;
 
 pub use label::{candidate_label, candidate_label_styled, string_label, string_label_styled, LabelStyle};
-pub use solve::{assign_tabs, assign_tabs_range, group_options, GroupOption};
+pub use solve::{assign_tabs, assign_tabs_range, assign_tabs_ranges, group_options, GroupOption};
 
-pub const MAX_FRET: u8 = 24;
+pub use fretscribe_core::MAX_FRET;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TabOptions {
@@ -29,7 +30,7 @@ impl Default for TabOptions {
             max_fret: 22,
             max_hand_span: 4,
             position_weight: 0.1,
-            movement_weight: 1.0,
+            movement_weight: 2.0,
             string_jump_weight: 0.3,
             open_string_bonus: 0.3,
             grace_bonus: 1.0,

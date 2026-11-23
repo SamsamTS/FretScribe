@@ -7,6 +7,10 @@ use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId,
 
 pub const DEFAULT_ACCENT: Color32 = Color32::from_rgb(0xF0, 0xAA, 0x3C);
 /// The logo's background (#1C2024) is the window colour; the other surfaces are tinted from it.
+/// The playhead and seek line.
+pub const PLAYHEAD: Color32 = Color32::from_rgb(255, 90, 80);
+/// Open strings and region edges.
+pub const ACCENT_AMBER: Color32 = Color32::from_rgb(255, 200, 90);
 pub const WINDOW_BG: Color32 = Color32::from_rgb(0x1C, 0x20, 0x24);
 pub const TITLE_BG: Color32 = Color32::from_rgb(0x16, 0x19, 0x1D);
 pub const PANEL_BG: Color32 = Color32::from_rgb(0x26, 0x2B, 0x31);
@@ -103,6 +107,11 @@ pub fn install_fonts(ctx: &egui::Context) {
 }
 
 /// Frame of dialog windows: the window colour (like the toolbar), not the lighter panel grey.
+/// A non-collapsible window in the dialog frame; callers add anchor/resizable as needed.
+pub fn dialog<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
+    egui::Window::new(title).frame(dialog_frame(ctx)).collapsible(false)
+}
+
 pub fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::window(&ctx.style()).fill(WINDOW_BG)
 }
@@ -152,45 +161,10 @@ pub fn apply(ctx: &egui::Context) {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/ui/theme.rs"]
+mod tests;
 
-    #[test]
-    fn accent_round_trips_and_text_contrasts() {
-        set_accent(Color32::from_rgb(10, 20, 30));
-        assert_eq!(accent(), Color32::from_rgb(10, 20, 30));
-        assert_eq!(accent_text_on(), Color32::WHITE);
-        set_accent(DEFAULT_ACCENT);
-        assert_ne!(accent_text_on(), Color32::WHITE);
-    }
-
-    #[test]
-    fn fonts_register_every_family() {
-        let mut fonts = FontDefinitions::default();
-        add_fonts(&mut fonts);
-        for f in [medium(), mono()] {
-            assert!(fonts.families.contains_key(&f));
-        }
-        assert_eq!(fonts.families[&FontFamily::Proportional][0], INTER);
-    }
-}
-
-#[cfg(test)]
-mod font_tests {
-    use super::*;
-
-    #[test]
-    fn only_inter_and_jetbrains_mono_back_the_text_families() {
-        let mut fonts = FontDefinitions::default();
-        add_fonts(&mut fonts);
-        for family in [FontFamily::Proportional, FontFamily::Monospace, medium(), mono()] {
-            let names = &fonts.families[&family];
-            assert!(names.iter().all(|n| fonts.font_data.contains_key(n)), "{family:?} names a missing font");
-            let first = &names[0];
-            assert!([INTER, INTER_MEDIUM, MONO].contains(&first.as_str()), "{family:?} starts with {first}");
-            assert!(names.iter().all(|n| [INTER, INTER_MEDIUM, MONO, "emoji-icon-font"].contains(&n.as_str())), "{names:?}");
-        }
-        assert!(!fonts.font_data.contains_key("Hack") && !fonts.font_data.contains_key("Ubuntu-Light"));
-    }
-}
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/ui/theme_font_tests.rs"]
+mod font_tests;

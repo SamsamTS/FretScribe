@@ -17,7 +17,7 @@ const BAND_SEMITONES: usize = 6;
 const HOPS_PER_WINDOW: f64 = 8.0;
 const DB_CLIP_MARGIN: f32 = 30.0;
 const GRID_A4_HZ: f64 = 440.0;
-const A4_MIDI: f64 = 69.0;
+use fretscribe_core::A4_MIDI;
 const POWER_EPSILON: f32 = 1e-12;
 
 struct RowTap {
@@ -90,7 +90,7 @@ impl Plan {
                 let window_len = (((seconds * rate).round() as usize).max(8)) & !1;
                 let fft_len = window_len.next_power_of_two();
                 let step = ((window_len as f64 / HOPS_PER_WINDOW / hop as f64) as usize).max(1);
-                let window = hann(window_len);
+                let window = crate::dsp::hann(window_len);
                 let gain = 2.0 / window.iter().sum::<f32>();
                 let taps: Vec<RowTap> = (0..n_rows)
                     .map(|r| {
@@ -229,8 +229,3 @@ impl Plan {
     }
 }
 
-fn hann(len: usize) -> Vec<f32> {
-    (0..len)
-        .map(|i| 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / len as f64).cos() as f32)
-        .collect()
-}

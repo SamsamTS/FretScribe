@@ -1,6 +1,7 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
-use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use std::collections::HashSet;
 use thiserror::Error;
 
 use super::clip::Clipboard;
@@ -33,8 +34,6 @@ pub enum NoteAction {
     SelectPrevious { extend: bool },
     /// Starts the link drawing mode (UI state only).
     LinkHover,
-    /// Selects the previous / next `SnapGrid::presets` entry (UI state only, wraps around).
-    SnapPreset { next: bool },
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -56,7 +55,6 @@ pub struct Applied {
     pub message: Option<String>,
     pub open_exact: Option<u64>,
     pub link_hover: bool,
-    pub snap_grid: Option<SnapGrid>,
     /// Main note whose grace entry should start.
     pub grace_entry: Option<u64>,
     /// Notes whose links or pitches changed, for the tab solver to re-run on.
@@ -95,15 +93,12 @@ fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Pro
     Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
 }
 
-fn step_preset(grid: &SnapGrid, by: i32) -> SnapGrid {
-    let presets = SnapGrid::presets();
-    let n = presets.len() as i32;
-    let index = match presets.iter().position(|p| p.grid == *grid) {
-        Some(i) => (i as i32 + by).rem_euclid(n),
-        None if by > 0 => 0,
-        None => n - 1,
-    };
-    presets[index as usize].grid.clone()
+fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {
+    notes.iter().filter(|n| set.contains(&n.id))
+}
+
+fn selected_mut<'a>(notes: &'a mut [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a mut Note> {
+    notes.iter_mut().filter(|n| set.contains(&n.id))
 }
 
 pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &SnapGrid) -> Result<Applied, ActionError> {
@@ -119,17 +114,12 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             selection.step(matches!(action, NoteAction::SelectNext { .. }), extend, &order);
             return Ok(Applied { selection: Some(selection), ..Applied::default() });
         }
-        NoteAction::SnapPreset { next } => {
-            let grid = step_preset(grid, if next { 1 } else { -1 });
-            return Ok(Applied { message: Some(format!("Snap {}", grid.label())), snap_grid: Some(grid), ..Applied::default() });
-        }
         NoteAction::LinkHover if sel.ids.is_empty() => return Ok(Applied { link_hover: true, ..Applied::default() }),
         _ => {}
     }
     let ids: Vec<u64> = order.iter().copied().filter(|id| sel.contains(*id)).collect();
     let anchor = ids.first().copied().ok_or(ActionError::EmptySelection)?;
     let moved = with_graces(&project.notes, &ids);
-    let ctx_grid = grid;
 
     match action {
         NoteAction::SetStringFromTop(n) => {
@@ -151,12 +141,13 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
         }
         NoteAction::Transpose(by) => {
             let by = i32::from(by);
-            let ok = project.notes.iter().filter(|n| moved.contains(&n.id)).all(|n| (0..=127).contains(&(i32::from(n.midi) + by)));
+            let set: HashSet<u64> = moved.iter().copied().collect();
+            let ok = selected(&project.notes, &set).all(|n| (0..=127).contains(&(i32::from(n.midi) + by)));
             if !ok {
                 return Err(ActionError::OutOfRange);
             }
             let edit = project.edit_notes("Transpose", |p| {
-                for n in p.notes.iter_mut().filter(|n| moved.contains(&n.id)) {
+                for n in selected_mut(&mut p.notes, &set) {
                     n.midi = (i32::from(n.midi) + by) as u8;
                 }
                 p.resolve_overlaps(&moved);
@@ -169,7 +160,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             let delta = match action {
                 NoteAction::NudgeBeat(beats) => f64::from(beats),
                 NoteAction::Nudge { steps } => {
-                    let target = step_on_grid(&tempo, ctx_grid, first, steps);
+                    let target = step_on_grid(&tempo, grid, first, steps);
                     tempo.pos_to_beats(target).zip(tempo.pos_to_beats(first)).map_or(0.0, |(t, f)| t - f)
                 }
                 _ => 0.0,
@@ -177,18 +168,17 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             if delta == 0.0 {
                 return Ok(Applied::default());
             }
-            let view = EditCtx { project, tempo: &tempo, grid: ctx_grid, px_per_sec: 1.0, threshold_px: 0.0, onsets: None, alt: true };
-            let changes: Vec<_> = project.notes.iter().filter(|n| moved.contains(&n.id)).map(|n| shifted(&view, n, delta, 0)).collect();
+            let view = EditCtx { project, tempo: &tempo, grid, px_per_sec: 1.0, threshold_px: 0.0, alt: true };
+            let set: HashSet<u64> = moved.iter().copied().collect();
+            let changes: Vec<_> = selected(&project.notes, &set).map(|n| shifted(&view, n, delta, 0)).collect();
             let edit = super::modify::apply_changes(project, &changes, "Nudge")?;
             Ok(edited(edit, moved))
         }
         NoteAction::Resize { steps } => {
             let min = min_subdivision_beats(grid);
             let beats = |p| tempo.pos_to_beats(p).unwrap_or(0.0);
-            let new_ends: Vec<(u64, _)> = project
-                .notes
-                .iter()
-                .filter(|n| ids.contains(&n.id))
+            let set: HashSet<u64> = ids.iter().copied().collect();
+            let new_ends: Vec<(u64, _)> = selected(&project.notes, &set)
                 .map(|n| (n.id, step_on_grid(&tempo, grid, n.end, steps)))
                 .filter(|&(id, end)| project.note(id).is_some_and(|n| beats(end) - beats(n.start) >= min - 1e-9))
                 .collect();
@@ -208,13 +198,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
         }
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
         NoteAction::ForceLegato => {
-            let tempo = fretscribe_core::TempoMap::new(&project.measures);
-            let mut sorted = ids.clone();
-            sorted.sort_by(|&a, &b| {
-                let start = |id| project.note(id).map_or(0.0, |n| tempo.pos_to_beats(n.start).unwrap_or(0.0));
-                start(a).total_cmp(&start(b))
-            });
-            let targets = if sorted.len() > 1 { &sorted[1..] } else { &sorted[..] };
+            let targets = if ids.len() > 1 { &ids[1..] } else { &ids[..] };
             let sources: Vec<u64> = targets.iter().filter_map(|&id| project.incoming(id).filter(|l| l.1 == LinkType::Legato).map(|l| l.0)).collect();
             if sources.is_empty() || sources.len() < targets.len() {
                 return link_edit(project, ids, "Force legato", Project::force_legato_selection);
@@ -269,13 +253,14 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
                 let fret = midi.checked_sub(open)?;
                 (capo..=MAX_FRET).contains(&fret).then_some(fret)
             };
+            let set: HashSet<u64> = ids.iter().copied().collect();
             if let Some(s) = string {
-                if project.notes.iter().filter(|n| ids.contains(&n.id)).any(|n| fret_on(s, n.midi).is_none()) {
+                if selected(&project.notes, &set).any(|n| fret_on(s, n.midi).is_none()) {
                     return Err(ActionError::NoPlacement);
                 }
             }
             let edit = project.edit_notes("Lock string", |p| {
-                for n in p.notes.iter_mut().filter(|n| ids.contains(&n.id)) {
+                for n in selected_mut(&mut p.notes, &set) {
                     match string {
                         Some(s) => {
                             n.string_fret = fret_on(s, n.midi).map(|f| (s, f));
@@ -291,217 +276,10 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::SnapPreset { .. } => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } => Ok(Applied::default()),
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::testkit::*;
-    use super::*;
-    use fretscribe_core::GraceKind;
-    use fretscribe_core::Note;
-
-    fn sel(ids: &[u64]) -> Selection {
-        let mut s = Selection::default();
-        s.set(ids.to_vec());
-        s
-    }
-
-    fn run(p: &mut Project, ids: &[u64], action: NoteAction) -> Result<Applied, ActionError> {
-        apply(p, &sel(ids), action, &SnapGrid::new(&[4, 3]))
-    }
-
-    fn note(p: &Project, id: u64) -> &Note {
-        p.note(id).unwrap()
-    }
-
-    #[test]
-    fn delete_with_and_without_bridge() {
-        let mut p = project();
-        let (a, b, c) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 64, 2.0, 3.0));
-        p.link_notes(a, b, LinkType::Slide).unwrap();
-        p.link_notes(b, c, LinkType::Slide).unwrap();
-        let before = p.notes.clone();
-        let applied = run(&mut p, &[b], NoteAction::Delete { bridge: true }).unwrap();
-        assert_eq!(p.chain_of(a), [a, c]);
-        assert_eq!(applied.selection, Some(Selection::default()));
-        applied.edit.unwrap().undo(&mut p);
-        assert_eq!(p.notes, before);
-        run(&mut p, &[b], NoteAction::Delete { bridge: false }).unwrap();
-        assert_eq!(p.chain_of(a), [a]);
-    }
-
-    #[test]
-    fn empty_selection_is_refused_for_edits_and_allowed_for_selection_commands() {
-        let mut p = project();
-        let a = add(&mut p, 60, 0.0, 1.0);
-        assert_eq!(run(&mut p, &[], NoteAction::Transpose(1)).unwrap_err(), ActionError::EmptySelection);
-        assert_eq!(run(&mut p, &[], NoteAction::SelectAll).unwrap().selection.unwrap().ids, [a]);
-        assert!(run(&mut p, &[], NoteAction::LinkHover).unwrap().link_hover);
-        let applied = run(&mut p, &[a], NoteAction::LinkHover).unwrap();
-        assert!(!applied.link_hover);
-        assert_eq!(applied.message.as_deref(), Some("0 linked"));
-    }
-
-    #[test]
-    fn transpose_moves_by_semitones_and_refuses_to_leave_the_range() {
-        let mut p = project();
-        let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 127, 1.0, 2.0));
-        run(&mut p, &[a], NoteAction::Transpose(-12)).unwrap();
-        assert_eq!(note(&p, a).midi, 48);
-        assert_eq!(run(&mut p, &[a, b], NoteAction::Transpose(1)).unwrap_err(), ActionError::OutOfRange);
-        assert_eq!(note(&p, a).midi, 48);
-    }
-
-    #[test]
-    fn nudge_follows_the_grid_for_the_whole_selection() {
-        let mut p = project();
-        let (a, b) = (add(&mut p, 60, 1.0, 1.25), add(&mut p, 62, 2.0, 3.0));
-        run(&mut p, &[a, b], NoteAction::Nudge { steps: 1 }).unwrap();
-        assert_eq!((note(&p, a).start, note(&p, b).start), (at(1.25), at(2.25)));
-        run(&mut p, &[a, b], NoteAction::Nudge { steps: 2 }).unwrap();
-        assert_eq!(note(&p, a).start, at(1.5));
-        run(&mut p, &[a, b], NoteAction::Nudge { steps: -1 }).unwrap();
-        assert_eq!(note(&p, a).start, at(1.0 + 1.0 / 3.0));
-    }
-
-    #[test]
-    fn resize_steps_the_end_and_keeps_the_minimum() {
-        let mut p = project();
-        let a = add(&mut p, 60, 1.0, 1.25);
-        run(&mut p, &[a], NoteAction::Resize { steps: 1 }).unwrap();
-        assert_eq!(note(&p, a).end, at(1.0 + 1.0 / 3.0));
-        let applied = run(&mut p, &[a], NoteAction::Resize { steps: -5 }).unwrap();
-        assert!(applied.edit.is_none());
-        assert_eq!(note(&p, a).end, at(1.0 + 1.0 / 3.0));
-    }
-
-    #[test]
-    fn duplicate_pastes_after_the_selection_and_selects_the_copy() {
-        let mut p = project();
-        let (a, b) = (add(&mut p, 60, 1.0, 2.0), add(&mut p, 62, 2.0, 3.0));
-        p.link_notes(a, b, LinkType::Slide).unwrap();
-        let applied = run(&mut p, &[a, b], NoteAction::Duplicate).unwrap();
-        let ids = applied.selection.unwrap().ids;
-        assert_eq!(ids.len(), 2);
-        assert_eq!(note(&p, ids[0]).start, at(3.0));
-        assert_eq!(p.outgoing(ids[0]), Some((ids[1], LinkType::Slide)));
-    }
-
-    #[test]
-    fn link_unlink_and_cycle_report_and_undo_in_one_step() {
-        let mut p = project();
-        let ids = [add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 62, 2.0, 3.0), add(&mut p, 64, 3.0, 4.0)];
-        let before = p.notes.clone();
-        let applied = run(&mut p, &ids, NoteAction::LinkSelection).unwrap();
-        assert_eq!(applied.message.as_deref(), Some("3 linked"));
-        applied.edit.unwrap().undo(&mut p);
-        assert_eq!(p.notes, before);
-        let none = run(&mut p, &[ids[0]], NoteAction::LinkSelection).unwrap();
-        assert!(none.edit.is_none());
-        assert_eq!(none.message.as_deref(), Some("0 linked"));
-
-        p.link_notes(ids[0], ids[1], LinkType::Slide).unwrap();
-        let cycled = run(&mut p, &[ids[0]], NoteAction::CycleLinkType).unwrap();
-        assert_eq!(cycled.message.as_deref(), Some("Bend"));
-        assert_eq!(p.outgoing(ids[0]), Some((ids[1], LinkType::Bend)));
-        assert!(run(&mut p, &[ids[3]], NoteAction::CycleLinkType).unwrap().edit.is_none());
-        run(&mut p, &[ids[0], ids[3]], NoteAction::UnlinkSelection).unwrap();
-        assert_eq!(p.outgoing(ids[0]), None);
-        assert!(run(&mut p, &[ids[0]], NoteAction::UnlinkSelection).unwrap().edit.is_none());
-    }
-
-    #[test]
-    fn locking_a_string_sets_the_fret_and_unlocking_clears_it() {
-        let mut p = project();
-        let (a, low) = (add(&mut p, 64, 0.0, 1.0), add(&mut p, 40, 1.0, 2.0));
-        run(&mut p, &[a], NoteAction::SetString(Some(4))).unwrap();
-        assert_eq!((note(&p, a).string_fret, note(&p, a).locked_fret), (Some((4, 5)), true));
-        assert_eq!(run(&mut p, &[a, low], NoteAction::SetString(Some(5))).unwrap_err(), ActionError::NoPlacement);
-        run(&mut p, &[a], NoteAction::SetString(None)).unwrap();
-        assert_eq!((note(&p, a).string_fret, note(&p, a).locked_fret), (None, false));
-    }
-
-    #[test]
-    fn stepping_selection_exact_edit_and_unavailable_actions() {
-        let mut p = project();
-        let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0));
-        let next = run(&mut p, &[a], NoteAction::SelectNext { extend: true }).unwrap().selection.unwrap();
-        assert_eq!(next.ids, [a, b]);
-        assert_eq!(run(&mut p, &[b], NoteAction::OpenExactEdit).unwrap().open_exact, Some(b));
-        assert_eq!(run(&mut p, &[a], NoteAction::Grace).unwrap().grace_entry, Some(a));
-    }
-
-    #[test]
-    fn force_legato_links_one_note_to_the_previous_and_reports_skips() {
-        let mut p = project();
-        let (a, b, c) = (add(&mut p, 60, 0.0, 0.5), add(&mut p, 62, 0.5, 1.0), add(&mut p, 62, 1.0, 1.5));
-        let one = run(&mut p, &[b], NoteAction::ForceLegato).unwrap();
-        assert_eq!((one.message.as_deref(), one.affected.clone()), (Some("1 linked"), vec![b]));
-        assert_eq!(p.outgoing(a), Some((b, LinkType::Legato)));
-        one.edit.unwrap().undo(&mut p);
-        assert_eq!(p.outgoing(a), None);
-        let none = run(&mut p, &[a], NoteAction::ForceLegato).unwrap();
-        assert!(none.edit.is_none());
-        assert_eq!(none.message.as_deref(), Some("0 linked, 1 skipped: there is no earlier note to link from"));
-        let same = run(&mut p, &[c], NoteAction::ForceLegato).unwrap();
-        assert_eq!(same.message.as_deref(), Some("0 linked, 1 skipped: both notes have the same pitch"));
-        let all = run(&mut p, &[a, b], NoteAction::ForceLegato).unwrap();
-        assert_eq!(all.message.as_deref(), Some("1 linked"));
-    }
-
-    #[test]
-    fn grace_on_a_grace_note_starts_an_entry_on_its_main_and_h_toggles_the_legato() {
-        let mut p = project();
-        let main = add(&mut p, 62, 1.0, 2.0);
-        let grace = p.add_grace_note(main, None, GraceKind::Acciaccatura).unwrap();
-        let applied = run(&mut p, &[grace], NoteAction::Grace).unwrap();
-        assert_eq!((applied.grace_entry, applied.edit.is_some(), note(&p, grace).grace_of.unwrap().kind), (Some(main), false, GraceKind::Acciaccatura));
-        assert_eq!(p.outgoing(grace), Some((main, LinkType::Legato)));
-        let off = run(&mut p, &[main], NoteAction::ForceLegato).unwrap();
-        assert_eq!(p.outgoing(grace), None, "H/P on a legato removes it");
-        off.edit.unwrap().undo(&mut p);
-        assert_eq!(p.outgoing(grace), Some((main, LinkType::Legato)));
-        let moved = run(&mut p, &[grace], NoteAction::Transpose(1)).unwrap();
-        assert_eq!(note(&p, grace).midi, 61);
-        assert_eq!(moved.affected, [grace]);
-        run(&mut p, &[grace], NoteAction::Delete { bridge: false }).unwrap();
-        assert!(p.note(grace).is_none() && p.note(main).is_some());
-    }
-
-    #[test]
-    fn beat_nudge_moves_whole_beats_and_snap_presets_wrap() {
-        let mut p = project();
-        let a = add(&mut p, 60, 1.0, 2.0);
-        let applied = run(&mut p, &[a], NoteAction::NudgeBeat(2)).unwrap();
-        assert!(applied.edit.is_some());
-        assert_eq!(p.note(a).unwrap().start, at(3.0));
-        run(&mut p, &[a], NoteAction::NudgeBeat(-1)).unwrap();
-        assert_eq!(p.note(a).unwrap().start, at(2.0));
-
-        let grid = |d: &[u8]| SnapGrid::new(d);
-        let step = |g: &SnapGrid, next| apply(&mut project(), &sel(&[]), NoteAction::SnapPreset { next }, g).unwrap().snap_grid.unwrap();
-        assert_eq!(step(&grid(&[4, 3]), true), grid(&[4, 6]));
-        assert_eq!(step(&grid(&[4, 3]), false), grid(&[2, 3]));
-        assert_eq!(step(&grid(&[4, 6]), true), grid(&[1]));
-        assert_eq!(step(&grid(&[1]), false), grid(&[4, 6]));
-        assert_eq!(step(&grid(&[4, 8]), true), grid(&[1]));
-    }
-
-    #[test]
-    fn string_keys_count_from_the_highest_string() {
-        let mut p = project();
-        let a = add(&mut p, 64, 0.0, 1.0);
-        let string = |p: &Project| p.note(a).unwrap().string_fret.map(|s| s.0);
-        run(&mut p, &[a], NoteAction::SetStringFromTop(1)).unwrap();
-        assert_eq!(string(&p), Some(5));
-        run(&mut p, &[a], NoteAction::SetStringFromTop(2)).unwrap();
-        assert_eq!(string(&p), Some(4));
-        for n in [0, 7] {
-            assert_eq!(run(&mut p, &[a], NoteAction::SetStringFromTop(n)).unwrap_err(), ActionError::NoPlacement);
-        }
-        p.tuning.open_strings = vec![28, 33, 38, 43];
-        assert_eq!(run(&mut p, &[a], NoteAction::SetStringFromTop(5)).unwrap_err(), ActionError::NoPlacement);
-    }
-}
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/note_editor/action.rs"]
+mod tests;

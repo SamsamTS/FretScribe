@@ -7,7 +7,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 ## 2026-11-01 - audio
 
 - Workspace deps: `signalsmith-stretch` (needs a C++ toolchain and libclang; used only via `audio/src/stretch.rs`); `rodio` with `default-features = false`; `serde_json` with `float_roundtrip` (saved projects must reload equal); `[profile.dev.package."*"] opt-level = 3`.
-- API (project time): `decode_file`, `decode_files` (parallel, input order), `DecodedAudio`, `AudioError`; `PreparedAudio::new(&DecodedAudio, Player::output_rate())`, `PreparedTrack`, `Player::set_prepared_tracks` (`AudioError::RateMismatch` on a wrong rate); `Player`: `set_tracks`, `load`, `play`, `pause`, `stop`, `seek`, `is_playing`, `position_sec`, `duration_sec`, `set_volume`, `set_region`, `set_loop`, `set_playback_speed`, `set_speed_mode`, `set_track_{volume,mute,solo,offset}`, `track_peak_levels`, `set_note_overlay`, `set_reference_pitch`.
+- API (project time): `decode_file`, `DecodedAudio`, `AudioError`; `PreparedAudio::new(&DecodedAudio, Player::output_rate())`, `PreparedTrack` (a track with its prepared audio, offset, volume, mute, solo), `Player::set_prepared_tracks` (the only way to install tracks) (`AudioError::RateMismatch` on a wrong rate); `Player`: `play`, `pause`, `stop`, `seek`, `is_playing`, `position_sec`, `duration_sec`, `set_volume`, `set_region`, `set_loop`, `set_playback_speed`, `set_speed_mode`, `set_track_{volume,mute,solo,offset}`, `set_note_overlay`, `set_reference_pitch`.
 - Audibility follows `core::audible_tracks`; volume is clamped like `Track::set_volume`.
 - Guitar focus filter (listening aid only, never applied to analysis or spectrograms; default off; acts on the track sum, before the note overlay): `Player::set_guitar_focus`, `set_guitar_focus_strength` (0..1), `set_focus_context(&Tuning, capo)` (call on open and on every tuning/capo change, undo included); `focus_band`; `apply_focus_offline`.
 
@@ -23,7 +23,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 
 ## 2026-11-03 - core: measure grid
 
-- `Propagation { Following (default), Single }`, `set_tempo_scoped`, `set_time_sig_scoped` (functions and `Project` methods); `set_tempo` / `set_time_sig` use `Following`.
+- `Propagation { Following (default), Single }`, `set_tempo_scoped`, `set_time_sig_scoped` (functions and `Project` methods) (the unscoped `set_tempo` / `set_time_sig` methods were removed).
 - `UndoStack` (`undo` module, `DEFAULT_UNDO_LIMIT = 200`) over `ProjectEdit`: `push`, `push_merged`, `undo`, `redo`, `can_undo`, `can_redo`, `undo_label`, `redo_label`, `clear`, `with_limit`.
 - `ProjectEdit` is a delta (see 2026-11-12); `tuning` and `capo` are undoable.
 
@@ -31,7 +31,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 
 - Overview snapping: on by default, Alt disables it (or enables it when the magnet button is off). `OverviewTimeline::snapping(bool)`, `OverviewEvent::SnapToggled(bool)` (the app stores the state); `DragContext::snap: &[f64]`.
 - `nav` (`ViewController`, `ViewTuning`, `NavContext`, `NavRegions`, `nav::ViewState { scroll_sec, scroll_y, pixels_per_sec }`): `ctl.run(ctx, &NavContext)` once per frame; widgets read `current`. The app must set `ctx.options_mut(|o| o.zoom_with_keyboard = false)`. `scroll_y` is not persisted. Feel constants live in `nav/tuning.rs`.
-- Alt + wheel is read by the lane (resizes it), not by the nav; the pitch range is always shown in full (`ViewController::pitch` stays, pitch zoom removed).
+- Alt + wheel is read by the nav over the lanes and published as `ViewController::wheel_rows`, which the app passes to `TrackLanes::wheel_rows` (the lane under the pointer resizes); the pitch range is always shown in full (`ViewController::pitch` stays, pitch zoom removed).
 
 ## 2026-11-06 - analysis: beat fit, track sync, reference pitch
 
@@ -43,7 +43,7 @@ Modules are not re-exported at the crate root.
 ## 2026-11-07 - ui: spectrogram view, track lanes
 
 - `fretscribe-ui` depends on `fretscribe-analysis` and `fretscribe-notation`.
-- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{SeekRequested, DrawBegan, DrawMoved, DrawEnded, DrawCancelled}` (the `Draw*` events carry no hit), `GhostShape`, `HitZone`, `hit_test`, `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
+- `spectro`: `SpectrogramView::show(ui, &TimelineView, &PitchView, &mut SpectroCache) -> SpectroOutput`, `SpectroStyle`, `SpectroEvent::{SeekRequested, DrawBegan, DrawMoved, DrawEnded, DrawCancelled}` (the `Draw*` events carry no hit), `GhostShape`, `HitZone`, `hit_test` (wrapper), `NoteScene` (`build(geo, notes, times)`, `hit(pos, hovered)`; one per frame, exposed as `SpectroOutput.scene: Rc<NoteScene>` and passed to `draw_notes`; `LanePointer`/`SourcePointer` carry it), `SpectroGeometry`, `WaveformView`, `show_time_ruler`; `view::PitchView { min_midi, max_midi }`.
 - Notes are `&[Note]` plus `NoteTimes`. Texture cache key includes window, size, pitch range, A4, levels, gamma, LUT, data pointer and a caller `revision` (bump it when data changes in place).
 - `SpectroOutput::pitch_ruler` (`PITCH_RULER_WIDTH`) is the left label strip: used for the nav drag, drags there do not draw.
 - `tracks`: `TrackLanes`, `TrackLane`, `TrackHeader`, `TrackLanesState`, `LaneOptions` (display preferences owned by the app), `LaneSource`, `TrackEvent`; `view::LANE_HEADER_WIDTH` (240 pt).
@@ -61,6 +61,13 @@ Modules are not re-exported at the crate root.
 - No note tools or context menus: everything is gestures (left drag from empty space draws; a click seeks) plus `ui::note_editor::NoteAction` (`apply`) for keys and the track-head buttons.
 - `ui::note_editor`: `NoteEditor::handle(&mut Env, Input) -> Vec<Effect>` (pure; `collect` turns egui input into `Input`), `Effect::Edit { edit, merge, affected }` (the app pushes it with `UndoStack::push` / `push_merged` and re-runs the tab inference on `affected`), `action_buttons`, `ExactFields`/`apply_exact`, `apply_changes`/`preview_changes`. `TrackLanesOutput::source_pointer` exposes the source lane's geometry and hovered note.
 - `core`: `links` (invariants, `link_notes`, `unlink`, `cycle_link`, `link_selection`, bridging delete), `snap_note` (`snap_note`, `snap_resized`, `SnapOpts`), `TempoMap::{pos_to_beats, beats_to_pos}`, `Project::edit_notes`, `ProjectEdit::merge`. `analysis::notes::refine_pitch`.
+- `core` re-exports `Uuid` (`project_id`); `app` no longer depends on `uuid`. Decoding is limited to mp3, wav, flac, ogg/vorbis, mp4/m4a, aac, aiff, pcm.
+- `core::testkit` (`project(secs)`, `band(secs)`, `add(p, midi, start, end)`) is compiled for core tests and with feature `test-support` (enabled by the dev-dependencies of `ui` and `app`).
+- `Project::note_times()`; `persist::clamp_levels(black, white)` (shared by `UiState::sanitise` and `analysis::Levels::clamped`).
+- `core::{pitch_class_name, A4_RANGE_HZ}`; `ui::theme::dialog(ctx, title)`.
+- `audio::apply_focus_offline` removed; `core::A4_MIDI` exported (used by `analysis`).
+- `ui::note_editor::Env` has a new field `tempo: &TempoMap` (the grid of `project`, built by the caller).
+- `analysis::Spectrogram { data, info: SpectrogramInfo }` (derefs to the info); `WindowKind` and `SpectrogramParams::window` removed.
 - `Project::resolve_overlaps(placed)` keeps same-pitch notes from overlapping: the placed notes win, the others are cut (and unlinked on the cut side), split (the tail is a new note that takes over the outgoing links) or removed when under `MIN_PIECE_BEATS`; a grace note overlapped by another note is removed. Every note editor edit calls it inside its undo step; other code that places notes must do the same.
 
 ## 2026-11-09 - legato, grace notes, tied links
@@ -69,7 +76,7 @@ Modules are not re-exported at the crate root.
 - Grace placement is the kind: `Acciaccatura` = before the beat (ends at the start of the note it leads into), `Appoggiatura` = on the beat (starts at the main note's start, drawn over it). `set_grace_timing` limits the length by the room (back to the previous note's start, or the main note's length) and re-checks the link; `set_grace_kind` switches side keeping the length.
 - A grace note always joins the note that follows it (the next grace note of the group, else the main note). Several on-the-beat grace notes all lead into the main note, so only the first can keep a legato or slide.
 - `LinkType::CYCLE = [Slide, Bend, Legato, Dashed]`; `Project::{link_of(id), valid_links(id), set_link_type(id, kind) -> bool}`; `cycle_link_type` serves grace notes too. `Dashed` is valid for grace sources only (`LinkError::DashedNeedsGrace`) and implicit (no stored data, `grace_of` alone; `link_of` returns the real link, else the dashed one); renderers draw it from `grace_target_of`.
-- Tie rule: when A links to B, `A.end == B.start`. `link_notes` sets `A.end` to `B.start` (`LinkError::NotInOrder` when A would be left under `MIN_TIED_SEC`). `Project::tie_links(touched) -> Vec<u64>` re-ties after any edit (a link that would leave under `MIN_PIECE_BEATS` is dropped) and runs first in `resolve_overlaps`. Exception: an on-the-beat grace note (`ties_end` false) keeps its own length.
+- Tie rule: when A links to B, `A.end == B.start`. `link_notes` sets `A.end` to `B.start` (`LinkError::NotInOrder` when A would be left under `MIN_TIED_SEC`). `Project::tie_links(touched) -> Vec<u64>` re-ties after any edit (a link that would leave under `MIN_PIECE_BEATS` is dropped) and runs first in `resolve_overlaps`. `Project::notes_scratch()` (notes and grid only, no tracks) is what the editor previews on. Exception: an on-the-beat grace note (`ties_end` false) keeps its own length.
 - Note editor: `NoteAction::{Grace, ForceLegato, NudgeBeat(i8), SnapPreset { next }}`, `Applied::{grace_entry, snap_grid}`, `Effect::SnapGrid(SnapGrid)` (the app stores the grid), `Input::Cut`. Grace on a grace note starts an entry on its main; H/P toggles legato (removes it when all targets already have it); Type works on grace notes. Right click on a grace note, its connector or arc cycles its valid links (one undo step, merged while cycling).
 - Grace entry: modal (`GraceEntry`, `Input::Entry(EntryKey)`, `NoteEditor::in_entry`/`in_mode`; the app's key collection must route keys to it while true, `collect` does); `Effect::Edit` of the entry affects `[grace, main]`. The pointer draws the note from the main note's start (left = before the beat, right = on the beat, distance = length; within 10 ms: the kind's default length), `GraceEntry::pointer(project, sec, midi)`; a left click or Enter confirms, `EntryKey::CycleLink` cycles the link, G switches side keeping the length.
 - Link bands: a link source is drawn as a band (about `h` wide plus dot room, at most half the way to its destination, right edge locked). `Scene::locked` gives the locked edges (also a before-the-beat grace note's end and an on-the-beat one's start, which `plan_resize` refuses); `Scene::name_area(id)`. Resizing a link end drags the tied edge. Resizing a note's start moves its grace notes with it; grace notes whose main is not moved are left out of multi-moves; a lone grace note has two positions (on or before the beat).
@@ -80,9 +87,9 @@ Modules are not re-exported at the crate root.
 
 - `ui::note_editor::Keymap` (`KeyChord`, `KeymapError`): defaults in one table, overridable from a JSON file `{ "<action id>": "Chord" | ["Chord", ..] }` (`[]` unbinds, unlisted ids keep their defaults; unknown ids, bad chords and conflicts are errors). `Keymap::load_or_default(path) -> (Keymap, Option<String>)` (the message goes to the status bar), `to_json` / `save(path)`; the app picks the path (e.g. `%APPDATA%\fretscribe\keymap.json`), loads it once and passes it to `collect(ctx, src, events, editor, keymap, refine)` and `action_buttons(project, selection, keymap)` (tooltips come from it). Fixed keys: Esc, Ctrl+C/X/V (egui events), Ctrl+Z/Y (app).
 - Keys `1`-`9` are `NoteAction::SetStringFromTop(n)` (string 1 = highest of the tuning), `0` unlocks; past the tuning's size gives `ActionError::NoPlacement`.
-- `notation::tab`: `TabOptions` (adds `grace_bonus`), `candidates`, `presets`, `LabelStyle`, `string_label[_styled]`, `candidate_label[_styled]` (return `Option<String>`, `None` for a missing string; the top string is lowercase, so standard tuning reads `E A D G B e`), `assign_tabs`, `assign_tabs_range`, `lowest_fret_candidate`, `group_options`/`GroupOption` (strings that play a note's whole slide/bend/legato group, with the frets that follow; locks ignored).
-- Both assign functions take `&NoteTimes`: `assign_tabs(notes, times, tuning, capo, opts) -> Vec<u64>` (unplaceable ids), `assign_tabs_range(notes, times, tuning, capo, opts, edited_index, propagate_backwards) -> Vec<u64>` (changed ids). `edited_index` indexes the slice; notes need not be sorted.
-- The app calls `assign_tabs_range` after a lock/unlock (`Effect::Edit { affected }`) and `assign_tabs` on open and on tuning/capo changes. Locked notes are never rewritten. Notes linked by slide, bend or legato are one same-string group. Open strings count at 0.75 of the fret distance for movement (spec: ignored).
+- `notation::tab`: `TabOptions` (adds `grace_bonus`), `candidates`, `presets`, `LabelStyle`, `string_label[_styled]`, `candidate_label[_styled]` (return `Option<String>`, `None` for a missing string; the top string is lowercase, so standard tuning reads `E A D G B e`), `assign_tabs`, `assign_tabs_range`, `assign_tabs_ranges`, `lowest_fret_candidate`, `group_options`/`GroupOption` (strings that play a note's whole slide/bend/legato group, with the frets that follow; locks ignored).
+- Both assign functions take `&NoteTimes`: `assign_tabs(notes, times, tuning, capo, opts) -> Vec<u64>` (unplaceable ids), `assign_tabs_range(notes, times, tuning, capo, opts, edited_index, propagate_backwards) -> Vec<u64>` (changed ids), `assign_tabs_ranges(.., edited: &[usize], ..)` (same for several notes: windows merged, each solved once). Indices index the slice; notes need not be sorted.
+- The app calls `assign_tabs_ranges` after a note edit (`Effect::Edit { affected }`) and `assign_tabs` on open and on tuning/capo changes. Locked notes are never rewritten. Notes linked by slide, bend or legato are one same-string group. Open strings count at 0.75 of the fret distance for movement (spec: ignored).
 
 ## 2026-11-11 - notation: staff layout, ui: staff view and tab view
 
@@ -114,7 +121,7 @@ Modules are not re-exported at the crate root.
 
 ## 2026-11-13 - audio: tag reading (Prompt 11)
 
-- `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
+- `audio::wav::{encode, encode_mono_f32}` (16-bit PCM WAV bytes, for fixtures and examples). `audio::read_tags(&Path) -> Tags { title, album, artist: Option<String> }` (symphonia probe metadata, first value wins). Never fails: unreadable or untagged files give all `None`. Used by the new-project form to propose a name.
 
 ## 2026-11-14 - app crate (Prompt 11)
 
@@ -150,9 +157,22 @@ No contract change in other crates beyond the 2026-11-12 entry and `audio::read_
 ## 2026-11-17 - core: view state in the project file; ui: tab toolbar and track tools
 
 - core: `ViewState::{scroll_y, pitch}` and `UiState::{notation_collapsed, lane_options, tab_options, snap_on, overview_snap, lane_rows}`, all serde-defaulted, so older files load unchanged. `UiState::guitar_8vb` (default true) drives `StaffOptions::guitar_octave`.
-- ui: `tab_view::{collapse_row, sheet_tools, tab_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `sheet_tools`/`tab_tools` sit in the header column of their lanes); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
+- ui: `tab_view::{collapse_row, notation_tools}` replace the old toolbar (collapse row above the sheet, `TOOLBAR_HEIGHT` 52; `notation_tools` is one panel in the header column of the sheet lane); `paint_seek_line` takes the left clip; `TrackLanesState::{saved_rows, restore_rows}`; the note names of the spectrogram are painted on a layer above the grid and seek line.
 - app: navigation runs at the start of the frame on the previous frame's regions (the sheet and tab no longer lag behind the lanes while scrolling); restoring a window that started maximised sends the remembered size.
 
 ## 2026-11-18 - ui/app: shared note placement and grid thinning
 
 `NoteGrid` (ui) replaces the fixed note inset. Sheet and tab draw notes at `NoteGrid::x`, which keeps each note inside its grid cell and clear of the lines, identically in both views; `StaffView`/`TabView` take a `grid` field. Notation grid lines drop by halves as the zoom falls (measure lines stay). Drawn x is nudged only; playhead, bars and click-to-seek use the exact time. No core change.
+
+## 2026-11-21 - tests and demos moved to `dev/`
+
+Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo run -p fretscribe-demos --example <name>` replaces `-p fretscribe-analysis|fretscribe|fretscribe-audio --example ...`, e.g. `make_luts`); the integration test is `dev/tests/tests/pipeline.rs`; unit-test bodies are in `dev/tests/unit/<crate>/` and attached by `#[cfg(all(test, dev_tests))] #[path]` (cfg `dev_tests` is set by each crate's `build.rs` when that folder exists). The PNG export tools and the ui widget demos (`staff_demo`, `tab_demo`, ...) were removed. `core::testkit` now lives there too (feature `test-support` unchanged). Deleting `dev/` also needs `"dev/*"` removed from the workspace `members`.
+
+## 2026-11-21 - app: wheel parity
+- `ViewController::run` is the only thing that advances the view (the app no longer calls `update`). `NavRegions::grid` is the timeline column only (headers excluded, notation panel included), `lanes` the scrolling timeline area. New `ViewController::{zoom_at, zoom_at_centre, wheel_rows}`, `WheelActions::rows`, `TrackLanes::wheel_rows`; overview zoom buttons use `zoom_at_centre`; `nav::notches` is no longer re-exported.
+- Horizontal wheel scroll: a fixed `ViewTuning::scroll_x_points_per_notch` (120) whatever the zoom, then the left edge snaps to the nearest quarter-note line (at least one quarter per notch). Scroll limits: one measure before the first and after the last (`maths::scroll_limits`, `Geometry { width, lo_sec, hi_sec }`, `ViewController::set_geometry(width, lo, hi)`). Removed `quarter_notes_per_notch`, `overscroll_fraction`, `quarter_sec_at`; `scroll_time` takes the `TempoMap`.
+
+## 2026-11-22 - ui: left panel restyle
+- Track header: two rows (identity, then mute/solo/volume/offset) plus the note-tool panel. Volume and offset are dropdown buttons with popups; there is no separate offset drag handle (dragging the offset button moves the audio; `HeaderOutput::offset_handle` is that button). The colour chip and `tracks::icons` are gone: roles use the `role-*` project icons, and the left band is the accent colour for the source track only (`Track::color` is no longer read by the header). The `...` menu is a plain popup with the roles listed inline.
+- `tab_view::notation_tools` replaces `sheet_tools`/`tab_tools` (one wrapping panel: sheet tools, separator, tab tools). New `kit::tool_panel` (hugs its widest row, centred rows, groups split by a separator).
+- `nav::own_plain_wheel(ctx, rect)`: a widget over the lanes keeps the unmodified wheel instead of the vertical scroll (`kit::wheel`/`wheel_value` call it). Modified wheels still zoom/scroll.

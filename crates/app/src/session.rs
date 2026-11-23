@@ -8,14 +8,14 @@ use fretscribe_analysis::sync::SyncCandidate;
 use fretscribe_analysis::Levels;
 use fretscribe_audio::{Player, SpeedMode};
 use fretscribe_core::{
-    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, TempoMap, UiState, UndoPolicy, UndoStack,
+    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
 };
 use fretscribe_notation::staff::{self, StaffLayout, StaffOptions};
-use fretscribe_notation::tab::{assign_tabs, assign_tabs_range, TabOptions};
+use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::note_editor::{Keymap, NoteEditor};
 use fretscribe_ui::{RegionSelection, SpectroCache, SpectroStyle, TabViewState, TrackLanesState, ViewController, ViewTuning};
-use uuid::Uuid;
+use fretscribe_core::Uuid;
 
 use crate::autosave::AutosavePolicy;
 use crate::jobs::{self, Job};
@@ -35,6 +35,12 @@ pub struct Toast {
     pub born: Instant,
 }
 
+impl Toast {
+    pub fn new(text: impl Into<String>, error: bool) -> Self {
+        Self { text: text.into(), error, born: Instant::now() }
+    }
+}
+
 pub struct SyncDialog {
     pub track: u64,
     pub candidates: Vec<SyncCandidate>,
@@ -46,6 +52,13 @@ pub struct Jobs {
     pub tempo: Option<Job<Vec<(f64, f64)>>>,
     pub pitch: Option<Job<fretscribe_analysis::pitchref::PitchRefEstimate>>,
     pub sync: Vec<(u64, Job<Vec<SyncCandidate>>)>,
+}
+
+impl Jobs {
+    /// Any background analysis job (not the track loads) is running.
+    pub fn any(&self) -> bool {
+        self.autofit.is_some() || self.tempo.is_some() || self.pitch.is_some() || !self.sync.is_empty()
+    }
 }
 
 pub struct Session {
@@ -80,7 +93,6 @@ pub struct Session {
     pub keep_pitch: bool,
     pub overlay_mix: f32,
     pub follow: bool,
-    pub snap_to_onsets: bool,
     pub overview_snap: bool,
     pub dirty: bool,
     pub edits_since_autosave: u32,
@@ -94,27 +106,21 @@ pub struct Session {
     pub nav_regions: Option<fretscribe_ui::NavRegions>,
     /// The Q the spectrograms were last (re)computed with.
     pub q_applied: f32,
-    pub load_progress: Option<(f32, String)>,
     pub jobs: Jobs,
     pub sync_on_ready: Vec<u64>,
     pub sync_dialog: Option<SyncDialog>,
     pub toasts: Vec<Toast>,
     pub synced: Vec<PlayerCall>,
+    /// The player is bound to the selected region (Ctrl/Shift+Space or the play-selection button); plain play ignores it.
+    pub play_region: bool,
     pub audio_len_sec: f64,
-    pub hints: Hints,
     pub snap_on: bool,
-    pub ref_text: String,
     pub synth_on: bool,
     pub synth_synced: bool,
     pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
     pub pending_delete: Option<fretscribe_ui::GridEvent>,
     pub tempo_choices: Vec<(f64, f64)>,
     pub pitch_result: Option<fretscribe_analysis::pitchref::PitchRefEstimate>,
-}
-
-#[derive(Default)]
-pub struct Hints {
-    pub lut_missing_shown: bool,
 }
 
 fn style_of(ui: &UiState, luts: &LutSet) -> SpectroStyle {
@@ -125,6 +131,9 @@ fn style_of(ui: &UiState, luts: &LutSet) -> SpectroStyle {
     }
 }
 
+/// A playhead this close to the end of the region counts as having reached it (playback stops a few frames short).
+const END_MARGIN_SEC: f64 = 0.05;
+
 impl Session {
     pub fn new(file: ProjectFile, path: Option<PathBuf>, store: AudioStore, settings: &Settings, luts: LutSet) -> Self {
         let ProjectFile { project_id, mut ui, project, history, .. } = file;
@@ -134,7 +143,7 @@ impl Session {
             .filter(|_| settings.keep_history_in_file)
             .map_or_else(|| UndoStack::with_policy(policy), |h| UndoStack::from_saved(h, &project, policy));
         let nav = ViewState { scroll_sec: ui.view.scroll_sec, scroll_y: ui.view.scroll_y, pixels_per_sec: ui.view.pixels_per_sec };
-        let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
+        let times = project.note_times();
         let audio_len_sec = project.measures.last().map_or(0.0, |m| m.start_sec);
         let (keymap, keymap_error) = crate::settings::settings_dir().map_or_else(
             || (Keymap::default(), None),
@@ -168,7 +177,6 @@ impl Session {
             keep_pitch: settings.keep_pitch,
             overlay_mix: 0.0,
             follow: settings.follow_playhead,
-            snap_to_onsets: settings.snap_to_onsets,
             overview_snap: true,
             dirty: false,
             edits_since_autosave: 0,
@@ -179,16 +187,14 @@ impl Session {
             requant: None,
             nav_regions: None,
             q_applied: ui.spectro_q,
-            load_progress: None,
             jobs: Jobs::default(),
             sync_on_ready: Vec::new(),
             sync_dialog: None,
             toasts: Vec::new(),
             synced: Vec::new(),
+            play_region: false,
             audio_len_sec,
-            hints: Hints::default(),
             snap_on: true,
-            ref_text: String::new(),
             synth_on: false,
             synth_synced: false,
             exact: None,
@@ -207,7 +213,7 @@ impl Session {
     }
 
     pub fn toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toasts.push(Toast { text: text.into(), error, born: Instant::now() });
+        self.toasts.push(Toast::new(text, error));
     }
 
     pub fn name(&self) -> String {
@@ -267,7 +273,7 @@ impl Session {
         let (mut ready, mut spectro) = (false, false);
         for e in events {
             match e {
-                LoadEvent::Progress { fraction, label } => self.load_progress = Some((fraction, label)),
+                LoadEvent::Progress { .. } => {}
                 LoadEvent::TrackReady { id, duration_sec } => {
                     ready = true;
                     self.audio_len_sec = self.audio_len_sec.max(duration_sec);
@@ -286,11 +292,7 @@ impl Session {
         if spectro {
             self.revision += 1;
         }
-        let busy = !self.loads.is_empty() || self.requant.is_some();
-        if !busy {
-            self.load_progress = None;
-        }
-        busy
+        !self.loads.is_empty() || self.requant.is_some()
     }
 
     // ---- model edits ---------------------------------------------------------------------
@@ -313,11 +315,15 @@ impl Session {
 
     /// Recomputes what depends on the project after any change (edit, undo, load).
     pub fn refresh(&mut self) {
-        self.times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        self.refresh_model();
+        self.player_resync(false);
+    }
+
+    fn refresh_model(&mut self) {
+        self.times = self.project.note_times();
         self.store.set_beat_times_from(&self.project);
         self.staff_dirty = true;
         self.revision += 1;
-        self.player_resync(false);
     }
 
     pub fn undo_redo(&mut self, redo: bool) {
@@ -333,7 +339,7 @@ impl Session {
         self.dirty = true;
         self.store_prune();
         self.push_tracks_to_player();
-        self.refresh();
+        self.refresh_model();
         self.player_resync(true);
     }
 
@@ -353,18 +359,16 @@ impl Session {
 
     /// Tab inference over everything (open, tuning/capo change).
     pub fn infer_all(&mut self) -> Vec<u64> {
-        let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
+        let times = self.project.note_times();
         assign_tabs(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts)
     }
 
     /// Re-run inference after note edits: the edited notes' neighbourhood only.
     pub fn infer_affected(&mut self, affected: &[u64]) {
-        let times = NoteTimes::build(&self.project.notes, &TempoMap::new(&self.project.measures));
-        for id in affected {
-            if let Some(i) = self.project.notes.iter().position(|n| n.id == *id) {
-                assign_tabs_range(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, i, self.tab_state.propagate_backwards);
-            }
-        }
+        let times = self.project.note_times();
+        let index: std::collections::HashMap<u64, usize> = self.project.notes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        let edited: Vec<usize> = affected.iter().filter_map(|id| index.get(id).copied()).collect();
+        assign_tabs_ranges(&mut self.project.notes, &times, &self.project.tuning, self.project.capo, &self.tab_opts, &edited, self.tab_state.propagate_backwards);
     }
 
     /// One undoable edit around any model mutation; errors become a toast.
@@ -472,7 +476,7 @@ impl Session {
         for (id, candidates) in finished {
             self.apply_sync(id, candidates);
         }
-        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty()
+        self.jobs.any()
     }
 
     fn apply_sync(&mut self, id: u64, candidates: Vec<SyncCandidate>) {
@@ -490,14 +494,14 @@ impl Session {
     }
 
     pub fn jobs_running(&self) -> bool {
-        self.jobs.autofit.is_some() || self.jobs.tempo.is_some() || self.jobs.pitch.is_some() || !self.jobs.sync.is_empty() || !self.loads.is_empty()
+        self.jobs.any() || !self.loads.is_empty()
     }
 
     /// One undoable step: re-solves the string/fret of every note that is not locked.
     pub fn reinfer_tab(&mut self) {
         let opts = self.tab_opts.clone();
         let unplaced = self.edit("Re-infer tab", |p| {
-            let times = NoteTimes::build(&p.notes, &TempoMap::new(&p.measures));
+            let times = p.note_times();
             let (tuning, capo) = (p.tuning.clone(), p.capo);
             Ok::<_, std::convert::Infallible>(assign_tabs(&mut p.notes, &times, &tuning, capo, &opts))
         });
@@ -512,7 +516,14 @@ impl Session {
     pub fn player_resync(&mut self, all: bool) {
         let Some(player) = &self.player else { return };
         let mode_speed = (self.speed, self.keep_pitch);
-        let next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        if !self.play_region {
+            next.iter_mut().for_each(|c| {
+                if let PlayerCall::Region(r) = c {
+                    *r = None;
+                }
+            });
+        }
         let calls = if all { next.clone() } else { player_sync::diff(&self.synced, &next) };
         player_sync::apply(player, &calls);
         self.synced = next;
@@ -537,21 +548,42 @@ impl Session {
     }
 
     pub fn toggle_play(&mut self) {
+        self.play_pause(false);
+    }
+
+    /// Pauses when playing; otherwise switches the loop on or off and plays the selected region, resuming from the
+    /// playhead when it is inside the region and from the region start when it is not. Without a selection it plays
+    /// from the playhead like plain play.
+    pub fn play_selection(&mut self, looped: bool) {
+        if !self.player.as_ref().is_some_and(|p| p.is_playing()) {
+            self.ui.loop_enabled = looped;
+            if let Some(r) = self.region.filter(|r| !(r.start_sec..r.end_sec - END_MARGIN_SEC).contains(&self.ui.playhead_sec)) {
+                self.seek(r.start_sec);
+            }
+        }
+        self.play_pause(self.region.is_some());
+    }
+
+    /// Pauses, or plays from the playhead with the player bound to the selected region or not.
+    fn play_pause(&mut self, bound: bool) {
         let Some(player) = &self.player else { return };
         if player.is_playing() {
             player.pause();
             return;
         }
-        let start = self.region.map_or(self.ui.playhead_sec, |r| if (r.start_sec..r.end_sec).contains(&self.ui.playhead_sec) { self.ui.playhead_sec } else { r.start_sec });
-        player.seek(start);
-        player.play();
+        self.play_region = bound;
+        self.player_resync(false);
+        if let Some(p) = &self.player {
+            p.seek(self.ui.playhead_sec);
+            p.play();
+        }
     }
 
     pub fn stop(&mut self) {
         if let Some(p) = &self.player {
             p.stop();
         }
-        self.ui.playhead_sec = self.region.map_or(0.0, |r| r.start_sec);
+        self.ui.playhead_sec = self.region.filter(|_| self.play_region).map_or(0.0, |r| r.start_sec);
     }
 
     pub fn seek(&mut self, sec: f64) {
@@ -626,18 +658,14 @@ impl Session {
     }
 
     /// Recomputes the loaded spectrograms with the Q in `ui`, in the background.
+    /// Recomputes every loaded spectrogram with the new Q, replacing a recompute still running.
+    /// Waits (the toolbar asks again each frame) while the initial load is running.
     pub fn q_changed(&mut self) {
+        if !self.loads.is_empty() {
+            return;
+        }
         self.q_applied = self.ui.spectro_q;
-        let tracks: Vec<_> = self
-            .store
-            .tracks
-            .iter_mut()
-            .filter(|(_, t)| t.spectrogram_ready)
-            .map(|(id, t)| {
-                t.spectrogram_ready = false;
-                (*id, t.mono.clone(), t.sample_rate)
-            })
-            .collect();
+        let tracks = self.store.tracks.iter().map(|(id, t)| (*id, t.mono.clone(), t.sample_rate)).collect();
         self.requant = Some(LoadJob::requantise(tracks, self.ui.spectro_q));
     }
 
@@ -650,3 +678,7 @@ impl Session {
         if self.keep_pitch { SpeedMode::PreservePitch } else { SpeedMode::ChangePitch }
     }
 }
+
+#[cfg(all(test, dev_tests))]
+#[path = "../../../dev/tests/unit/app/session.rs"]
+mod tests;

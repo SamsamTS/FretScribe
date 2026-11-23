@@ -2,12 +2,12 @@
 //! Edits are applied to the project right away and handed back as undo steps.
 
 use egui::Pos2;
-use fretscribe_core::{snap_edge, Edge, Project, ProjectEdit, SnapGrid, TempoMap};
+use fretscribe_core::{snap_edge, Edge, LinkType, Project, ProjectEdit, SnapGrid, TempoMap};
 
 use super::action::{apply, ActionError, NoteAction};
 use super::clip::Clipboard;
 use super::grace_entry::{EntryKey, EntryStep, GraceEntry};
-use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, plan_draw, plan_extend, plan_draw_onto, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
+use super::draw::{commit_creation, feedback, ghost_of, plan_aim, plan_chain, valid_kinds, plan_draw, plan_extend, plan_draw_onto, plan_slide_end, plan_slide_target, Creation, DrawFeedback, LinkAim, LinkStart, Pt, Sticky};
 use super::modify::{NoteChange, apply_changes, ghost_of_changes, is_noop, plan_move, plan_resize, preview_changes};
 use super::select::{marquee_hits, time_order, Selection};
 use super::EditCtx;
@@ -65,16 +65,15 @@ pub enum Effect {
     Edit { edit: Box<ProjectEdit>, merge: bool, affected: Vec<u64> },
     Message(String),
     OpenExact(u64),
-    /// The grid the keys selected; the app stores it.
-    SnapGrid(SnapGrid),
 }
 
 pub struct Env<'a> {
     pub project: &'a mut Project,
     pub grid: &'a SnapGrid,
+    /// The grid of `project`, built once per frame by the caller (note edits never change it).
+    pub tempo: &'a TempoMap,
     pub px_per_sec: f64,
     pub threshold_px: f64,
-    pub onsets: Option<&'a [f64]>,
     /// Seconds, any monotonic clock.
     pub now: f64,
     pub hovered: Option<u64>,
@@ -90,11 +89,15 @@ struct LinkState {
     pressed: bool,
     start: Option<LinkStart>,
     sticky: Sticky,
+    /// The link kind picked with L, instead of the inferred one.
+    kind: Option<LinkType>,
+    /// The kinds the previewed link accepts (L cycles through them).
+    valid: Vec<LinkType>,
 }
 
 impl LinkState {
     fn new(src: u64, hover: bool) -> Self {
-        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY }
+        Self { src, hover, pressed: false, start: None, sticky: NO_STICKY, kind: None, valid: Vec::new() }
     }
 
     /// No button is held: left clicks drive it.
@@ -139,8 +142,7 @@ pub struct NoteEditor {
 
 fn with_ctx<R>(env: &Env, alt: bool, f: impl FnOnce(&EditCtx) -> R) -> R {
     let project: &Project = env.project;
-    let tempo = TempoMap::new(&project.measures);
-    f(&EditCtx { project, tempo: &tempo, grid: env.grid, px_per_sec: env.px_per_sec, threshold_px: env.threshold_px, onsets: env.onsets, alt })
+    f(&EditCtx { project, tempo: env.tempo, grid: env.grid, px_per_sec: env.px_per_sec, threshold_px: env.threshold_px, alt })
 }
 
 fn pt(at: &Sample) -> Pt {
@@ -301,7 +303,7 @@ impl NoteEditor {
             (Button::Left, Some((id, zone @ (HitZone::LeftEdge | HitZone::RightEdge)))) => State::Resize { note: id, edge: if zone == HitZone::LeftEdge { Edge::Start } else { Edge::End }, sticky: NO_STICKY },
             (Button::Left, Some((id, HitZone::Body))) if mods.shift && project.outgoing(id).is_none() => State::Chain { last: id, sticky: NO_STICKY },
             (Button::Left, Some((id, HitZone::Body))) => {
-                let tempo = TempoMap::new(&project.measures);
+                let tempo = env.tempo;
                 let start = project.note(id).map_or(first.sec, |n| tempo.pos_to_sec(n.start));
                 if !self.selection.contains(id) {
                     self.selection.set(vec![id]);
@@ -344,24 +346,27 @@ impl NoteEditor {
                 let plan = with_ctx(env, mods.alt, |ctx| {
                     let extend = |start: &LinkStart, sec, sticky| {
                         let p = plan_extend(start, sec, sticky, ctx);
-                        (ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped)
+                        (ghost_of(&p.creation, ctx.project, ctx.tempo), feedback(&p.creation, ctx.project, ctx.tempo), p.snapped, valid_kinds(&p.creation, ctx.project))
                     };
                     match &l.start {
                         Some(start) => Some(extend(start, Some(at.sec), l.sticky)),
-                        None => match plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, ctx) {
+                        None => match plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, l.kind, ctx) {
                             LinkAim::Hidden => None,
-                            LinkAim::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY)),
+                            LinkAim::Join(c) => Some((ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), NO_STICKY, valid_kinds(&c, ctx.project))),
                             LinkAim::Start { start, snapped } => {
-                                let (ghost, fb, _) = extend(&start, None, NO_STICKY);
-                                Some((ghost, fb, snapped))
+                                let (ghost, fb, _, valid) = extend(&start, None, NO_STICKY);
+                                Some((ghost, fb, snapped, valid))
                             }
                         },
                     }
                 });
-                let next = plan.as_ref().map(|p| p.2);
-                self.show_plan(plan);
-                if let (Some(s), State::Link(l)) = (next, &mut self.state) {
-                    l.sticky = s;
+                let next = plan.as_ref().map(|p| (p.2, p.3.clone()));
+                self.show_plan(plan.map(|p| (p.0, p.1, p.2)));
+                if let State::Link(l) = &mut self.state {
+                    l.valid = next.as_ref().map(|n| n.1.clone()).unwrap_or_default();
+                    if let Some((s, _)) = next {
+                        l.sticky = s;
+                    }
                 }
             }
             State::Draw { press, was_slide, sticky } => {
@@ -415,8 +420,8 @@ impl NoteEditor {
 
     fn update_paste(&mut self, env: &Env, at: &Sample, alt: bool) {
         let anchor = Self::paste_anchor(env, at.sec, alt);
-        let tempo = TempoMap::new(&env.project.measures);
-        self.ghost = self.clipboard.as_ref().map(|c| c.ghost(&tempo, anchor));
+        let tempo = env.tempo;
+        self.ghost = self.clipboard.as_ref().map(|c| c.ghost(tempo, anchor));
     }
 
     fn release(&mut self, env: &mut Env, button: Button, at: Sample, mods: Mods) -> Vec<Effect> {
@@ -438,7 +443,7 @@ impl NoteEditor {
             }
             (State::Resize { note, edge, sticky }, Button::Left) => {
                 let change = with_ctx(env, mods.alt, |ctx| plan_resize(note, edge, at.sec, sticky, ctx).map(|p| p.0));
-                change.map_or_else(Vec::new, |c| self.finish_resize(env, &c))
+                change.map_or_else(Vec::new, |c| self.finish_changes(env, vec![c], "Resize note"))
             }
             (State::Chain { last, sticky }, Button::Left) => {
                 let plan = with_ctx(env, mods.alt, |ctx| plan_chain(last, pt(&at), sticky, ctx));
@@ -470,8 +475,8 @@ impl NoteEditor {
             (State::Paste { pressed: true }, Button::Left) => {
                 self.ignore_seek = true;
                 let anchor = Self::paste_anchor(env, at.sec, mods.alt);
-                let tempo = TempoMap::new(&env.project.measures);
-                match self.clipboard.clone().map(|c| c.commit(env.project, &tempo, anchor, "Paste notes")) {
+                let tempo = env.tempo;
+                match self.clipboard.clone().map(|c| c.commit(env.project, tempo, anchor, "Paste notes")) {
                     Some(Ok((edit, ids))) => {
                         self.selection.set(ids.clone());
                         vec![Effect::Edit { edit: Box::new(edit), merge: false, affected: ids }]
@@ -509,16 +514,6 @@ impl NoteEditor {
         }
     }
 
-    fn finish_resize(&mut self, env: &mut Env, change: &NoteChange) -> Vec<Effect> {
-        if is_noop(env.project, std::slice::from_ref(change)) {
-            return Vec::new();
-        }
-        match apply_changes(env.project, std::slice::from_ref(change), "Resize note") {
-            Ok(edit) => vec![Effect::Edit { edit: Box::new(edit), merge: false, affected: vec![change.id] }],
-            Err(e) => vec![Effect::Message(e.to_string())],
-        }
-    }
-
     /// End of a left drag from empty space: a note is created at once, a slide waits for the click
     /// that sets the end of its second note.
     fn finish_draw(&mut self, env: &mut Env, press: Pt, was_slide: bool, sticky: Sticky, at: &Sample, mods: Mods) -> Vec<Effect> {
@@ -550,7 +545,7 @@ impl NoteEditor {
             let plan = with_ctx(env, mods.alt, |ctx| plan_extend(start, Some(at.sec), l.sticky, ctx));
             return self.commit(env, &plan.creation, "Draw linked note", true);
         }
-        match with_ctx(env, mods.alt, |ctx| plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, ctx)) {
+        match with_ctx(env, mods.alt, |ctx| plan_aim(l.src, pt(at), target_of(at.hit), l.sticky, l.kind, ctx)) {
             LinkAim::Hidden => Vec::new(),
             LinkAim::Join(c) => self.commit(env, &c, "Link notes", false),
             LinkAim::Start { start, .. } => {
@@ -562,8 +557,8 @@ impl NoteEditor {
     }
 
     fn click(&mut self, env: &mut Env, button: Button, first: Sample, mods: Mods) -> Vec<Effect> {
-        let tempo = TempoMap::new(&env.project.measures);
-        let order = time_order(&env.project.notes, &tempo);
+        let tempo = env.tempo;
+        let order = time_order(&env.project.notes, tempo);
         match (button, first.hit) {
             (Button::Left, Some((id, _))) if on_note(first.hit).is_some() => {
                 self.selection.click(id, mods.ctrl, mods.shift, &order);
@@ -677,19 +672,44 @@ impl NoteEditor {
     }
 
     fn copy(&mut self, env: &Env) {
-        let tempo = TempoMap::new(&env.project.measures);
-        self.clipboard = Clipboard::copy(env.project, &tempo, &self.selection.ids);
+        let tempo = env.tempo;
+        self.clipboard = Clipboard::copy(env.project, tempo, &self.selection.ids);
     }
 
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
-        if action == NoteAction::LinkHover && self.selection.ids.is_empty() {
-            if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
-                self.state = State::Link(LinkState::new(src, true));
+        if action == NoteAction::LinkHover {
+            // L while linking cycles the kind of the link being drawn, on a linked note the kind of its link.
+            if let State::Link(l) = &mut self.state {
+                let shown = l.kind.or(self.feedback.as_ref().and_then(|f| f.link));
+                let at = l.valid.iter().position(|k| Some(*k) == shown);
+                let Some(&next) = at.map_or(l.valid.first(), |i| l.valid.get((i + 1) % l.valid.len())) else { return Vec::new() };
+                l.kind = Some(next);
+                if let Some(s) = &mut l.start {
+                    s.kind = next;
+                }
+                return Vec::new();
             }
-            return Vec::new();
+            if self.selection.ids.is_empty() {
+                if let Some(src) = env.hovered.filter(|_| !self.is_busy()) {
+                    let linked = env.project.link_of(src).map(|_| src).or_else(|| env.project.incoming(src).map(|(from, _)| from));
+                    match linked {
+                        Some(from) => return self.cycle_note(env, from),
+                        None => self.state = State::Link(LinkState::new(src, true)),
+                    }
+                }
+                return Vec::new();
+            }
+        }
+        let mut action = action;
+        let mut result = apply(env.project, &self.selection, action, env.grid);
+        if action == NoteAction::LinkHover && result.as_ref().is_ok_and(|d| d.edit.is_none()) {
+            // Nothing to link (already linked notes): L cycles their link type.
+            if let Some(cycled) = apply(env.project, &self.selection, NoteAction::CycleLinkType, env.grid).ok().filter(|d| d.edit.is_some()) {
+                (action, result) = (NoteAction::CycleLinkType, Ok(cycled));
+            }
         }
         let merge = action == NoteAction::CycleLinkType && self.cycle.is_some_and(|(_, at)| env.now - at <= CYCLE_WINDOW_SEC);
-        match apply(env.project, &self.selection, action, env.grid) {
+        match result {
             Ok(done) => {
                 if let Some(selection) = done.selection {
                     self.selection = selection;
@@ -703,7 +723,6 @@ impl NoteEditor {
                 }
                 out.extend(done.message.map(Effect::Message));
                 out.extend(done.open_exact.map(Effect::OpenExact));
-                out.extend(done.snap_grid.map(Effect::SnapGrid));
                 if let Some(entry) = done.grace_entry.filter(|_| !self.is_busy()).and_then(|main| GraceEntry::new(env.project, main)) {
                     self.show_entry(env, &entry);
                     self.state = State::Grace { entry, pressed: false };

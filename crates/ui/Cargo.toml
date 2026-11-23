@@ -12,9 +12,8 @@ egui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-egui_extras = { version = "0.31", features = ["svg"] }
+egui_extras.workspace = true
 
 [dev-dependencies]
+fretscribe-core = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
-eframe.workspace = true
-image.workspace = true

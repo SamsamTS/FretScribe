@@ -13,7 +13,7 @@ use super::value::TICKS_PER_BEAT;
 /// Shortest value: a 64th triplet. Edges closer than this are one edge.
 const MIN_TICKS: i64 = 2;
 
-pub struct QNote {
+pub(crate) struct QNote {
     pub id: u64,
     pub midi: u8,
     pub s: i64,
@@ -21,7 +21,7 @@ pub struct QNote {
     pub actual_sec: f64,
 }
 
-pub struct Quantised {
+pub(crate) struct Quantised {
     /// Start tick of every measure, then the end of the last one.
     pub bounds: Vec<i64>,
     /// Per measure and quarter-note window: divided in triplets.
@@ -85,7 +85,7 @@ fn merged_edges(edges: &BTreeSet<i64>, bounds: &[i64]) -> HashMap<i64, i64> {
     map
 }
 
-pub fn quantise(notes: &[Note], tempo: &TempoMap) -> Quantised {
+pub(crate) fn quantise(notes: &[Note], tempo: &TempoMap) -> Quantised {
     let mut bounds = vec![0];
     for i in 0..tempo.len() {
         bounds.push(bounds[i] + tempo.measure_ticks(i));

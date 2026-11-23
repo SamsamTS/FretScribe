@@ -1,13 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-    "crates/core",
-    "crates/audio",
-    "crates/analysis",
-    "crates/notation",
-    "crates/ui",
-    "crates/app",
-]
+members = ["crates/*", "dev/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -23,11 +16,11 @@ fretscribe-ui = { path = "crates/ui" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
-anyhow = "1"
 thiserror = "2"
 eframe = "0.31"
 egui = "0.31"
-symphonia = { version = "0.5", features = ["all"] }
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "vorbis", "isomp4", "aac", "aiff", "pcm"] }
+egui_extras = { version = "0.31", features = ["svg"] }
 rodio = { version = "0.20", default-features = false }
 realfft = "3"
 rubato = "0.16"

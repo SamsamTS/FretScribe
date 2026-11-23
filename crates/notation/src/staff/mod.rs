@@ -8,7 +8,8 @@
 
 mod quant;
 mod spell;
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/notation/staff.rs"]
 mod tests;
 mod value;
 
@@ -180,10 +181,20 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
 
     let mut tied: HashSet<u64> = HashSet::new();
     let mut carried: Vec<Vec<bool>> = Vec::new();
+    // Sweep: `active` holds (in `q.notes` order) the notes covering the current window.
+    let mut by_start: Vec<usize> = (0..q.notes.len()).collect();
+    by_start.sort_by_key(|&i| q.notes[i].s);
+    let (mut next_start, mut active_idx): (usize, Vec<usize>) = (0, Vec::new());
     for pair in cuts.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         let m = measure_of(a);
-        let active: Vec<_> = q.notes.iter().filter(|n| n.s <= a && n.e >= b).collect();
+        while next_start < by_start.len() && q.notes[by_start[next_start]].s <= a {
+            active_idx.push(by_start[next_start]);
+            next_start += 1;
+        }
+        active_idx.retain(|&i| q.notes[i].e >= b);
+        active_idx.sort_unstable();
+        let active: Vec<_> = active_idx.iter().map(|&i| &q.notes[i]).collect();
         let sig = measures[m].time_sig;
         let ctx = Context { beat_rule: opts.beat_rule, beat: main_beat_ticks(sig.numerator, sig.denominator), half: (q.bounds[m + 1] - q.bounds[m]) / 2, triplet: &q.triplet[m] };
         let whole = active.is_empty() && a == q.bounds[m] && b == q.bounds[m + 1];
@@ -365,7 +376,8 @@ fn index_notes(out: &mut StaffLayout) {
 }
 
 fn links(out: &mut StaffLayout, notes: &[Note]) {
-    let find = |id: u64| notes.iter().find(|n| n.id == id);
+    let by_id: std::collections::HashMap<u64, &Note> = notes.iter().map(|n| (n.id, n)).collect();
+    let find = |id: u64| by_id.get(&id).copied();
     let mut found = Vec::new();
     for n in notes {
         if let Some(to) = n.link_to.and_then(find) {

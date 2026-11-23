@@ -245,12 +245,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anyhow"
-version = "1.0.104"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
-
-[[package]]
 name = "arboard"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1591,7 +1585,6 @@ dependencies = [
 name = "fretscribe"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "eframe",
  "egui",
  "env_logger",
@@ -1601,20 +1594,16 @@ dependencies = [
  "fretscribe-notation",
  "fretscribe-ui",
  "image",
- "log",
  "rfd",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.21",
- "uuid",
 ]
 
 [[package]]
 name = "fretscribe-analysis"
 version = "0.1.0"
 dependencies = [
- "fretscribe-audio",
  "fretscribe-core",
  "image",
  "log",
@@ -1651,6 +1640,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fretscribe-demos"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "fretscribe",
+ "fretscribe-analysis",
+ "fretscribe-audio",
+ "fretscribe-core",
+ "fretscribe-ui",
+ "image",
+]
+
+[[package]]
 name = "fretscribe-notation"
 version = "0.1.0"
 dependencies = [
@@ -1658,16 +1661,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fretscribe-tests"
+version = "0.1.0"
+dependencies = [
+ "fretscribe",
+ "fretscribe-core",
+]
+
+[[package]]
 name = "fretscribe-ui"
 version = "0.1.0"
 dependencies = [
- "eframe",
  "egui",
  "egui_extras",
  "fretscribe-analysis",
  "fretscribe-core",
  "fretscribe-notation",
- "image",
  "serde",
  "serde_json",
  "tempfile",
@@ -3983,11 +3992,9 @@ dependencies = [
  "symphonia-bundle-mp3",
  "symphonia-codec-aac",
  "symphonia-codec-adpcm",
- "symphonia-codec-alac",
  "symphonia-codec-pcm",
  "symphonia-codec-vorbis",
  "symphonia-core",
- "symphonia-format-caf",
  "symphonia-format-isomp4",
  "symphonia-format-mkv",
  "symphonia-format-ogg",
@@ -4041,16 +4048,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "symphonia-codec-alac"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8413fa754942ac16a73634c9dfd1500ed5c61430956b33728567f667fdd393ab"
-dependencies = [
- "log",
- "symphonia-core",
-]
-
-[[package]]
 name = "symphonia-codec-pcm"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4082,17 +4079,6 @@ dependencies = [
  "bytemuck",
  "lazy_static",
  "log",
-]
-
-[[package]]
-name = "symphonia-format-caf"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8faf379316b6b6e6bbc274d00e7a592e0d63ff1a7e182ce8ba25e24edd3d096"
-dependencies = [
- "log",
- "symphonia-core",
- "symphonia-metadata",
 ]
 
 [[package]]

@@ -36,7 +36,6 @@ icons!(
     "synth",
     "guitar-focus",
     "snap",
-    "snap-onsets",
     "follow-grid",
     "stay-with-audio",
     "rhythm",
@@ -76,12 +75,24 @@ icons!(
     "lock",
     "unlock",
     "guitar-8vb",
+    "role-guitar",
+    "role-bass",
+    "role-drums",
+    "role-other",
+    "grip",
+    "more",
 );
 
 pub const BUTTON: f32 = 36.0;
 const GROUP_RADIUS: u8 = 12;
 
 /// Installs the SVG image loaders; call once at start.
+/// Whether a text field has the keyboard. (`Context::wants_keyboard_input` is true for any focused widget, such
+/// as a button that was just clicked or a menu that closed, which must not block the shortcuts.)
+pub fn typing(ctx: &egui::Context) -> bool {
+    ctx.memory(|m| m.focused()).is_some_and(|id| TextEdit::load_state(ctx, id).is_some())
+}
+
 pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
 }
@@ -197,6 +208,36 @@ pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Res
         .response
 }
 
+/// A rounded panel `width` wide holding groups of buttons (`groups` gives the size of each; `add(ui, i)`
+/// draws button `i` counted across groups). Each group wraps onto as many centred rows as needed, with a
+/// separator between groups. The panel hugs its widest row and never exceeds `width`.
+pub fn tool_panel(ui: &mut Ui, width: f32, groups: &[usize], mut add: impl FnMut(&mut Ui, usize)) {
+    const PAD: f32 = 4.0;
+    let per = ((((width - 2.0 * PAD - 2.0) + PAD) / (BUTTON + PAD)) as usize).max(1);
+    let widest = groups.iter().map(|&n| n.min(per)).max().unwrap_or(1) as f32;
+    let inner = widest * (BUTTON + PAD) - PAD;
+    Frame::new().fill(theme::PANEL_BG).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(GROUP_RADIUS)).inner_margin(PAD).show(ui, |ui| {
+        ui.set_width(inner);
+        ui.spacing_mut().item_spacing.y = PAD;
+        let mut first = 0;
+        for (g, &count) in groups.iter().enumerate() {
+            if g > 0 {
+                let (r, _) = ui.allocate_exact_size(vec2(inner, 1.0), Sense::hover());
+                ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0_f32, theme::BORDER));
+            }
+            for start in (first..first + count).step_by(per) {
+                let n = per.min(first + count - start);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = PAD;
+                    ui.add_space((inner - (n as f32 * (BUTTON + PAD) - PAD)) / 2.0);
+                    (start..start + n).for_each(|i| add(ui, i));
+                });
+            }
+            first += count;
+        }
+    });
+}
+
 pub fn sep(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(1.0, 22.0), Sense::hover());
     ui.painter().vline(rect.center().x, rect.y_range(), Stroke::new(1.0_f32, theme::BORDER));
@@ -207,11 +248,13 @@ pub fn hint(ui: &mut Ui, text: &str) {
     ui.label(egui::RichText::new(text).size(12.0).color(theme::HINT));
 }
 
-/// Scroll-wheel notches over `r`: +1 for a notch up, -1 for one down. The scroll is consumed.
+/// Scroll-wheel notches over `r`: +1 for a notch up, -1 for one down. The scroll is consumed, and the
+/// plain wheel is kept from the lanes' vertical scroll while the pointer is over `r`.
 pub fn wheel(ui: &Ui, r: &Response) -> i32 {
     if !r.hovered() {
         return 0;
     }
+    crate::nav::own_plain_wheel(ui.ctx(), r.rect);
     ui.input_mut(|i| {
         let y = i.raw_scroll_delta.y;
         i.raw_scroll_delta = Vec2::ZERO;
@@ -266,7 +309,7 @@ impl<'a> Field<'a> {
 
     /// Sizes the field for the widest of `samples` (and its own text) so it never changes width.
     pub fn fit(mut self, ui: &Ui, samples: &[impl AsRef<str>]) -> Self {
-        self.sample = Some(samples.iter().map(|s| text_width(ui, s.as_ref())).fold(0.0, f32::max));
+        self.sample = Some(longest(samples).map_or(0.0, |s| text_width(ui, s)));
         self
     }
 
@@ -339,6 +382,11 @@ pub fn popup<R>(ui: &Ui, id: Id, anchor: &Response, right: bool, contents: impl 
     Some(area.inner)
 }
 
+/// The item with the most characters: the one to measure when sizing a menu (one layout call, not one per item).
+fn longest<S: AsRef<str>>(items: &[S]) -> Option<&str> {
+    items.iter().map(AsRef::as_ref).max_by_key(|t| t.chars().count())
+}
+
 /// The rows of a dropdown list: as wide as the widest item, the selected one dotted and bold.
 /// Returns the clicked index.
 pub fn menu_rows(ui: &mut Ui, items: &[String], selected: Option<usize>, min_width: f32) -> Option<usize> {
@@ -346,7 +394,7 @@ pub fn menu_rows(ui: &mut Ui, items: &[String], selected: Option<usize>, min_wid
     const TEXT_X: f32 = 26.0;
     let bold = FontId::new(13.0, theme::medium());
     let regular = FontId::new(13.0, egui::FontFamily::Proportional);
-    let widest = items.iter().map(|t| ui.painter().layout_no_wrap(t.clone(), bold.clone(), theme::TEXT).size().x).fold(0.0, f32::max);
+    let widest = longest(items).map_or(0.0, |t| ui.painter().layout_no_wrap(t.to_owned(), bold.clone(), theme::TEXT).size().x);
     ui.spacing_mut().item_spacing = Vec2::ZERO;
     ui.set_width((widest + TEXT_X + 12.0).max(min_width));
     let mut picked = None;

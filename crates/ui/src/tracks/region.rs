@@ -10,7 +10,7 @@ use crate::view::{RegionSelection, TimelineView};
 /// Movement under which a right button release counts as a click.
 const CLICK_PX: f32 = 4.0;
 
-pub struct RegionInput<'a> {
+pub(crate) struct RegionInput<'a> {
     pub region: Option<RegionSelection>,
     pub audio_len_sec: f64,
     /// Region edges are pulled to these (none: no snapping); Alt inverts `snapping`.
@@ -27,7 +27,7 @@ struct Active {
 
 /// `areas` are the lane parts where a press starts an edit; `timeline_left` is x = 0 of the view.
 /// Returns the new region (`Some(None)` when cleared) when this lane changed it.
-pub fn drive(ctx: &Context, id: Id, areas: &[Rect], timeline_left: f32, view: &TimelineView, input: &RegionInput) -> Option<Option<RegionSelection>> {
+pub(crate) fn drive(ctx: &Context, id: Id, areas: &[Rect], timeline_left: f32, view: &TimelineView, input: &RegionInput) -> Option<Option<RegionSelection>> {
     let (pressed, down, pos, alt, shift) = ctx.input(|i| (i.pointer.button_pressed(PointerButton::Secondary), i.pointer.button_down(PointerButton::Secondary), i.pointer.latest_pos(), i.modifiers.alt, i.modifiers.shift));
     let pos = pos?;
     let key = id.with("region_drag");

@@ -18,7 +18,8 @@ pub(crate) mod logic;
 mod ruler;
 mod waveform;
 
-#[cfg(test)]
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/overview/headless.rs"]
 mod headless;
 
 use std::ops::Range;

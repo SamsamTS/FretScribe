@@ -1,7 +1,7 @@
 //! Waveform strip below a spectrogram. Peaks come from a closure so the widget does not depend on
 //! the analysis crate.
 
-use egui::{Color32, Rect, Response, Sense, Shape, Stroke, Ui};
+use egui::{Rect, Response, Sense, Shape, Stroke, Ui};
 
 use crate::overview::{build_mesh, WaveformPalette};
 use crate::view::TimelineView;
@@ -57,7 +57,7 @@ impl<'a> WaveformView<'a> {
         let peaks = peaks((range.start - self.audio_offset_sec, range.end - self.audio_offset_sec), columns);
         painter.add(Shape::mesh(build_mesh(rect, ppp, &peaks, palette)));
         if let Some(sec) = self.playhead_sec {
-            painter.vline(rect.left() + view.sec_to_x(sec), rect.y_range(), Stroke::new(1.5_f32, Color32::from_rgb(255, 90, 80)));
+            painter.vline(rect.left() + view.sec_to_x(sec), rect.y_range(), Stroke::new(1.5_f32, crate::theme::PLAYHEAD));
         }
     }
 }
