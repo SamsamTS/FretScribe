@@ -171,8 +171,21 @@ _Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-00
 | `crates/ui/src/note_grid.rs` | 109 | reviewed | new on main; clean |
 | `crates/ui/src/tracks/region.rs` | 68 | reviewed | new on main; clean |
 
+## Re-inspection (main merged 2026-11-23; files changed since base 14ed048 are inspected again, one agent at a time)
+Group lists: `git diff --name-status -M 14ed048 HEAD -- '*.rs' '*.toml'`, split by area below. Verify the open/partial findings per area too.
+| Group | Files | Status |
+|---|---|---|
+| core | 17 | todo |
+| audio + analysis | 23 | todo |
+| notation + root Cargo + dev/demos + deps + docs | 18 | todo |
+| app | 17 | todo |
+| ui A (note_editor, spectro, tracks, overview, nav, grid) | 40 | todo |
+| ui B (top-level, staff_view, tab_view) | 12 | todo |
+| dev/tests core/misc | 55 | todo |
+| dev/tests ui | 40 | todo |
+
 ## Next
-First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`audio` where ALSA is available (I-004); (2) read the 35 test/example files line by line once the production findings land; (3) if main moves, `git fetch`, re-run the I-004 symbol check and the line-reference refresh before anything else.
+Re-inspection: take the first `todo` group above (old Progress rows below are from the first pass and may be stale for changed files). First pass complete. Suggested follow-ups: (1) run `unreachable_pub` on `app`/`audio` where ALSA is available (I-004); (2) read the 35 test/example files line by line once the production findings land; (3) if main moves, `git fetch`, re-run the I-004 symbol check and the line-reference refresh before anything else.
 
 ## Findings
 **Summary (all 165 files covered: 130 production/test-support files read in full or part, 35 test/example files scanned for duplicated helpers only; compiler lints run on core/notation/analysis/ui; 59 findings).** Top wins: I-043 (tab view per-frame whole-project tables), I-034 (home screen parses every recent project per frame), I-023 (k full tab solves per k-note edit), I-024 (3 full scene layouts per frame), I-010 (O(n²) re-tying and full-project clone per drag frame), I-014 (~110 lines of test-only `Player` code), I-013 (unused peak metering on the audio thread), I-022 (LUT folder re-decoded every frame while a menu is open), I-046 (spectro layout 3x per frame), I-057 (waveform colouring implemented twice), I-004 (~19 dead pub functions), I-005/I-006/I-059 (duplicated WAV/sine/assert/project test helpers). Estimated ~1,300 lines removable; dependencies removable: `anyhow`, app `thiserror`, app `log`, app `uuid`. No `unwrap`/`expect` in production code, no copy-pasted blocks of 7+ lines, no duplicate function bodies except `toast`, clippy clean on the default set.
