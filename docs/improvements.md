@@ -175,7 +175,7 @@ _Last updated: 2026-11-18 (I-034, I-010, I-023, I-014, I-024, I-043, I-001, I-00
 Group lists: `git diff --name-status -M 14ed048 HEAD -- '*.rs' '*.toml'`, split by area below. Verify the open/partial findings per area too.
 | Group | Files | Status |
 |---|---|---|
-| core | 17 | todo |
+| core | 17 | reviewed (I-060..I-070) |
 | audio + analysis | 23 | todo |
 | notation + root Cargo + dev/demos + deps + docs | 18 | todo |
 | app | 17 | todo |
@@ -651,3 +651,64 @@ Re-inspection: take the first `todo` group above (old Progress rows below are fr
 **Problem:** test fixtures drift apart (different default bpm/tuning per builder) and every new fixture field must be added in 15 places; examples are mostly boilerplate.
 **Instructions:** (1) add a `test-support` cargo feature (or `fretscribe-testkit` dev crate) exposing `project(measures)`, `with_notes(..)`, `write_wav`, `clicks`, `grey_lut`, and use it from all crates' tests; (2) add `ui/examples/common/mod.rs` with `run(title, impl App)` + the shortcuts, or fold the eight demos into one `demo` example selecting the widget by argument; (3) use `pico-args`/`std::env::args` helper once for the three CLIs (or drop the PNG export tests that overlap `examples/spectrogram_png.rs`); (4) the `analysis/tests/export_*_png.rs` files duplicate `examples/{spectrogram_png,waveform_peaks}.rs`; keep one of each pair.
 **Risk:** low; behaviour-neutral; do it last so the earlier findings' tests keep compiling in between.
+
+### I-060 · `Snapshot` duplicates `Project` field by field · impact: med · saves ~35 lines, one clone on the failure path · status: open
+**Where:** `crates/core/src/delta.rs:15-51`, `edit.rs:13,125,129,148,153`, `dev/tests/unit/core/edit.rs:7,10`
+**Problem:** `Snapshot` has exactly the fields of `Project`; `restore` clones everything again on error.
+**Instructions:** 1. Delete `Snapshot`. 2. In `try_edit`/`transact_infallible` use `let before = self.clone();` and `*self = before;` on `Err`. 3. `Delta::diff`/`finish` take `&Project`. 4. Test hook compares with `*before`.
+**Risk:** low. `cargo test -p fretscribe-core`.
+
+### I-061 · `valid_links` clones the whole `Project`; grace code calls it 3-6 times per edit · impact: med · removes 4-6 project clones per grace add/retime and tab menu open, saves ~10 lines · status: open
+**Where:** `links.rs:395-407`; `grace.rs:211-212,254-284`; `ui/tab_view/edit.rs:207`
+**Problem:** the clone exists only to call `unlink(id)` first; `set_grace_link(id, default_grace_link(id))` re-validates a known-valid link.
+**Instructions:** 1. Add `replacing: bool` to `check_link` (skips HasOutgoing/HasIncoming/Cycle). 2. `can_link`/`link_notes` pass `false`; `valid_links` passes `self.outgoing(id).is_some()`, drop the scratch clone. 3. `add_grace_note`/`refresh_grace_link` call `set_link` directly. 4. Compute `valid_links(id)` once in `refresh_grace_link`.
+**Risk:** low-med. Grace and link tests; counting allocator on `add_grace_note`.
+
+### I-062 · `link_legato`: test-only `kind` parameter and one-element `Vec` · impact: low · saves ~16 lines · status: open
+**Where:** `grace.rs:38-48,308-362`, `links.rs:476,517`, `dev/tests/unit/core/grace.rs:180-190`
+**Problem:** every prod caller passes `None`; `candidates` holds 0 or 1 element; the returned `Legato` is always dropped.
+**Instructions:** 1. `link_legato(&mut self, from, to) -> Result<(), LegatoError>`, drop `KindMismatch`. 2. `NeedsSameString { candidate: (u8, u8) }`, remove Vec plumbing and `min_by_key`. 3. Update ~19 test call sites, drop the KindMismatch test.
+**Risk:** low.
+
+### I-063 · `check_link` tail is a redundant match ladder · impact: low · saves ~10 lines · status: open
+**Where:** `links.rs:254-279`
+**Problem:** empty arms for already-returned kinds; `ties_end(a) && !adjacent` written twice.
+**Instructions:** 1. One `matches!(kind, Tied | Legato)` adjacency check. 2. Replace the match by `if kind == Bend && ...` and `if kind == Legato && ...`.
+**Risk:** low. Keep error order (`NoSameString` before `NotAdjacent` for Legato); link tests cover it.
+
+### I-064 · Test-only unscoped tempo setters and duplicated bounds check · impact: low · saves ~25 lines · status: open
+**Where:** `measures.rs:105-112,139-146`, `lib.rs:42-43`, `edit.rs:196-205` vs `measures.rs:87-96`, `dev/tests/unit/ui/nav/maths.rs:170`
+**Instructions:** 1. Delete `set_tempo`/`set_time_sig` and re-exports; tests use `*_scoped(.., Propagation::Following)`. 2. `measures::check_index` becomes `pub(crate)`; delete `Project::check_measure`, use it at `edit.rs:240,366,415,456,337`.
+**Risk:** low (compiler lists every use).
+
+### I-065 · Test-only items and wide `pub` in `core` (extends I-004) · impact: low · saves ~20 lines · status: open
+**Where:** dead in prod: `pitch.rs:59` `freq_to_midi_float`, `edit.rs:86-93` `ProjectEdit::undo/redo`, `tempo.rs:179` `ticks_to_pos`. `pub(crate)` candidates: `links.rs:163,317,389` (`chain_of`, `tie_links`, `split_chain`), `grace.rs:241,264,308,351,18-19,76`, `snap_note.rs:81`. Unused re-exports in `lib.rs`: `effective_divisions`, `freq_to_midi_float`, `grace_default_sec`, `ACCIACCATURA_SEC`, `APPOGGIATURA_SEC`, `AUTOSAVE_GENERATIONS`, `CURRENT_VERSION`, `DEFAULT_UNDO_LIMIT`, `SNAP_DIVISIONS`, `BeatLine`, `project_end_sec`.
+**Instructions:** 1. Delete the dead items with their tests (inline `ticks_to_pos` into `beats_to_pos`). 2. Narrow the listed visibilities. 3. Trim `lib.rs` re-exports.
+**Risk:** low. `cargo check --workspace --all-targets`.
+
+### I-066 · Six identical `build.rs` · impact: low · saves ~48 lines and an `unwrap` · status: open
+**Where:** `crates/{core,audio,analysis,notation,ui,app}/build.rs` (`core/build.rs:3` unwrap)
+**Instructions:** 1. One `build.rs` at the workspace root. 2. `build = "../../build.rs"` in the six manifests. 3. Use `env!("CARGO_MANIFEST_DIR")`. 4. Delete the six files.
+**Risk:** low. Check `dev_tests` turns on with `cargo test -p fretscribe-core` and off without `dev/`.
+
+### I-067 · Selection button state is O(selected x notes) per frame · impact: low-med · perf, estimated 2-5M comparisons per frame on select-all (unmeasured) · status: open
+**Where:** `ui/note_editor/buttons.rs:19-21`, `links.rs:130-152`
+**Instructions:** 1. Measure `action_buttons` with 1500 selected, no links. 2. If it matters, compute the three flags in one pass with a `HashSet` of the selection, or cache per selection/project version.
+**Risk:** low.
+
+### I-068 · Doubled `crate::tempo` imports and small tidy in `core` · impact: low · saves ~12 lines · status: open
+**Where:** `links.rs:12,16`, `grace.rs:12,15`, `edit.rs:12,18`, `snap_note.rs:8-11`, `snap.rs:7,9`, `measures.rs:8`, `overlap.rs:5,7`; `lib.rs:33-35,45`; `grace.rs:314,345`; `measures.rs:71`; stale doc `links.rs:426-427` (omits `Tied`); `persist.rs:188-194`
+**Instructions:** merge imports per file; fix formatting and the stale doc; shorten the `persist.rs` history match with `and_then(...ok())`.
+**Risk:** none.
+
+### I-069 · `delete_notes` always runs `resolve_overlaps`; `remove_notes` duplicates it · impact: low · saves ~8 lines, one O(n) pass per delete · status: open
+**Where:** `links.rs:535-570`, `edit.rs:487-492`, tests `dev/tests/unit/core/edit.rs:593,602`, `undo.rs:250`, `delta.rs:35,203`
+**Instructions:** 1. Guard with `if !sources.is_empty()`. 2. Extract the bridges closure to `bridge_pairs`. 3. Delete `remove_notes`, tests use `delete_notes(ids, false)`.
+**Risk:** low.
+
+### I-070 · `Delta::diff` hashes every note on each edit · impact: low-med · perf, removes 2 HashMaps + 1 BTreeSet per edit · status: open
+**Where:** `delta.rs:134-151`
+**Instructions:** both lists are sorted by id; replace the maps by a two-pointer merge walk; verify with a 2000-note benchmark and `random_mixed_edits_round_trip_and_merge`.
+**Risk:** low-med (relies on the sorted-by-id invariant).
+
+_Re-inspection notes: I-004 refs moved (`edit.rs:487`, `snap.rs:146`), see I-065. I-010 still clones in `valid_links` (I-061). I-011 has three private `1e-3` copies left (`edit.rs:20`, `grace.rs:20`, `links.rs:21`) and a raw `1e-9` at `grace.rs:157`. I-027 still applies (`model.rs:121-122`)._
