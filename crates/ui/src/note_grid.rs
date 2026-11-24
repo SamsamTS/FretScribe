@@ -91,7 +91,7 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
     for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
         let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
         if x1 >= clip.left() && x0 <= clip.right() {
-            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.6, color.gamma_multiply(0.65));
+            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.6, color.gamma_multiply(0.5));
         }
     }
 }
@@ -121,7 +121,7 @@ pub fn paint_let_ring(p: &egui::Painter, layout: &fretscribe_notation::staff::St
 /// One feathered triangle strip: the width swells smoothly on the downward strokes, and nothing overlaps, so
 /// a translucent `color` stays uniform.
 pub fn paint_wave(p: &egui::Painter, x0: f32, x1: f32, y: f32, height: f32, color: egui::Color32) {
-    let (amp, period) = (height / 2.0, height * 2.4);
+    let (amp, period) = (height / 2.0, height * 3.0);
     let (thin, thick, feather) = (0.8_f32, (period * 0.25).max(1.6), 0.7_f32);
     let steps = (((x1 - x0) / period.max(1.0)) * 16.0).ceil().max(2.0) as usize;
     let mut mesh = egui::Mesh::default();
