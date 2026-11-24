@@ -113,6 +113,8 @@ const DEFAULTS: &[(&str, NoteAction, &[&str])] = &[
     ("harmonic", CycleHarmonic, &["Y"]),
     ("palm_mute", TogglePalmMute, &["P"]),
     ("vibrato", ToggleVibrato, &["V"]),
+    ("let_ring", ToggleLetRing { propagate: false }, &["I"]),
+    ("let_ring_following", ToggleLetRing { propagate: true }, &["Ctrl+I"]),
     ("string_1", SetStringFromTop(1), &["1"]),
     ("string_2", SetStringFromTop(2), &["2"]),
     ("string_3", SetStringFromTop(3), &["3"]),

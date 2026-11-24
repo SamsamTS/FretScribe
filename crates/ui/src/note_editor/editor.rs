@@ -669,6 +669,28 @@ impl NoteEditor {
         self.clipboard = Clipboard::copy(env.project, tempo, &self.selection.ids);
     }
 
+    /// Targets: the measures of the selected notes, else the one under the pointer, else the one at the playhead.
+    fn toggle_let_ring(&mut self, env: &mut Env, propagate: bool) -> Vec<Effect> {
+        let index = |measure| env.tempo.index_of(measure);
+        let mut targets: Vec<usize> = self.selection.ids.iter().filter_map(|&id| env.project.note(id)).filter_map(|n| index(n.start.measure)).collect();
+        if targets.is_empty() {
+            let sec = self.last.map_or(env.playhead_sec, |l| l.sec);
+            targets.extend(index(env.tempo.sec_to_pos(sec).measure));
+        }
+        targets.sort_unstable();
+        targets.dedup();
+        let (Some(&last), measures) = (targets.last(), &env.project.measures) else { return Vec::new() };
+        let on = targets.iter().any(|&i| !measures[i].let_ring);
+        let edit = env.project.edit_notes("Let ring", |p| {
+            if propagate {
+                fretscribe_core::measures::set_let_ring(&mut p.measures, last, on)?;
+            }
+            targets.iter().for_each(|&i| p.measures[i].let_ring = on);
+            Ok(())
+        });
+        edit.map(|edit| vec![Effect::Edit { edit: Box::new(edit), merge: false, affected: Vec::new() }]).unwrap_or_default()
+    }
+
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
         match action {
             NoteAction::Copy => {
@@ -679,6 +701,7 @@ impl NoteEditor {
                 self.copy(env);
                 return self.action(env, NoteAction::Delete { bridge: false });
             }
+            NoteAction::ToggleLetRing { propagate } => return self.toggle_let_ring(env, propagate),
             NoteAction::Paste => {
                 if self.clipboard.is_some() && !self.is_busy() {
                     self.state = State::Paste { pressed: false };

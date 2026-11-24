@@ -40,6 +40,9 @@ pub enum NoteAction {
     /// Cycles natural, pinch, none (plain notes start with natural when their pitch has a node).
     CycleHarmonic,
     TogglePalmMute,
+    /// Let ring on the measures of the selected notes (else under the pointer, else at the playhead); `propagate`
+    /// also extends the change to the following measures that had the same old value. Handled by the editor.
+    ToggleLetRing { propagate: bool },
     ToggleVibrato,
     /// Clipboard commands: handled by the editor, which owns the clipboard (`apply` ignores them).
     Copy,
@@ -350,7 +353,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::Copy | NoteAction::Cut | NoteAction::Paste => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::Copy | NoteAction::Cut | NoteAction::Paste | NoteAction::ToggleLetRing { .. } => Ok(Applied::default()),
     }
 }
 

@@ -12,7 +12,7 @@ fn enabled(p: &Project, ids: &[u64]) -> Vec<(&'static str, bool)> {
 fn buttons_follow_what_the_selection_allows() {
     let mut p = project();
     let (a, b, c) = (add(&mut p, 64, 0.0, 1.0), add(&mut p, 66, 1.0, 2.0), add(&mut p, 67, 2.0, 3.0));
-    assert!(enabled(&p, &[a]).iter().all(|(l, on)| *on == matches!(*l, "H/P" | "Grace" | "Copy" | "Cut" | "Dead" | "Harm" | "P.M." | "Vib")));
+    assert!(enabled(&p, &[a]).iter().all(|(l, on)| *on == matches!(*l, "H/P" | "Grace" | "Copy" | "Cut" | "Dead" | "Harm" | "P.M." | "Vib" | "Ring")));
     assert!(enabled(&p, &[a, b]).contains(&("Link", true)));
     p.link_notes(a, b, LinkType::Slide).unwrap();
     p.link_notes(b, c, LinkType::Slide).unwrap();
@@ -20,7 +20,7 @@ fn buttons_follow_what_the_selection_allows() {
     assert!(e.contains(&("Unlink", true)) && e.contains(&("Type", true)) && e.contains(&("Bridge", false)));
     assert!(enabled(&p, &[b]).contains(&("Bridge", true)));
     assert!(enabled(&p, &[c]).contains(&("Unlink", false)));
-    assert!(enabled(&p, &[]).iter().all(|(l, on)| !*on) && enabled(&p, &[a]).contains(&("Grace", true)));
+    assert!(enabled(&p, &[]).iter().all(|(l, on)| !*on || *l == "Ring") && enabled(&p, &[a]).contains(&("Grace", true)));
 }
 
 #[test]

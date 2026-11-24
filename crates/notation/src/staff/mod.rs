@@ -123,6 +123,9 @@ pub struct MeasureLayout {
     pub index: usize,
     pub id: u64,
     pub start_sec: f64,
+    /// The next measure's start, or the nominal end for the last one.
+    pub end_sec: f64,
+    pub let_ring: bool,
     pub time_sig: TimeSignature,
     /// First measure, or the signature changed.
     pub show_time_sig: bool,
@@ -279,6 +282,8 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
             index: i,
             id: m.id,
             start_sec: m.start_sec,
+            end_sec: measures.get(i + 1).map_or(m.start_sec + m.nominal_duration_sec(), |next| next.start_sec),
+            let_ring: m.let_ring,
             time_sig: m.time_sig,
             show_time_sig: i == 0 || measures[i - 1].time_sig != m.time_sig,
             has_content: i < content,

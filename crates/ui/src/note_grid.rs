@@ -96,6 +96,27 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
     }
 }
 
+/// Dashed "let ring" lines over runs of consecutive flagged measures (text at the start, a tick at the end).
+pub fn paint_let_ring(p: &egui::Painter, layout: &fretscribe_notation::staff::StaffLayout, x_of: impl Fn(f64) -> f32, y: f32, unit: f32, color: egui::Color32) {
+    let stroke = egui::Stroke::new(1.0_f32, color);
+    let mut runs: Vec<(f64, f64)> = Vec::new();
+    for (i, m) in layout.measures.iter().enumerate() {
+        match runs.last_mut().filter(|_| m.let_ring && i > 0 && layout.measures[i - 1].let_ring) {
+            Some(r) => r.1 = m.end_sec,
+            None if m.let_ring => runs.push((m.start_sec, m.end_sec)),
+            None => {}
+        }
+    }
+    for (x0, x1) in runs.into_iter().map(|(a, b)| (x_of(a) + 2.0, x_of(b) - 2.0)) {
+        if x1 < p.clip_rect().left() || x0 > p.clip_rect().right() {
+            continue;
+        }
+        p.text(egui::pos2(x0, y - 1.0), egui::Align2::LEFT_BOTTOM, "let ring", egui::FontId::proportional(unit * 0.9), color);
+        p.extend(egui::Shape::dashed_line(&[egui::pos2(x0, y), egui::pos2(x1, y)], stroke, 4.0, 3.0));
+        p.line_segment([egui::pos2(x1, y), egui::pos2(x1, y + unit * 0.5)], stroke);
+    }
+}
+
 /// A sine from `x0` to `x1` around `y`, one period per `period` pixels.
 pub fn sine(x0: f32, x1: f32, y: f32, amp: f32, period: f32) -> Vec<egui::Pos2> {
     let steps = (((x1 - x0) / period.max(1.0)) * 8.0).ceil().max(2.0) as usize;

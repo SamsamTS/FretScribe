@@ -38,6 +38,10 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
     let harmonic = ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| matches!(n.technique, Some(Technique::Harmonic | Technique::PinchHarmonic)))), ..button(NoteAction::CycleHarmonic, "Harm", "harmonic", "Cycle harmonic: natural, pinch, none", !selection.ids.is_empty()) };
     let technique = |action, label, icon, name: &str, t| ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| n.technique == Some(t))), ..button(action, label, icon, name, !selection.ids.is_empty()) };
     let dead = technique(NoteAction::ToggleDead, "Dead", "dead-note", "Toggle dead (muted) note", Technique::Dead);
+    let ring = ActionButton {
+        active: !selection.ids.is_empty() && selection.ids.iter().filter_map(|&id| project.note(id)).all(|n| project.measures.iter().any(|m| m.id == n.start.measure && m.let_ring)),
+        ..button(NoteAction::ToggleLetRing { propagate: false }, "Ring", "let-ring", "Toggle let ring on the measures of the selection, the hovered measure or the playhead's; Ctrl also changes the following measures", true)
+    };
     let palm = technique(NoteAction::TogglePalmMute, "P.M.", "palm-mute", "Toggle palm mute", Technique::PalmMute);
     let vibrato = technique(NoteAction::ToggleVibrato, "Vib", "vibrato", "Toggle vibrato", Technique::Vibrato);
     vec![
@@ -54,6 +58,7 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
         harmonic,
         palm,
         vibrato,
+        ring,
     ]
 }
 
@@ -73,15 +78,20 @@ pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap, c
 /// Returns the clicked command; with nothing selected only Paste (when enabled) or the hint shows.
 pub fn show_action_row(ui: &mut Ui, buttons: &[ActionButton], selection: &Selection) -> Option<NoteAction> {
     let empty = selection.ids.is_empty();
-    if empty && !buttons.iter().any(|b| b.action == NoteAction::Paste && b.enabled) {
+    let always = |b: &ActionButton| b.enabled && matches!(b.action, NoteAction::Paste | NoteAction::ToggleLetRing { .. });
+    if empty && !buttons.iter().any(always) {
         ui.small(HINT);
         return None;
     }
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
-        for b in buttons.iter().filter(|b| !empty || b.action == NoteAction::Paste) {
+        for b in buttons.iter().filter(|b| !empty || always(b)) {
             if ui.add_enabled(b.enabled, Button::new(b.label).small().selected(b.active)).on_hover_text(&b.tooltip).clicked() {
-                clicked = Some(b.action);
+                let ctrl = ui.input(|i| i.modifiers.command);
+                clicked = Some(match b.action {
+                    NoteAction::ToggleLetRing { .. } => NoteAction::ToggleLetRing { propagate: ctrl },
+                    action => action,
+                });
             }
         }
     });

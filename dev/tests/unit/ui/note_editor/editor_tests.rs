@@ -890,3 +890,20 @@ fn x_while_drawing_makes_one_dead_note_at_the_press_pitch_and_again_restores_the
     assert!(h.p.notes.is_empty(), "a slide waits for its end click");
     assert!(h.ed.is_busy());
 }
+
+#[test]
+fn let_ring_targets_the_selection_then_the_playhead_and_ctrl_propagates() {
+    let (mut h, a, _) = two_notes();
+    let flags = |h: &H| h.p.measures.iter().take(4).map(|m| m.let_ring).collect::<Vec<_>>();
+    h.ed.selection.set(vec![a]);
+    let out = h.send(Input::Action(NoteAction::ToggleLetRing { propagate: false }));
+    assert_eq!((edits(&out), flags(&h)), (1, vec![true, false, false, false]));
+    h.ed.selection.set(Vec::new());
+    h.playhead = sec(6.0);
+    h.send(Input::Action(NoteAction::ToggleLetRing { propagate: false }));
+    assert_eq!(flags(&h), [true, true, false, false]);
+    h.send(Input::Action(NoteAction::ToggleLetRing { propagate: false }));
+    assert_eq!(flags(&h), [true, false, false, false]);
+    h.send(Input::Action(NoteAction::ToggleLetRing { propagate: true }));
+    assert_eq!(flags(&h), [true, true, true, true]);
+}
