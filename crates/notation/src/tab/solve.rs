@@ -23,10 +23,8 @@ type Slot = Option<(u8, u8)>;
 const CLUSTER_SEC: f64 = 0.040;
 const OVERLAP_EPS: f64 = 1e-6;
 const BEND_MAX_SEMITONES: u8 = 4;
-/// Cost per fret of an open string being further from the hand than the first position.
-
-
 const OPEN_FREE: u8 = 2;
+/// Cost per fret of an open string being further from the hand than the first position.
 const OPEN_REACH: f32 = 0.75;
 /// Cost per fret of playing above the low edge of the hand window, which keeps the hand low in its position.
 const DRIFT: f32 = 0.3;
@@ -503,12 +501,12 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
     };
     for (lo, hi) in windows {
         // The notes the previous item ended with: their mean string and the hand window they leave.
-        let before: Vec<(u8, u8)> = (lo > 0)
-            .then(|| {
-                let last = &items[lo - 1];
-                ends(last, |g| g.members.len() - 1).iter().filter_map(|&i| notes[last.notes[i]].string_fret).collect()
-            })
-            .unwrap_or_default();
+        let before: Vec<(u8, u8)> = if lo > 0 {
+            let last = &items[lo - 1];
+            ends(last, |g| g.members.len() - 1).iter().filter_map(|&i| notes[last.notes[i]].string_fret).collect()
+        } else {
+            Vec::new()
+        };
         let start = summarize(before.iter().copied());
         let start_anchor = before.iter().map(|s| s.1).filter(|&f| ctx.fretted(f)).min();
         let range: Vec<&Item> = items[lo..=hi].iter().collect();
