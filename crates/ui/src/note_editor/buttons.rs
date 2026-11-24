@@ -15,7 +15,7 @@ pub struct ActionButton {
 
 pub const HINT: &str = "Select notes, or hover one and press L to link (L again cycles the link type)";
 
-pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap) -> Vec<ActionButton> {
+pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap, clipboard: bool) -> Vec<ActionButton> {
     let selected = |f: &dyn Fn(u64) -> bool| selection.ids.iter().any(|&id| f(id));
     let has_link = selected(&|id| project.link_of(id).is_some());
     let middle = selected(&|id| project.outgoing(id).is_some() && project.incoming(id).is_some());
@@ -39,12 +39,15 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap)
         button(NoteAction::ForceLegato, "H/P", "legato", "Toggle hammer-on or pull-off into the selected note", !selection.ids.is_empty()),
         button(NoteAction::Grace, "Grace", "grace", "Add a grace note before the selected note", !selection.ids.is_empty()),
         button(NoteAction::Delete { bridge: true }, "Bridge", "bridge", "Delete and reconnect the neighbours", middle),
+        button(NoteAction::Copy, "Copy", "copy", "Copy the selected notes", !selection.ids.is_empty()),
+        button(NoteAction::Cut, "Cut", "cut", "Cut the selected notes", !selection.ids.is_empty()),
+        button(NoteAction::Paste, "Paste", "paste", "Paste the copied notes (click to place them)", clipboard),
     ]
 }
 
 /// The buttons of the source track header: link mode (L) instead of linking a selection.
-pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap) -> Vec<ActionButton> {
-    let mut buttons = action_buttons(project, selection, keymap);
+pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap, clipboard: bool) -> Vec<ActionButton> {
+    let mut buttons = action_buttons(project, selection, keymap, clipboard);
     let link = &mut buttons[0];
     link.action = NoteAction::LinkHover;
     link.enabled = true;
@@ -55,15 +58,16 @@ pub fn header_tools(project: &Project, selection: &Selection, keymap: &Keymap) -
     buttons
 }
 
-/// Returns the clicked command; shows the hint instead of the row when nothing is selected.
+/// Returns the clicked command; with nothing selected only Paste (when enabled) or the hint shows.
 pub fn show_action_row(ui: &mut Ui, buttons: &[ActionButton], selection: &Selection) -> Option<NoteAction> {
-    if selection.ids.is_empty() {
+    let empty = selection.ids.is_empty();
+    if empty && !buttons.iter().any(|b| b.action == NoteAction::Paste && b.enabled) {
         ui.small(HINT);
         return None;
     }
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
-        for b in buttons {
+        for b in buttons.iter().filter(|b| !empty || b.action == NoteAction::Paste) {
             if ui.add_enabled(b.enabled, Button::new(b.label).small()).on_hover_text(&b.tooltip).clicked() {
                 clicked = Some(b.action);
             }

@@ -11,6 +11,7 @@ struct H {
     grid: SnapGrid,
     now: f64,
     hovered: Option<u64>,
+    playhead: f64,
 }
 
 type Hit = Option<(u64, HitZone)>;
@@ -31,12 +32,12 @@ const ALT: Mods = Mods { shift: false, ctrl: false, alt: true };
 
 impl H {
     fn new() -> Self {
-        Self { p: project(), ed: NoteEditor::default(), grid: SnapGrid::new(&[4, 3]), now: 0.0, hovered: None }
+        Self { p: project(), ed: NoteEditor::default(), grid: SnapGrid::new(&[4, 3]), now: 0.0, hovered: None, playhead: 0.0 }
     }
 
     fn send(&mut self, input: Input) -> Vec<Effect> {
         let tempo = TempoMap::new(&self.p.measures);
-        let mut env = Env { project: &mut self.p, grid: &self.grid, tempo: &tempo, px_per_sec: PX_PER_SEC, threshold_px: 12.0, now: self.now, hovered: self.hovered };
+        let mut env = Env { project: &mut self.p, grid: &self.grid, tempo: &tempo, px_per_sec: PX_PER_SEC, threshold_px: 12.0, now: self.now, hovered: self.hovered, playhead_sec: self.playhead };
         self.ed.handle(&mut env, input)
     }
 
@@ -428,8 +429,8 @@ impl IntoMove for Mods {
 fn copy_and_paste_follow_the_cursor_horizontally_and_validate_on_left_click() {
     let (mut h, a, _) = two_notes();
     h.ed.selection.set(vec![a]);
-    h.send(Input::Copy);
-    h.send(Input::Paste);
+    h.send(Input::Action(NoteAction::Copy));
+    h.send(Input::Action(NoteAction::Paste));
     h.mv(s(5.0, 80.0, None), NONE);
     let ghost = h.ed.ghost.clone().expect("preview");
     assert_eq!((ghost.glyphs[0].midi, ghost.glyphs[0].start_sec), (60, sec(5.0)));
@@ -449,8 +450,8 @@ fn right_click_or_escape_cancels_the_paste_preview() {
     for escape in [false, true] {
         let (mut h, a, _) = two_notes();
         h.ed.selection.set(vec![a]);
-        h.send(Input::Copy);
-        h.send(Input::Paste);
+        h.send(Input::Action(NoteAction::Copy));
+        h.send(Input::Action(NoteAction::Paste));
         h.mv(s(5.0, 60.0, None), NONE);
         if escape {
             h.send(Input::Escape);
@@ -827,8 +828,37 @@ fn keyboard_commands_each_give_one_undo_step_cut_pastes_back_and_snap_keys_repor
         let edits = h.send(Input::Action(action)).iter().filter(|e| matches!(e, Effect::Edit { .. })).count();
         assert_eq!(edits, 1, "{action:?}");
     }
-    h.send(Input::Cut);
+    h.send(Input::Action(NoteAction::Cut));
     assert!(h.p.notes.is_empty());
-    h.send(Input::Paste);
+    h.send(Input::Action(NoteAction::Paste));
     assert!(h.ed.in_mode());
+}
+
+#[test]
+fn cut_is_one_undo_step_and_paste_without_a_clipboard_does_nothing() {
+    let (mut h, a, b) = two_notes();
+    h.send(Input::Action(NoteAction::Paste));
+    assert!(!h.ed.in_mode());
+    let before = h.p.clone();
+    h.ed.selection.set(vec![a, b]);
+    let out = h.send(Input::Action(NoteAction::Cut));
+    let Some(Effect::Edit { edit, .. }) = out.into_iter().next() else { panic!("edit") };
+    assert!(h.p.notes.is_empty());
+    edit.undo(&mut h.p);
+    assert_eq!(h.p, before);
+}
+
+#[test]
+fn paste_starts_at_the_snapped_playhead_and_keeps_techniques() {
+    let (mut h, a, _) = two_notes();
+    h.p.notes.iter_mut().find(|n| n.id == a).unwrap().technique = Some(fretscribe_core::Technique::Harmonic);
+    h.ed.selection.set(vec![a]);
+    h.send(Input::Action(NoteAction::Copy));
+    h.playhead = sec(6.0) + 0.01;
+    h.send(Input::Action(NoteAction::Paste));
+    let ghost = h.ed.ghost.clone().expect("preview at the playhead");
+    assert_eq!(ghost.glyphs[0].start_sec, sec(6.0));
+    h.press(Button::Left, s(6.0, 60.0, None), NONE);
+    h.rel(Button::Left, s(6.0, 60.0, None), NONE);
+    assert_eq!(h.p.notes.last().unwrap().technique, Some(fretscribe_core::Technique::Harmonic));
 }

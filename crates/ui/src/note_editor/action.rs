@@ -34,6 +34,10 @@ pub enum NoteAction {
     SelectPrevious { extend: bool },
     /// Starts the link drawing mode (UI state only).
     LinkHover,
+    /// Clipboard commands: handled by the editor, which owns the clipboard (`apply` ignores them).
+    Copy,
+    Cut,
+    Paste,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -276,7 +280,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::Copy | NoteAction::Cut | NoteAction::Paste => Ok(Applied::default()),
     }
 }
 

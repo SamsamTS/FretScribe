@@ -53,9 +53,6 @@ pub enum Input {
     Action(NoteAction),
     /// A key of the grace entry (only meaningful while `in_entry`).
     Entry(EntryKey),
-    Copy,
-    Cut,
-    Paste,
 }
 
 #[derive(Debug)]
@@ -77,6 +74,8 @@ pub struct Env<'a> {
     /// Seconds, any monotonic clock.
     pub now: f64,
     pub hovered: Option<u64>,
+    /// Where a paste starts when the pointer is not over the source lane.
+    pub playhead_sec: f64,
 }
 
 /// A link being drawn: aiming (the first point follows the pointer, fixed by the right button's
@@ -239,23 +238,6 @@ impl NoteEditor {
             }
             Input::Action(action) => self.action(env, action),
             Input::Entry(key) => self.entry_key(env, key),
-            Input::Copy => {
-                self.copy(env);
-                Vec::new()
-            }
-            Input::Cut => {
-                self.copy(env);
-                self.action(env, NoteAction::Delete { bridge: false })
-            }
-            Input::Paste => {
-                if self.clipboard.is_some() && !self.is_busy() {
-                    self.state = State::Paste { pressed: false };
-                    if let Some(at) = self.last {
-                        self.update_paste(env, &at, false);
-                    }
-                }
-                Vec::new()
-            }
         }
     }
 
@@ -397,7 +379,7 @@ impl NoteEditor {
                 }
             }
             State::Marquee { from, .. } => self.marquee = Some((from.pos, at.pos)),
-            State::Paste { .. } => self.update_paste(env, at, mods.alt),
+            State::Paste { .. } => self.update_paste(env, at.sec, mods.alt),
             State::Idle | State::Pending { .. } => {}
             State::Grace { mut entry, pressed } => {
                 entry.pointer(env.project, at.sec, at.refined);
@@ -418,8 +400,8 @@ impl NoteEditor {
         with_ctx(env, alt, |ctx| snap_edge(ctx.tempo.sec_to_pos(sec), Edge::Start, ctx.tempo, &[], &ctx.opts(NO_STICKY)))
     }
 
-    fn update_paste(&mut self, env: &Env, at: &Sample, alt: bool) {
-        let anchor = Self::paste_anchor(env, at.sec, alt);
+    fn update_paste(&mut self, env: &Env, sec: f64, alt: bool) {
+        let anchor = Self::paste_anchor(env, sec, alt);
         let tempo = env.tempo;
         self.ghost = self.clipboard.as_ref().map(|c| c.ghost(tempo, anchor));
     }
@@ -671,12 +653,34 @@ impl NoteEditor {
         }
     }
 
+    pub fn is_pasting(&self) -> bool {
+        matches!(self.state, State::Paste { .. })
+    }
+
     fn copy(&mut self, env: &Env) {
         let tempo = env.tempo;
         self.clipboard = Clipboard::copy(env.project, tempo, &self.selection.ids);
     }
 
     fn action(&mut self, env: &mut Env, action: NoteAction) -> Vec<Effect> {
+        match action {
+            NoteAction::Copy => {
+                self.copy(env);
+                return Vec::new();
+            }
+            NoteAction::Cut => {
+                self.copy(env);
+                return self.action(env, NoteAction::Delete { bridge: false });
+            }
+            NoteAction::Paste => {
+                if self.clipboard.is_some() && !self.is_busy() {
+                    self.state = State::Paste { pressed: false };
+                    self.update_paste(env, env.playhead_sec, false);
+                }
+                return Vec::new();
+            }
+            _ => {}
+        }
         if action == NoteAction::LinkHover {
             // L while linking cycles the kind of the link being drawn, on a linked note the kind of its link.
             if let State::Link(l) = &mut self.state {

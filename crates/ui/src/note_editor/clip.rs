@@ -54,6 +54,9 @@ impl Clipboard {
             .map(|c| {
                 let mut n = c.note.clone();
                 n.id = fresh[&c.note.id];
+                if !n.locked_fret {
+                    n.string_fret = None;
+                }
                 n.start = tempo.beats_to_pos(base + c.start_off);
                 n.end = tempo.beats_to_pos(base + c.end_off);
                 n.link_to = n.link_to.and_then(|to| fresh.get(&to).copied());
