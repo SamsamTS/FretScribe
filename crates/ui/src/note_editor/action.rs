@@ -39,6 +39,8 @@ pub enum NoteAction {
     ToggleDead,
     /// Cycles natural, pinch, none (plain notes start with natural when their pitch has a node).
     CycleHarmonic,
+    TogglePalmMute,
+    ToggleVibrato,
     /// Clipboard commands: handled by the editor, which owns the clipboard (`apply` ignores them).
     Copy,
     Cut,
@@ -264,6 +266,8 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
+        NoteAction::TogglePalmMute => toggle_technique(project, ids, Technique::PalmMute, "Palm mute", false),
+        NoteAction::ToggleVibrato => toggle_technique(project, ids, Technique::Vibrato, "Vibrato", false),
         NoteAction::CycleHarmonic => cycle_harmonic(project, ids),
         NoteAction::ToggleDead => toggle_technique(project, ids, Technique::Dead, "Dead note", true),
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),

@@ -72,3 +72,35 @@ pub fn harmonic_tag(technique: Option<fretscribe_core::Technique>) -> Option<&'s
         _ => None,
     }
 }
+
+/// Palm mute brackets ("P.M." and a dashed line to the last note of the run) and vibrato waves of `layout`,
+/// drawn on the line `y`; `x_of` maps seconds to screen x and `unit` is the line spacing.
+pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::staff::StaffLayout, x_of: impl Fn(f64) -> f32, y: f32, unit: f32, color: egui::Color32) {
+    use fretscribe_core::Technique;
+    let (clip, stroke) = (p.clip_rect(), egui::Stroke::new(1.0_f32, color));
+    for run in fretscribe_notation::staff::technique_runs(layout, Technique::PalmMute) {
+        let (x0, x1) = (x_of(run.first_sec), x_of(run.last_sec));
+        if x1 < clip.left() || x0 > clip.right() {
+            continue;
+        }
+        p.text(egui::pos2(x0, y - 1.0), egui::Align2::LEFT_BOTTOM, "P.M.", egui::FontId::proportional(unit * 0.9), color);
+        let end = egui::pos2(x1, y);
+        p.extend(egui::Shape::dashed_line(&[egui::pos2(x0, y), end], stroke, 3.0, 2.0));
+        p.line_segment([end, end + egui::vec2(0.0, unit * 0.5)], stroke);
+    }
+    for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
+        let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
+        if x1 >= clip.left() && x0 <= clip.right() {
+            p.add(egui::Shape::line(sine(x0, x1, y - unit * 0.6, unit * 0.3, unit), stroke));
+        }
+    }
+}
+
+/// A sine from `x0` to `x1` around `y`, one period per `period` pixels.
+pub fn sine(x0: f32, x1: f32, y: f32, amp: f32, period: f32) -> Vec<egui::Pos2> {
+    let steps = (((x1 - x0) / period.max(1.0)) * 8.0).ceil().max(2.0) as usize;
+    (0..=steps).map(|i| {
+        let x = x0 + (x1 - x0) * i as f32 / steps as f32;
+        egui::pos2(x, y + amp * ((x - x0) / period * std::f32::consts::TAU).sin())
+    }).collect()
+}

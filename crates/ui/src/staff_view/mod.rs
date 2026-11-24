@@ -518,6 +518,7 @@ impl StaffView<'_> {
             paint.tuplets(layout, range);
             links::draw(&paint, layout, self.selected);
         }
+        crate::note_grid::paint_technique_marks(paint.p, layout, |sec| paint.tx(sec), paint.top - 0.8 * paint.s, paint.s, self.style.ink);
         if let Some(sec) = self.playhead {
             let x = paint.tx(sec);
             painter.vline(x, rect.y_range(), Stroke::new(1.0_f32, self.style.playhead));

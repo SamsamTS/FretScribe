@@ -149,6 +149,32 @@ impl StaffLayout {
     }
 }
 
+/// Horizontal extent of consecutive events holding a technique.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TechniqueRun {
+    pub first_sec: f64,
+    pub last_sec: f64,
+    pub end_sec: f64,
+}
+
+/// Runs of consecutive events that hold `technique` on any note; a rest or an event without it ends a run.
+pub fn technique_runs(layout: &StaffLayout, technique: fretscribe_core::Technique) -> Vec<TechniqueRun> {
+    let mut runs: Vec<TechniqueRun> = Vec::new();
+    let mut open = false;
+    for e in &layout.events {
+        if e.rest || !e.notes.iter().any(|n| n.technique == Some(technique)) {
+            open = false;
+            continue;
+        }
+        match runs.last_mut().filter(|_| open) {
+            Some(r) => (r.last_sec, r.end_sec) = (e.x_sec, e.x_end_sec),
+            None => runs.push(TechniqueRun { first_sec: e.x_sec, last_sec: e.x_sec, end_sec: e.x_end_sec }),
+        }
+        open = true;
+    }
+    runs
+}
+
 pub fn bend_label(semitones: i32) -> Option<String> {
     match semitones {
         ..=0 => None,

@@ -35,8 +35,11 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
             active: false,
         }
     };
-    let dead = ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| n.technique == Some(Technique::Dead))), ..button(NoteAction::ToggleDead, "Dead", "dead-note", "Toggle dead (muted) note", !selection.ids.is_empty()) };
     let harmonic = ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| matches!(n.technique, Some(Technique::Harmonic | Technique::PinchHarmonic)))), ..button(NoteAction::CycleHarmonic, "Harm", "harmonic", "Cycle harmonic: natural, pinch, none", !selection.ids.is_empty()) };
+    let technique = |action, label, icon, name: &str, t| ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| n.technique == Some(t))), ..button(action, label, icon, name, !selection.ids.is_empty()) };
+    let dead = technique(NoteAction::ToggleDead, "Dead", "dead-note", "Toggle dead (muted) note", Technique::Dead);
+    let palm = technique(NoteAction::TogglePalmMute, "P.M.", "palm-mute", "Toggle palm mute", Technique::PalmMute);
+    let vibrato = technique(NoteAction::ToggleVibrato, "Vib", "vibrato", "Toggle vibrato", Technique::Vibrato);
     vec![
         button(NoteAction::LinkSelection, "Link", "link", "Link the selected notes", selection.ids.len() >= 2),
         button(NoteAction::UnlinkSelection, "Unlink", "unlink", "Remove the links that start at the selected notes", has_link),
@@ -49,6 +52,8 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
         button(NoteAction::Paste, "Paste", "paste", "Paste the copied notes (click to place them)", clipboard),
         dead,
         harmonic,
+        palm,
+        vibrato,
     ]
 }
 

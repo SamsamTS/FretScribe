@@ -159,6 +159,16 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         } else {
             painter.rect_stroke(*r, radius, Stroke::new(1.5_f32, faded(color, 0.95)), egui::StrokeKind::Inside);
         }
+        match items.iter().find(|it| it.id == *id).and_then(|it| it.technique) {
+            Some(Technique::PalmMute) if r.width() >= 14.0 => {
+                painter.text(r.left_top() + egui::vec2(2.0, 1.0), Align2::LEFT_TOP, "PM", FontId::monospace(m.font_px() * 0.8), faded(color, 1.0));
+            }
+            Some(Technique::Vibrato) if r.width() >= 12.0 => {
+                let (x0, h) = (r.left() + r.width() * 0.4, r.height());
+                painter.add(Shape::line(super::super::note_grid::sine(x0, r.right() - 2.0, r.center().y, (h * 0.25).min(4.0), 6.0), Stroke::new(1.0_f32, faded(color, 0.95))));
+            }
+            _ => {}
+        }
         let harmonic = items.iter().find(|it| it.id == *id).and_then(|it| it.technique).filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
         let d = (m.dot_radius() * 1.4).min(r.height() / 2.2);
         if let Some(t) = harmonic.filter(|_| r.width() >= 4.0 * d) {

@@ -111,6 +111,8 @@ const DEFAULTS: &[(&str, NoteAction, &[&str])] = &[
     ("legato", ForceLegato, &["H"]),
     ("dead_note", ToggleDead, &["X"]),
     ("harmonic", CycleHarmonic, &["Y"]),
+    ("palm_mute", TogglePalmMute, &["P"]),
+    ("vibrato", ToggleVibrato, &["V"]),
     ("string_1", SetStringFromTop(1), &["1"]),
     ("string_2", SetStringFromTop(2), &["2"]),
     ("string_3", SetStringFromTop(3), &["3"]),

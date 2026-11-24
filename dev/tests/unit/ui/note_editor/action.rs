@@ -252,3 +252,29 @@ fn cycle_harmonic_follows_the_first_eligible_note_is_one_step_and_skips_linked_n
     let applied = run(&mut p, &[a, c], NoteAction::CycleHarmonic).unwrap();
     assert!(applied.edit.is_none());
 }
+
+#[test]
+fn palm_mute_and_vibrato_toggle_exclude_each_other_and_skip_notes_with_their_own_technique() {
+    let mut p = project();
+    let (a, b, c, d) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 64, 3.0, 4.0), add(&mut p, 67, 5.0, 6.0));
+    p.link_notes(a, b, LinkType::Bend).unwrap();
+    p.notes[3].technique = Some(Technique::Dead);
+    let all = [a, b, c, d];
+    let tech = |p: &Project| all.map(|i| note(p, i).technique);
+    let applied = run(&mut p, &all, NoteAction::TogglePalmMute).unwrap();
+    assert_eq!(tech(&p), [Some(Technique::Bend), Some(Technique::PalmMute), Some(Technique::PalmMute), Some(Technique::Dead)]);
+    assert_eq!((applied.message.as_deref(), applied.affected.is_empty()), (Some("2 note(s) skipped"), true));
+    run(&mut p, &all, NoteAction::ToggleVibrato).unwrap();
+    assert_eq!(tech(&p)[1..3], [Some(Technique::Vibrato); 2]);
+    run(&mut p, &all, NoteAction::ToggleVibrato).unwrap();
+    assert_eq!(tech(&p)[1..3], [None; 2]);
+}
+
+#[test]
+fn linking_replaces_palm_mute_or_vibrato_on_the_source() {
+    let mut p = project();
+    let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0));
+    run(&mut p, &[a], NoteAction::ToggleVibrato).unwrap();
+    p.link_notes(a, b, LinkType::Slide).unwrap();
+    assert_eq!(note(&p, a).technique, Some(Technique::Slide));
+}
