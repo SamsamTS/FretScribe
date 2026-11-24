@@ -91,7 +91,7 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
     for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
         let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
         if x1 >= clip.left() && x0 <= clip.right() {
-            p.add(egui::Shape::line(sine(x0, x1, y - unit * 0.6, unit * 0.3, unit), stroke));
+            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.3, unit * 0.8, color.gamma_multiply(0.5));
         }
     }
 }
@@ -117,11 +117,23 @@ pub fn paint_let_ring(p: &egui::Painter, layout: &fretscribe_notation::staff::St
     }
 }
 
-/// A sine from `x0` to `x1` around `y`, one period per `period` pixels.
-pub fn sine(x0: f32, x1: f32, y: f32, amp: f32, period: f32) -> Vec<egui::Pos2> {
-    let steps = (((x1 - x0) / period.max(1.0)) * 8.0).ceil().max(2.0) as usize;
-    (0..=steps).map(|i| {
+/// A calligraphic wave from `x0` to `x1` around `y`, one period per `period` pixels, thicker on the downward strokes.
+pub fn paint_wave(p: &egui::Painter, x0: f32, x1: f32, y: f32, amp: f32, period: f32, color: egui::Color32) {
+    let steps = (((x1 - x0) / period.max(1.0)) * 12.0).ceil().max(2.0) as usize;
+    let (thin, thick) = (0.5_f32, (amp * 0.9).clamp(1.2, 2.6));
+    let mut mesh = egui::Mesh::default();
+    for i in 0..=steps {
         let x = x0 + (x1 - x0) * i as f32 / steps as f32;
-        egui::pos2(x, y + amp * ((x - x0) / period * std::f32::consts::TAU).sin())
-    }).collect()
+        let phase = (x - x0) / period * std::f32::consts::TAU;
+        let w = 0.5 * (thin + (thick - thin) * phase.cos().max(0.0));
+        let cy = y + amp * phase.sin();
+        mesh.colored_vertex(egui::pos2(x, cy - w), color);
+        mesh.colored_vertex(egui::pos2(x, cy + w), color);
+        if i > 0 {
+            let k = 2 * i as u32;
+            mesh.add_triangle(k - 2, k - 1, k);
+            mesh.add_triangle(k - 1, k, k + 1);
+        }
+    }
+    p.add(egui::Shape::mesh(mesh));
 }

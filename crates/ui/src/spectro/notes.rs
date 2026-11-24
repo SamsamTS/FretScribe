@@ -176,8 +176,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
                 painter.text(r.left_top() + egui::vec2(2.0, 1.0), Align2::LEFT_TOP, "PM", FontId::monospace(m.font_px() * 0.8), faded(color, 1.0));
             }
             Some(Technique::Vibrato) if r.width() >= 12.0 => {
-                let (x0, h) = (r.left() + r.width() * 0.4, r.height());
-                painter.add(Shape::line(super::super::note_grid::sine(x0, r.right() - 2.0, r.center().y, (h * 0.25).min(4.0), 6.0), Stroke::new(1.0_f32, faded(color, 0.95))));
+                super::super::note_grid::paint_wave(painter, r.left() + 2.0, r.right() - 2.0, r.center().y, (r.height() * 0.25).min(4.0), 7.0, faded(color, 0.95));
             }
             _ => {}
         }
