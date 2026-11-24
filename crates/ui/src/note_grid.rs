@@ -91,7 +91,7 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
     for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
         let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
         if x1 >= clip.left() && x0 <= clip.right() {
-            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.3, unit * 0.8, color.gamma_multiply(0.5));
+            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.3, unit * 0.8, color.gamma_multiply(0.65));
         }
     }
 }
@@ -117,23 +117,20 @@ pub fn paint_let_ring(p: &egui::Painter, layout: &fretscribe_notation::staff::St
     }
 }
 
-/// A calligraphic wave from `x0` to `x1` around `y`, one period per `period` pixels, thicker on the downward strokes.
+/// A wave from `x0` to `x1` around `y`, one period per `period` pixels, thicker on the downward strokes
+/// (anti-aliased polylines, one run per stroke direction).
 pub fn paint_wave(p: &egui::Painter, x0: f32, x1: f32, y: f32, amp: f32, period: f32, color: egui::Color32) {
     let steps = (((x1 - x0) / period.max(1.0)) * 12.0).ceil().max(2.0) as usize;
-    let (thin, thick) = (0.5_f32, (amp * 0.9).clamp(1.2, 2.6));
-    let mut mesh = egui::Mesh::default();
-    for i in 0..=steps {
-        let x = x0 + (x1 - x0) * i as f32 / steps as f32;
-        let phase = (x - x0) / period * std::f32::consts::TAU;
-        let w = 0.5 * (thin + (thick - thin) * phase.cos().max(0.0));
-        let cy = y + amp * phase.sin();
-        mesh.colored_vertex(egui::pos2(x, cy - w), color);
-        mesh.colored_vertex(egui::pos2(x, cy + w), color);
-        if i > 0 {
-            let k = 2 * i as u32;
-            mesh.add_triangle(k - 2, k - 1, k);
-            mesh.add_triangle(k - 1, k, k + 1);
+    let thick = (amp * 0.7).clamp(1.8, 2.8);
+    let phase = |i: f32| i / steps as f32 * (x1 - x0) / period * std::f32::consts::TAU;
+    let point = |i: usize| egui::pos2(x0 + (x1 - x0) * i as f32 / steps as f32, y + amp * phase(i as f32).sin());
+    let down = |i: usize| phase(i as f32 - 0.5).cos() > 0.0;
+    let mut run = vec![point(0)];
+    for i in 1..=steps {
+        run.push(point(i));
+        if i == steps || down(i + 1) != down(i) {
+            let width = if down(i) { thick } else { 1.0 };
+            p.add(egui::Shape::line(std::mem::replace(&mut run, vec![point(i)]), egui::Stroke::new(width, color)));
         }
     }
-    p.add(egui::Shape::mesh(mesh));
 }
