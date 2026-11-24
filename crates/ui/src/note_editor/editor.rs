@@ -131,6 +131,8 @@ pub struct NoteEditor {
     down: [bool; 2],
     swallow: bool,
     ignore_seek: bool,
+    /// X pressed during a draw: the gesture yields one dead note.
+    dead_draw: bool,
     cycle: Option<(u64, f64)>,
     last: Option<Sample>,
     pub ghost: Option<GhostShape>,
@@ -200,6 +202,7 @@ impl NoteEditor {
 
     fn reset(&mut self) {
         self.state = State::Idle;
+        self.dead_draw = false;
         self.ghost = None;
         self.feedback = None;
         self.marquee = None;
@@ -353,8 +356,8 @@ impl NoteEditor {
             }
             State::Draw { press, was_slide, sticky } => {
                 let planned = with_ctx(env, mods.alt, |ctx| {
-                    let onto = target_of(at.hit).and_then(|t| plan_draw_onto(press, t, ctx)).map(|c| (c, NO_STICKY, false));
-                    onto.or_else(|| plan_draw(press, pt(at), was_slide, sticky, ctx).map(|p| (p.creation, p.snapped, p.slide)))
+                    let onto = target_of(at.hit).filter(|_| !self.dead_draw).and_then(|t| plan_draw_onto(press, t, ctx)).map(|c| (c, NO_STICKY, false));
+                    onto.or_else(|| plan_draw(press, pt(at), was_slide, self.dead_draw, sticky, ctx).map(|p| (p.creation, p.snapped, p.slide)))
                         .map(|(c, snapped, slide)| (ghost_of(&c, ctx.project, ctx.tempo), feedback(&c, ctx.project, ctx.tempo), snapped, slide))
                 });
                 match planned {
@@ -500,10 +503,10 @@ impl NoteEditor {
     /// that sets the end of its second note.
     fn finish_draw(&mut self, env: &mut Env, press: Pt, was_slide: bool, sticky: Sticky, at: &Sample, mods: Mods) -> Vec<Effect> {
         let cur = pt(at);
-        if let Some(c) = with_ctx(env, mods.alt, |ctx| target_of(at.hit).and_then(|t| plan_draw_onto(press, t, ctx))) {
+        if let Some(c) = with_ctx(env, mods.alt, |ctx| target_of(at.hit).filter(|_| !self.dead_draw).and_then(|t| plan_draw_onto(press, t, ctx))) {
             return self.commit(env, &c, "Draw linked note", true);
         }
-        let Some(plan) = with_ctx(env, mods.alt, |ctx| plan_draw(press, cur, was_slide, sticky, ctx)) else { return Vec::new() };
+        let Some(plan) = with_ctx(env, mods.alt, |ctx| plan_draw(press, cur, was_slide, self.dead_draw, sticky, ctx)) else { return Vec::new() };
         if !plan.slide {
             return self.commit(env, &plan.creation, "Draw note", true);
         }
@@ -610,9 +613,13 @@ impl NoteEditor {
             }
             SpectroEvent::DrawEnded { exact_midi_float, time_sec, .. } => {
                 let State::Draw { press, was_slide, sticky } = self.state.clone() else { return Vec::new() };
+                let dead = std::mem::take(&mut self.dead_draw);
                 self.reset();
+                self.dead_draw = dead;
                 let at = Sample { pos: Pos2::ZERO, sec: time_sec, midi: exact_midi_float, refined: exact_midi_float, hit: self.last.and_then(|l| l.hit) };
-                self.finish_draw(env, press, was_slide, sticky, &at, mods)
+                let effects = self.finish_draw(env, press, was_slide, sticky, &at, mods);
+                self.dead_draw = false;
+                effects
             }
             SpectroEvent::DrawCancelled => {
                 self.cancel();
@@ -680,6 +687,13 @@ impl NoteEditor {
                 return Vec::new();
             }
             _ => {}
+        }
+        if action == NoteAction::ToggleDead && matches!(self.state, State::Draw { .. }) {
+            self.dead_draw = !self.dead_draw;
+            if let Some(at) = self.last {
+                self.update(env, &at, Mods::default());
+            }
+            return Vec::new();
         }
         if action == NoteAction::LinkHover {
             // L while linking cycles the kind of the link being drawn, on a linked note the kind of its link.

@@ -112,6 +112,7 @@ pub(crate) struct GlyphItem {
     pub link: Option<(u64, LinkKind)>,
     pub legato_from: Option<u64>,
     pub grace: bool,
+    pub technique: Option<Technique>,
 }
 
 pub(crate) fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
@@ -167,6 +168,7 @@ pub(crate) fn items_in(notes: &[Note], times: &NoteTimes, window: Option<(f64, f
                 link: n.link_to.filter(|_| !tied).map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
                 legato_from: n.legato.map(|l| l.from).or_else(|| tie_source.get(&n.id).copied()),
                 grace: n.grace_of.is_some(),
+                technique: n.technique,
             })
         })
         .collect()

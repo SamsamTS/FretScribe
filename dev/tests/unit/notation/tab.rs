@@ -377,3 +377,25 @@ fn a_long_phrase_up_the_neck_stays_there_rather_than_dropping_to_a_low_position(
         assert!(f.at(i).is_some_and(|(_, fret)| fret >= 7), "{i}: {:?}", f.at(i));
     }
 }
+
+#[test]
+fn dead_note_takes_a_distinct_string_and_is_ignored_for_movement() {
+    let mut chord = fixture();
+    let (a, b) = (chord.add(64, 0.0, 1.0), chord.add(64, 0.0, 1.0));
+    chord.notes[b].technique = Some(Technique::Dead);
+    chord.solve();
+    assert_ne!(chord.at(a).map(|s| s.0), chord.at(b).map(|s| s.0));
+
+    let phrase = |dead: bool| {
+        let mut f = fixture();
+        let mut ids = f.seq(&[52, 53, 55]);
+        if dead {
+            let d = f.add(76, 3.0, 3.9);
+            f.notes[d].technique = Some(Technique::Dead);
+        }
+        ids.extend((0..3).map(|i| f.add([52, 53, 55][i], 4.0 + i as f64, 4.9 + i as f64)));
+        f.solve();
+        ids.iter().map(|&i| f.at(i)).collect::<Vec<_>>()
+    };
+    assert_eq!(phrase(true), phrase(false));
+}

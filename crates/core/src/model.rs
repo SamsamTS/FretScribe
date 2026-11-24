@@ -122,12 +122,21 @@ pub enum Technique {
     PalmMute,
     /// With `link_to`: this note is tied to the next one (same pitch, no interruption).
     Tie,
+    /// A muted percussive hit: the pitch only selects the string.
+    Dead,
+    PinchHarmonic,
+    Vibrato,
 }
 
 impl Technique {
     /// Whether the technique only makes sense together with `Note::link_to`.
     pub fn is_link(self) -> bool {
         matches!(self, Self::Slide | Self::Bend | Self::Tie)
+    }
+
+    /// Dead and harmonic notes take no slide, bend or legato link.
+    pub fn blocks_links(self) -> bool {
+        matches!(self, Self::Dead | Self::Harmonic | Self::PinchHarmonic)
     }
 }
 
@@ -171,6 +180,11 @@ pub struct Note {
 }
 
 impl Note {
+    /// Whether the note may take a dead or harmonic technique, or a slide, bend or legato link.
+    pub fn takes_links(&self) -> bool {
+        self.grace_of.is_none() && !self.technique.is_some_and(Technique::blocks_links)
+    }
+
     pub fn new(id: u64, midi: u8, start: TimePos, end: TimePos) -> Self {
         Self {
             id,

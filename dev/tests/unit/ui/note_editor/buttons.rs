@@ -12,7 +12,7 @@ fn enabled(p: &Project, ids: &[u64]) -> Vec<(&'static str, bool)> {
 fn buttons_follow_what_the_selection_allows() {
     let mut p = project();
     let (a, b, c) = (add(&mut p, 64, 0.0, 1.0), add(&mut p, 66, 1.0, 2.0), add(&mut p, 67, 2.0, 3.0));
-    assert!(enabled(&p, &[a]).iter().all(|(l, on)| *on == matches!(*l, "H/P" | "Grace" | "Copy" | "Cut")));
+    assert!(enabled(&p, &[a]).iter().all(|(l, on)| *on == matches!(*l, "H/P" | "Grace" | "Copy" | "Cut" | "Dead")));
     assert!(enabled(&p, &[a, b]).contains(&("Link", true)));
     p.link_notes(a, b, LinkType::Slide).unwrap();
     p.link_notes(b, c, LinkType::Slide).unwrap();

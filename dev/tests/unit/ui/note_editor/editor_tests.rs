@@ -862,3 +862,31 @@ fn paste_starts_at_the_snapped_playhead_and_keeps_techniques() {
     h.rel(Button::Left, s(6.0, 60.0, None), NONE);
     assert_eq!(h.p.notes.last().unwrap().technique, Some(fretscribe_core::Technique::Harmonic));
 }
+
+#[test]
+fn x_while_drawing_makes_one_dead_note_at_the_press_pitch_and_again_restores_the_slide() {
+    let begin = |h: &mut H| h.send(Input::Spectro(SpectroEvent::DrawBegan { midi: 60, exact_midi_float: 60.0, time_sec: sec(1.0) }, NONE));
+    let to = |f: fn(u8, f32, f64) -> SpectroEvent| Input::Spectro(f(64, 64.0, sec(2.0)), NONE);
+    let moved: fn(u8, f32, f64) -> SpectroEvent = |midi, exact_midi_float, time_sec| SpectroEvent::DrawMoved { midi, exact_midi_float, time_sec };
+    let ended: fn(u8, f32, f64) -> SpectroEvent = |midi, exact_midi_float, time_sec| SpectroEvent::DrawEnded { midi, exact_midi_float, time_sec };
+
+    let mut h = H::new();
+    begin(&mut h);
+    h.send(Input::Action(NoteAction::ToggleDead));
+    h.send(to(moved));
+    assert!(h.ed.ghost.as_ref().unwrap().glyphs.iter().all(|g| g.technique == Some(fretscribe_core::Technique::Dead)));
+    let out = h.send(to(ended));
+    assert_eq!(edits(&out), 1);
+    assert_eq!(h.p.notes.len(), 1);
+    assert_eq!((h.p.notes[0].midi, h.p.notes[0].technique), (60, Some(fretscribe_core::Technique::Dead)));
+
+    let mut h = H::new();
+    begin(&mut h);
+    h.send(Input::Action(NoteAction::ToggleDead));
+    h.send(Input::Action(NoteAction::ToggleDead));
+    h.send(to(moved));
+    assert!(h.ed.is_busy());
+    h.send(to(ended));
+    assert!(h.p.notes.is_empty(), "a slide waits for its end click");
+    assert!(h.ed.is_busy());
+}

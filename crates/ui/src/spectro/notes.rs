@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke};
-use fretscribe_core::{midi_to_name, Note, NoteTimes};
+use fretscribe_core::{midi_to_name, Note, NoteTimes, Technique};
 
 use super::glyphs::{chevron, corner_radius, items_in, label_visible, layout, Glyph, GlyphItem, NoteMetrics, Scene};
 pub use super::glyphs::{HitZone, LinkKind};
@@ -31,11 +31,12 @@ pub struct GhostGlyph {
     pub link_to: Option<(usize, LinkKind)>,
     pub legato_from: Option<usize>,
     pub grace: bool,
+    pub technique: Option<Technique>,
 }
 
 impl GhostShape {
     pub fn note(midi: u8, start_sec: f64, end_sec: f64) -> Self {
-        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false }] }
+        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false, technique: None }] }
     }
 
     fn items(&self) -> Vec<GlyphItem> {
@@ -50,6 +51,7 @@ impl GhostShape {
                 link: g.link_to.map(|(to, kind)| (to as u64, kind)),
                 legato_from: g.legato_from.map(|from| from as u64),
                 grace: g.grace,
+                technique: g.technique,
             })
             .collect()
     }
@@ -140,7 +142,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     let halo = Stroke::new(m.stroke() + 2.0, faded(BACKING, 0.6));
     let clip = painter.clip_rect();
 
-    let graces: HashSet<u64> = items.iter().filter(|it| it.grace).map(|it| it.id).collect();
+    let graces: HashSet<u64> = items.iter().filter(|it| it.grace || it.technique == Some(Technique::Dead)).map(|it| it.id).collect();
     for g in &scene.glyphs {
         let Glyph::Note(r, id) = g else { continue };
         if !r.intersects(clip) {
@@ -188,7 +190,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     if look.names {
         for it in items {
             let Some(r) = scene.name_area(it.id).filter(|r| r.intersects(clip)) else { continue };
-            let name = midi_to_name(it.midi);
+            let name = if it.technique == Some(Technique::Dead) { "×".to_owned() } else { midi_to_name(it.midi) };
             let dots: Vec<Pos2> = points.iter().filter(|p| p.note_id == it.id).map(|p| p.pos).collect();
             if label_visible(r, name.chars().count(), &dots, m) {
                 let font = FontId::monospace(m.font_px());

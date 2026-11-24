@@ -1,7 +1,7 @@
 use super::super::testkit::*;
 use super::*;
 use fretscribe_core::GraceKind;
-use fretscribe_core::Note;
+use fretscribe_core::{Note, Technique};
 
 fn sel(ids: &[u64]) -> Selection {
     let mut s = Selection::default();
@@ -196,4 +196,33 @@ fn string_keys_count_from_the_highest_string() {
     }
     p.tuning.open_strings = vec![28, 33, 38, 43];
     assert_eq!(run(&mut p, &[a], NoteAction::SetStringFromTop(5)).unwrap_err(), ActionError::NoPlacement);
+}
+
+#[test]
+fn toggle_dead_sets_on_mixed_selections_then_clears_and_skips_ineligible() {
+    let mut p = project();
+    let (a, b, c) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 67, 2.0, 3.0));
+    p.link_notes(a, b, LinkType::Slide).unwrap();
+    p.notes.iter_mut().find(|n| n.id == c).unwrap().technique = Some(Technique::Dead);
+    let before = p.notes.clone();
+    let applied = run(&mut p, &[a, b, c], NoteAction::ToggleDead).unwrap();
+    assert_eq!(applied.message.as_deref(), Some("2 note(s) skipped"));
+    assert_eq!(note(&p, a).technique, Some(Technique::Slide));
+    assert_eq!(note(&p, c).technique, None);
+    assert_eq!(applied.affected, [c]);
+    applied.edit.unwrap().undo(&mut p);
+    assert_eq!(p.notes, before);
+    run(&mut p, &[c], NoteAction::ToggleDead).unwrap();
+    assert_eq!(note(&p, c).technique, None);
+}
+
+#[test]
+fn toggle_dead_on_a_mix_sets_all_eligible_in_one_undo_step() {
+    let mut p = project();
+    let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0));
+    p.notes[1].technique = Some(Technique::Dead);
+    let edit = run(&mut p, &[a, b], NoteAction::ToggleDead).unwrap().edit.unwrap();
+    assert!([a, b].iter().all(|&i| note(&p, i).technique == Some(Technique::Dead)));
+    edit.undo(&mut p);
+    assert_eq!((note(&p, a).technique, note(&p, b).technique), (None, Some(Technique::Dead)));
 }

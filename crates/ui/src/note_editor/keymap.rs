@@ -109,6 +109,7 @@ const DEFAULTS: &[(&str, NoteAction, &[&str])] = &[
     ("cycle_link_type", CycleLinkType, &[]),
     ("grace", Grace, &["G"]),
     ("legato", ForceLegato, &["H"]),
+    ("dead_note", ToggleDead, &["X"]),
     ("string_1", SetStringFromTop(1), &["1"]),
     ("string_2", SetStringFromTop(2), &["2"]),
     ("string_3", SetStringFromTop(3), &["3"]),

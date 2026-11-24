@@ -51,11 +51,11 @@ fn cycling_the_link_type_shares_the_link_key() {
 
 #[test]
 fn config_overrides_unbinds_and_keeps_the_rest() {
-    let map = Keymap::from_json(r#"{ "link": "K", "grace": [], "delete": ["X", "Backspace"] }"#).unwrap();
+    let map = Keymap::from_json(r#"{ "link": "K", "grace": [], "delete": ["Q", "Backspace"] }"#).unwrap();
     assert_eq!(press(&map, &"K".parse().unwrap()), Some(LinkHover));
     assert_eq!(press(&map, &"L".parse().unwrap()), None);
     assert_eq!(press(&map, &"G".parse().unwrap()), None);
-    assert_eq!(press(&map, &"X".parse().unwrap()), Some(Delete { bridge: false }));
+    assert_eq!(press(&map, &"Q".parse().unwrap()), Some(Delete { bridge: false }));
     assert_eq!(press(&map, &"H".parse().unwrap()), Some(ForceLegato));
     assert_eq!(map.shortcut_label(LinkHover).as_deref(), Some("K"));
     assert_eq!(map.shortcut_label(Grace), None);

@@ -1,6 +1,6 @@
 //! Notes created by gestures: drawing, chain continuation and legato drags, with live feedback.
 
-use fretscribe_core::{add_beats, infer_link, same_string_fit, snap_edge, snap_note, min_subdivision_beats, EditError, Edge, LinkType, Note, Project, ProjectEdit, TempoMap, TimePos};
+use fretscribe_core::{add_beats, infer_link, same_string_fit, snap_edge, snap_note, min_subdivision_beats, EditError, Edge, LinkType, Note, Project, ProjectEdit, Technique, TempoMap, TimePos};
 use fretscribe_notation::tab::{candidate_label, lowest_fret_candidate};
 
 use super::EditCtx;
@@ -35,6 +35,8 @@ pub enum Ref {
 pub struct Creation {
     pub notes: Vec<NewNote>,
     pub links: Vec<(Ref, Ref, LinkType)>,
+    /// The new notes are dead notes (X while drawing).
+    pub dead: bool,
 }
 
 /// Snapped edges of the previous plan, fed back for hysteresis.
@@ -68,12 +70,12 @@ fn min_len_at(ctx: &EditCtx, pos: TimePos) -> f64 {
 
 /// The press is one end and the pointer the other; the earlier in time is the start. A pitch more
 /// than 0.75 semitone from the press row (0.5 once away) makes it a slide of two linked notes.
-pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &EditCtx) -> Option<DrawPlan> {
+pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, dead: bool, sticky: Sticky, ctx: &EditCtx) -> Option<DrawPlan> {
     let forward = press.sec <= cur.sec;
     let (first, second) = if forward { (press, cur) } else { (cur, press) };
     let press_row = row(press.midi);
     let limit = if was_slide { SLIDE_LEAVE_SEMITONES } else { SLIDE_ENTER_SEMITONES };
-    let slide = (cur.midi - f32::from(press_row)).abs() > limit;
+    let slide = !dead && (cur.midi - f32::from(press_row)).abs() > limit;
     let cur_row = if slide { row(cur.midi) } else { press_row };
     let (p_first, p_second) = if forward { (press_row, cur_row) } else { (cur_row, press_row) };
 
@@ -112,9 +114,10 @@ pub fn plan_draw(press: Pt, cur: Pt, was_slide: bool, sticky: Sticky, ctx: &Edit
                 NewNote { midi: p_second, start: e, end: add_beats(ctx.tempo, e, min) },
             ],
             links: vec![(Ref::New(0), Ref::New(1), LinkType::Slide)],
+            ..Default::default()
         }
     } else {
-        Creation { notes: vec![NewNote { midi: p_first, start: s, end: e }], links: Vec::new() }
+        Creation { notes: vec![NewNote { midi: p_first, start: s, end: e }], links: Vec::new(), dead }
     };
     Some(DrawPlan { creation, snapped: (Some(s), Some(e)), slide })
 }
@@ -142,7 +145,7 @@ pub fn plan_chain(last: u64, cur: Pt, sticky: Sticky, ctx: &EditCtx) -> Option<D
     }
     let end = add_beats(ctx.tempo, start, step_beats(ctx));
     Some(DrawPlan {
-        creation: Creation { notes: vec![NewNote { midi, start, end }], links: vec![(Ref::Existing(last), Ref::New(0), kind)] },
+        creation: Creation { notes: vec![NewNote { midi, start, end }], links: vec![(Ref::Existing(last), Ref::New(0), kind)], ..Default::default() },
         snapped: (Some(start), Some(end)),
         slide: true,
     })
@@ -180,7 +183,7 @@ pub fn plan_aim(src: u64, cur: Pt, target: Option<u64>, sticky: Sticky, forced: 
         let (from, to) = if ctx.tempo.pos_to_sec(t.start) >= ctx.tempo.pos_to_sec(source.start) { (source, t) } else { (t, source) };
         let kind = forced.filter(|k| project.can_link(from.id, to.id, *k).is_ok()).unwrap_or_else(|| project.infer_link_type(from.id, to.id));
         return if project.can_link(from.id, to.id, kind).is_ok() {
-            LinkAim::Join(Creation { notes: Vec::new(), links: vec![(Ref::Existing(from.id), Ref::Existing(to.id), kind)] })
+            LinkAim::Join(Creation { notes: Vec::new(), links: vec![(Ref::Existing(from.id), Ref::Existing(to.id), kind)], ..Default::default() })
         } else {
             LinkAim::Hidden
         };
@@ -249,7 +252,7 @@ pub fn plan_extend(start: &LinkStart, cur_sec: Option<f64>, sticky: Sticky, ctx:
     let (first, second) = if start.forward { (start.near, far) } else { (far, start.near) };
     let new = Ref::New(0);
     let link = if start.forward { (Ref::Existing(start.src), new, start.kind) } else { (new, Ref::Existing(start.src), start.kind) };
-    DrawPlan { creation: Creation { notes: vec![NewNote { midi: start.midi, start: first, end: second }], links: vec![link] }, snapped, slide: start.kind == LinkType::Slide }
+    DrawPlan { creation: Creation { notes: vec![NewNote { midi: start.midi, start: first, end: second }], links: vec![link], ..Default::default() }, snapped, slide: start.kind == LinkType::Slide }
 }
 
 /// Third step of a drawn slide: the last note of `base` ends at the pointer (it keeps its minimal
@@ -275,7 +278,7 @@ pub(crate) fn plan_slide_target(base: &Creation, target: u64, ctx: &EditCtx) -> 
     let id = fretscribe_core::next_note_id(&scratch);
     scratch.notes.push(Note::new(id, first.midi, first.start, first.end));
     scratch.can_link(id, target, LinkType::Slide).ok()?;
-    Some(Creation { notes: vec![first.clone()], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)] })
+    Some(Creation { notes: vec![first.clone()], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)], ..Default::default() })
 }
 
 /// A left drag from empty space released on an existing note: the press is one end of the new
@@ -287,9 +290,9 @@ pub(crate) fn plan_draw_onto(press: Pt, target: u64, ctx: &EditCtx) -> Option<Cr
     let at = snap_edge(ctx.tempo.sec_to_pos(press.sec), Edge::Start, ctx.tempo, &ctx.project.notes, &ctx.opts((None, None)));
     let midi = row(press.midi);
     let creation = if beats(ctx, at) < beats(ctx, t.start) - EPS {
-        Creation { notes: vec![NewNote { midi, start: at, end: t.start }], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)] }
+        Creation { notes: vec![NewNote { midi, start: at, end: t.start }], links: vec![(Ref::New(0), Ref::Existing(target), LinkType::Slide)], ..Default::default() }
     } else {
-        Creation { notes: vec![NewNote { midi, start: t.end, end: at }], links: vec![(Ref::Existing(target), Ref::New(0), LinkType::Slide)] }
+        Creation { notes: vec![NewNote { midi, start: t.end, end: at }], links: vec![(Ref::Existing(target), Ref::New(0), LinkType::Slide)], ..Default::default() }
     };
     commit_creation(&mut ctx.project.clone(), &creation, "").ok()?;
     Some(creation)
@@ -300,7 +303,9 @@ pub fn commit_creation(project: &mut Project, creation: &Creation, label: &str) 
     let mut ids = Vec::new();
     let edit = project.edit_notes(label, |p| {
         for (id, n) in (fretscribe_core::next_note_id(p)..).zip(&creation.notes) {
-            p.notes.push(Note::new(id, n.midi, n.start, n.end));
+            let mut note = Note::new(id, n.midi, n.start, n.end);
+            note.technique = creation.dead.then_some(Technique::Dead);
+            p.notes.push(note);
             ids.push(id);
         }
         let resolve = |r: Ref| match r {
@@ -324,13 +329,13 @@ pub fn ghost_of(creation: &Creation, project: &Project, tempo: &TempoMap) -> Gho
     let mut glyphs: Vec<GhostGlyph> = creation
         .notes
         .iter()
-        .map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None, grace: false })
+        .map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None, grace: false, technique: creation.dead.then_some(Technique::Dead) })
         .collect();
     let index_of = |r: Ref, glyphs: &mut Vec<GhostGlyph>| match r {
         Ref::New(i) => i,
         Ref::Existing(id) => {
             if let Some(n) = project.note(id) {
-                glyphs.push(GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None, grace: false });
+                glyphs.push(GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to: None, legato_from: None, grace: false, technique: n.technique });
             }
             glyphs.len() - 1
         }

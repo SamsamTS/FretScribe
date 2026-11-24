@@ -1,7 +1,7 @@
 //! The compact button row of the source track head for the commands that have no gesture.
 
 use egui::{Button, Ui};
-use fretscribe_core::Project;
+use fretscribe_core::{Project, Technique};
 
 use super::{Keymap, NoteAction, Selection};
 
@@ -11,6 +11,8 @@ pub struct ActionButton {
     pub icon: &'static str,
     pub tooltip: String,
     pub enabled: bool,
+    /// Shown pressed: every selected eligible note has the technique.
+    pub active: bool,
 }
 
 pub const HINT: &str = "Select notes, or hover one and press L to link (L again cycles the link type)";
@@ -30,8 +32,10 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
             icon,
             tooltip,
             enabled,
+            active: false,
         }
     };
+    let dead = ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| n.technique == Some(Technique::Dead))), ..button(NoteAction::ToggleDead, "Dead", "dead-note", "Toggle dead (muted) note", !selection.ids.is_empty()) };
     vec![
         button(NoteAction::LinkSelection, "Link", "link", "Link the selected notes", selection.ids.len() >= 2),
         button(NoteAction::UnlinkSelection, "Unlink", "unlink", "Remove the links that start at the selected notes", has_link),
@@ -42,6 +46,7 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
         button(NoteAction::Copy, "Copy", "copy", "Copy the selected notes", !selection.ids.is_empty()),
         button(NoteAction::Cut, "Cut", "cut", "Cut the selected notes", !selection.ids.is_empty()),
         button(NoteAction::Paste, "Paste", "paste", "Paste the copied notes (click to place them)", clipboard),
+        dead,
     ]
 }
 
@@ -68,7 +73,7 @@ pub fn show_action_row(ui: &mut Ui, buttons: &[ActionButton], selection: &Select
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
         for b in buttons.iter().filter(|b| !empty || b.action == NoteAction::Paste) {
-            if ui.add_enabled(b.enabled, Button::new(b.label).small()).on_hover_text(&b.tooltip).clicked() {
+            if ui.add_enabled(b.enabled, Button::new(b.label).small().selected(b.active)).on_hover_text(&b.tooltip).clicked() {
                 clicked = Some(b.action);
             }
         }

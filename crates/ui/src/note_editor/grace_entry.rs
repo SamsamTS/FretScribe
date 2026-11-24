@@ -131,7 +131,7 @@ impl GraceEntry {
         let id = self.place(&mut scratch).ok()?;
         let tempo = fretscribe_core::TempoMap::new(&scratch.measures);
         let link = scratch.grace_link(id);
-        let glyph = |id: u64, link_to, legato_from| scratch.note(id).map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to, legato_from, grace: n.grace_of.is_some() });
+        let glyph = |id: u64, link_to, legato_from| scratch.note(id).map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to, legato_from, grace: n.grace_of.is_some(), technique: n.technique });
         let to_main = match link {
             LinkType::Slide => Some((1, LinkKind::Slide)),
             LinkType::Bend => Some((1, LinkKind::Bend)),

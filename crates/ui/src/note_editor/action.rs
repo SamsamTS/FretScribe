@@ -1,6 +1,6 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
-use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use fretscribe_core::{min_subdivision_beats, Technique, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -34,6 +34,8 @@ pub enum NoteAction {
     SelectPrevious { extend: bool },
     /// Starts the link drawing mode (UI state only).
     LinkHover,
+    /// Sets the technique on every eligible selected note, or clears it when they all have it.
+    ToggleDead,
     /// Clipboard commands: handled by the editor, which owns the clipboard (`apply` ignores them).
     Copy,
     Cut,
@@ -95,6 +97,34 @@ fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Pro
         edit.undo(project);
     }
     Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
+}
+
+/// Whether `n` can take `technique`: dead and harmonic notes need to be link-free; the others only exclude
+/// a technique of their own (a link source or a dead / harmonic note).
+fn can_take(p: &Project, n: &Note, technique: Technique) -> bool {
+    if technique.blocks_links() {
+        n.grace_of.is_none() && p.outgoing(n.id).is_none() && p.incoming(n.id).is_none()
+    } else {
+        n.technique.is_none_or(|t| t == technique || matches!(t, Technique::PalmMute | Technique::Vibrato))
+    }
+}
+
+/// One undo step; `retab` asks the tab solver to re-run on the changed notes.
+fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, label: &str, retab: bool) -> Result<Applied, ActionError> {
+    let set: HashSet<u64> = ids.iter().copied().collect();
+    let eligible: Vec<u64> = selected(&project.notes, &set).filter(|n| can_take(project, n, technique)).map(|n| n.id).collect();
+    if eligible.is_empty() {
+        return Ok(Applied { message: Some(format!("{label}: no eligible note")), ..Applied::default() });
+    }
+    let all_set = selected(&project.notes, &set).filter(|n| eligible.contains(&n.id)).all(|n| n.technique == Some(technique));
+    let on = (!all_set).then_some(technique);
+    let edit = project.edit_notes(label, |p| {
+        p.notes.iter_mut().filter(|n| eligible.contains(&n.id)).for_each(|n| n.technique = on);
+        Ok(())
+    })?;
+    let skipped = ids.len() - eligible.len();
+    let message = (skipped > 0).then(|| format!("{skipped} note(s) skipped"));
+    Ok(Applied { edit: Some(edit), message, affected: if retab { eligible } else { Vec::new() }, ..Applied::default() })
 }
 
 fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {
@@ -200,6 +230,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
+        NoteAction::ToggleDead => toggle_technique(project, ids, Technique::Dead, "Dead note", true),
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
         NoteAction::ForceLegato => {
             let targets = if ids.len() > 1 { &ids[1..] } else { &ids[..] };
