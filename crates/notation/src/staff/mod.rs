@@ -49,6 +49,7 @@ pub struct StaffNote {
     pub tie_next: bool,
     /// Notehead on the other side of the stem (second in a chord).
     pub displaced: bool,
+    pub technique: Option<fretscribe_core::Technique>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -122,6 +123,9 @@ pub struct MeasureLayout {
     pub index: usize,
     pub id: u64,
     pub start_sec: f64,
+    /// The next measure's start, or the nominal end for the last one.
+    pub end_sec: f64,
+    pub let_ring: bool,
     pub time_sig: TimeSignature,
     /// First measure, or the signature changed.
     pub show_time_sig: bool,
@@ -146,6 +150,32 @@ impl StaffLayout {
     pub fn note_ref(&self, id: u64) -> Option<NoteRef> {
         self.refs.get(&id).copied()
     }
+}
+
+/// Horizontal extent of consecutive events holding a technique.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TechniqueRun {
+    pub first_sec: f64,
+    pub last_sec: f64,
+    pub end_sec: f64,
+}
+
+/// Runs of consecutive events that hold `technique` on any note; a rest or an event without it ends a run.
+pub fn technique_runs(layout: &StaffLayout, technique: fretscribe_core::Technique) -> Vec<TechniqueRun> {
+    let mut runs: Vec<TechniqueRun> = Vec::new();
+    let mut open = false;
+    for e in &layout.events {
+        if e.rest || !e.notes.iter().any(|n| n.technique == Some(technique)) {
+            open = false;
+            continue;
+        }
+        match runs.last_mut().filter(|_| open) {
+            Some(r) => (r.last_sec, r.end_sec) = (e.x_sec, e.x_end_sec),
+            None => runs.push(TechniqueRun { first_sec: e.x_sec, last_sec: e.x_sec, end_sec: e.x_end_sec }),
+        }
+        open = true;
+    }
+    runs
 }
 
 pub fn bend_label(semitones: i32) -> Option<String> {
@@ -212,6 +242,7 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
                     accidental: None,
                     tie_next: k + 1 < count || n.e > b,
                     displaced: false,
+                    technique: n.technique,
                 })
                 .collect();
             carried.push(notes.iter().map(|n| tied.contains(&n.id)).collect());
@@ -251,6 +282,8 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
             index: i,
             id: m.id,
             start_sec: m.start_sec,
+            end_sec: measures.get(i + 1).map_or(m.start_sec + m.nominal_duration_sec(), |next| next.start_sec),
+            let_ring: m.let_ring,
             time_sig: m.time_sig,
             show_time_sig: i == 0 || measures[i - 1].time_sig != m.time_sig,
             has_content: i < content,

@@ -16,17 +16,15 @@ use std::collections::HashMap;
 
 use fretscribe_core::{Note, NoteTimes, Technique, Tuning};
 
-use super::TabOptions;
+use super::{harmonic_candidates, TabOptions};
 
 type Slot = Option<(u8, u8)>;
 
 const CLUSTER_SEC: f64 = 0.040;
 const OVERLAP_EPS: f64 = 1e-6;
 const BEND_MAX_SEMITONES: u8 = 4;
-/// Cost per fret of an open string being further from the hand than the first position.
-
-
 const OPEN_FREE: u8 = 2;
+/// Cost per fret of an open string being further from the hand than the first position.
 const OPEN_REACH: f32 = 0.75;
 /// Cost per fret of playing above the low edge of the hand window, which keeps the hand low in its position.
 const DRIFT: f32 = 0.3;
@@ -45,6 +43,8 @@ struct Ctx<'a> {
     opts: &'a TabOptions,
     spans: Vec<(f64, f64)>,
     family: Vec<u64>,
+    /// Per note: dead notes cost and span like open strings (only their string matters).
+    dead: Vec<bool>,
 }
 
 impl Ctx<'_> {
@@ -56,6 +56,10 @@ impl Ctx<'_> {
 
     fn fretted(&self, fret: u8) -> bool {
         fret > self.capo
+    }
+
+    fn slot_cost(&self, slot: (u8, u8), note: usize) -> f32 {
+        if self.dead[note] { 1e-4 * f32::from(slot.0) } else { self.position_cost(slot) }
     }
 
     fn position_cost(&self, (string, fret): (u8, u8)) -> f32 {
@@ -166,6 +170,14 @@ fn derive(notes: &[Note], links: &Links, ctx: &Ctx, members: &[usize], string: u
     Some(frets)
 }
 
+/// The displayed placements of a lone harmonic note (`None` for any other group).
+fn harmonic_slots(ctx: &Ctx, notes: &[Note], members: &[usize]) -> Option<Vec<(u8, u8)>> {
+    let [m] = members else { return None };
+    let n = &notes[*m];
+    let kind = n.technique.filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic))?;
+    Some(harmonic_candidates(n.midi, kind, ctx.tuning, ctx.capo, ctx.opts.max_fret))
+}
+
 fn build_groups(notes: &[Note], ctx: &Ctx) -> Vec<Group> {
     let mut links = read_links(notes);
     let mut by_root: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -178,12 +190,15 @@ fn build_groups(notes: &[Note], ctx: &Ctx) -> Vec<Group> {
         .map(|mut members| {
             members.sort_by(|&a, &b| ctx.spans[a].0.total_cmp(&ctx.spans[b].0).then(notes[a].id.cmp(&notes[b].id)));
             let locked = members.iter().any(|&m| is_locked(&notes[m]));
-            let mut options: Vec<Vec<Slot>> = (0..ctx.tuning.open_strings.len())
-                .filter_map(|s| {
-                    let frets = derive(notes, &links, ctx, &members, s)?;
-                    Some(frets.into_iter().map(|f| Some((s as u8, f))).collect())
-                })
-                .collect();
+            let mut options: Vec<Vec<Slot>> = match harmonic_slots(ctx, notes, &members) {
+                Some(slots) => slots.into_iter().map(|s| vec![Some(s)]).collect(),
+                None => (0..ctx.tuning.open_strings.len())
+                    .filter_map(|s| {
+                        let frets = derive(notes, &links, ctx, &members, s)?;
+                        Some(frets.into_iter().map(|f| Some((s as u8, f))).collect())
+                    })
+                    .collect(),
+            };
             if locked {
                 options.retain(|o| members.iter().zip(o).all(|(&m, slot)| !is_locked(&notes[m]) || *slot == notes[m].string_fret));
                 if options.is_empty() {
@@ -279,7 +294,7 @@ impl Search<'_> {
             let skipped = option.iter().all(Option::is_none) && !group.members.is_empty();
             self.slots[base..base + option.len()].copy_from_slice(option);
             let mut added = if skipped && !free_skip { SKIP_PENALTY } else { 0.0 };
-            added += option.iter().flatten().map(|&s| self.ctx.position_cost(s)).sum::<f32>();
+            added += option.iter().zip(&self.item.notes[base..]).filter_map(|(s, &n)| s.map(|s| self.ctx.slot_cost(s, n))).sum::<f32>();
             if let Some(extra) = self.conflict_cost(base, base + option.len()) {
                 self.run(g + 1, cost + added + extra);
             }
@@ -298,7 +313,7 @@ impl Search<'_> {
                 }
                 extra += OVERLAP_PENALTY;
             }
-            if self.ctx.fretted(fa) && self.ctx.fretted(fb) {
+            if self.ctx.fretted(fa) && self.ctx.fretted(fb) && !self.ctx.dead[self.item.notes[a]] && !self.ctx.dead[self.item.notes[b]] {
                 extra += SPAN_PENALTY * (f32::from(fa.abs_diff(fb)) - span).max(0.0);
             }
         }
@@ -329,7 +344,7 @@ fn combos(item: &Item, ctx: &Ctx) -> Vec<Combo> {
         .map(|(cost, slots)| {
             let entry = summarize(firsts.iter().filter_map(|&i| slots[i]));
             let exit = summarize(lasts.iter().filter_map(|&i| slots[i]));
-            let frets = slots.iter().flatten().map(|s| s.1).filter(|&f| ctx.fretted(f));
+            let frets = slots.iter().zip(&item.notes).filter(|(_, &n)| !ctx.dead[n]).filter_map(|(s, _)| s.map(|s| s.1)).filter(|&f| ctx.fretted(f));
             let reach = frets.clone().min().zip(frets.max());
             Combo { slots, reach, cost, entry, exit }
         })
@@ -451,6 +466,7 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
         opts,
         spans: notes.iter().map(|n| (times.start_sec(n.id).unwrap_or(0.0), times.end_sec(n.id).unwrap_or(0.0))).collect(),
         family: notes.iter().map(|n| n.grace_of.map_or(n.id, |g| g.main)).collect(),
+        dead: notes.iter().map(|n| n.technique == Some(Technique::Dead)).collect(),
     };
     let items = build_items(notes, &ctx);
     let locked_item = |i: usize| items[i].groups.iter().any(|g| g.locked);
@@ -485,12 +501,12 @@ fn run(notes: &mut [Note], times: &NoteTimes, tuning: &Tuning, capo: u8, opts: &
     };
     for (lo, hi) in windows {
         // The notes the previous item ended with: their mean string and the hand window they leave.
-        let before: Vec<(u8, u8)> = (lo > 0)
-            .then(|| {
-                let last = &items[lo - 1];
-                ends(last, |g| g.members.len() - 1).iter().filter_map(|&i| notes[last.notes[i]].string_fret).collect()
-            })
-            .unwrap_or_default();
+        let before: Vec<(u8, u8)> = if lo > 0 {
+            let last = &items[lo - 1];
+            ends(last, |g| g.members.len() - 1).iter().filter_map(|&i| notes[last.notes[i]].string_fret).collect()
+        } else {
+            Vec::new()
+        };
         let start = summarize(before.iter().copied());
         let start_anchor = before.iter().map(|s| s.1).filter(|&f| ctx.fretted(f)).min();
         let range: Vec<&Item> = items[lo..=hi].iter().collect();
@@ -551,10 +567,15 @@ impl GroupOption {
 /// with the frets that follow; locks are ignored.
 pub fn group_options(notes: &[Note], tuning: &Tuning, capo: u8, opts: &TabOptions, id: u64) -> Vec<GroupOption> {
     let Some(at) = notes.iter().position(|n| n.id == id) else { return Vec::new() };
-    let ctx = Ctx { tuning, capo, opts, spans: Vec::new(), family: Vec::new() };
+    let ctx = Ctx { tuning, capo, opts, spans: Vec::new(), family: Vec::new(), dead: Vec::new() };
     let mut links = read_links(notes);
     let root = find(&mut links.parent, at);
     let members: Vec<usize> = (0..notes.len()).filter(|&i| find(&mut links.parent, i) == root).collect();
+    if let Some(slots) = harmonic_slots(&ctx, notes, &members) {
+        // One placement per string (the first, smallest offset): the menu and drag address placements by string.
+        let mut seen = Vec::new();
+        return slots.into_iter().filter(|s| !seen.contains(&s.0) && { seen.push(s.0); true }).map(|(string, fret)| GroupOption { string, frets: vec![(id, fret)] }).collect();
+    }
     (0..tuning.open_strings.len())
         .filter_map(|s| {
             let frets = derive(notes, &links, &ctx, &members, s)?;

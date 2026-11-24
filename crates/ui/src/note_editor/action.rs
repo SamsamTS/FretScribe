@@ -1,6 +1,7 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
-use fretscribe_core::{min_subdivision_beats, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
+use fretscribe_notation::tab::{harmonic_candidates, TabOptions};
+use fretscribe_core::{min_subdivision_beats, Technique, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -34,6 +35,19 @@ pub enum NoteAction {
     SelectPrevious { extend: bool },
     /// Starts the link drawing mode (UI state only).
     LinkHover,
+    /// Sets the technique on every eligible selected note, or clears it when they all have it.
+    ToggleDead,
+    /// Cycles natural, pinch, none (plain notes start with natural when their pitch has a node).
+    CycleHarmonic,
+    TogglePalmMute,
+    /// Let ring on the measures of the selected notes (else under the pointer, else at the playhead); `propagate`
+    /// also extends the change to the following measures that had the same old value. Handled by the editor.
+    ToggleLetRing { propagate: bool },
+    ToggleVibrato,
+    /// Clipboard commands: handled by the editor, which owns the clipboard (`apply` ignores them).
+    Copy,
+    Cut,
+    Paste,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -91,6 +105,71 @@ fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Pro
         edit.undo(project);
     }
     Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
+}
+
+/// Whether `n` can take `technique`: dead and harmonic notes need to be link-free; the others only exclude
+/// a technique of their own (a link source or a dead / harmonic note).
+fn can_take(p: &Project, n: &Note, technique: Technique) -> bool {
+    if technique.blocks_links() {
+        n.grace_of.is_none() && p.outgoing(n.id).is_none() && p.incoming(n.id).is_none()
+    } else {
+        n.technique.is_none_or(|t| t == technique || matches!(t, Technique::PalmMute | Technique::Vibrato))
+    }
+}
+
+/// The selected notes that can take `technique`.
+fn eligible(project: &Project, ids: &[u64], technique: Technique) -> Vec<Note> {
+    let set: HashSet<u64> = ids.iter().copied().collect();
+    selected(&project.notes, &set).filter(|n| can_take(project, n, technique)).cloned().collect()
+}
+
+/// Sets `technique` (or `None`) on `notes` in one undo step; the message mentions the `ids` that were skipped.
+fn set_technique(project: &mut Project, notes: &[Note], technique: Option<Technique>, label: &str, skipped: usize, retab: bool) -> Result<Applied, ActionError> {
+    let changed: Vec<u64> = notes.iter().map(|n| n.id).collect();
+    let edit = project.edit_notes(label, |p| {
+        for n in p.notes.iter_mut().filter(|n| changed.contains(&n.id)) {
+            n.technique = technique;
+            n.string_fret = n.string_fret.filter(|_| n.locked_fret || !retab);
+        }
+        Ok(())
+    })?;
+    let message = (skipped > 0).then(|| format!("{skipped} note(s) skipped"));
+    Ok(Applied { edit: Some(edit), message, affected: if retab { changed } else { Vec::new() }, ..Applied::default() })
+}
+
+/// Toggle: clears the technique when every eligible note has it, else sets it on all of them.
+fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, label: &str, retab: bool) -> Result<Applied, ActionError> {
+    let notes = eligible(project, &ids, technique);
+    if notes.is_empty() {
+        return Ok(Applied { message: Some(format!("{label}: no eligible note")), ..Applied::default() });
+    }
+    let on = (!notes.iter().all(|n| n.technique == Some(technique))).then_some(technique);
+    set_technique(project, &notes, on, label, ids.len() - notes.len(), retab)
+}
+
+fn has_placement(p: &Project, n: &Note, t: Technique) -> bool {
+    !harmonic_candidates(n.midi, t, &p.tuning, p.capo, TabOptions::default().max_fret).is_empty()
+}
+
+/// The harmonic state after `cur`: natural, pinch, none, skipping states the pitch has no placement for.
+fn next_harmonic(p: &Project, n: &Note, cur: Option<Technique>) -> Option<Technique> {
+    let has = |t| has_placement(p, n, t);
+    let states = [None, Some(Technique::Harmonic), Some(Technique::PinchHarmonic)];
+    let at = states.iter().position(|s| *s == cur).unwrap_or(0);
+    (1..=states.len()).map(|step| states[(at + step) % states.len()]).find(|s| s.is_none_or(has)).flatten()
+}
+
+fn cycle_harmonic(project: &mut Project, ids: Vec<u64>) -> Result<Applied, ActionError> {
+    let notes = eligible(project, &ids, Technique::Harmonic);
+    let Some(first) = notes.first() else {
+        return Ok(Applied { message: Some("Harmonic: no eligible note".to_owned()), ..Applied::default() });
+    };
+    let current = first.technique.filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
+    let target = next_harmonic(project, first, current);
+    let fitting: Vec<Note> = notes.iter().filter(|n| target.is_none_or(|t| has_placement(project, n, t))).cloned().collect();
+    let mut applied = set_technique(project, &fitting, target, "Harmonic", 0, true)?;
+    applied.message = Some(match target { Some(Technique::Harmonic) => "Natural harmonic", Some(_) => "Pinch harmonic", None => "No harmonic" }.to_owned());
+    Ok(applied)
 }
 
 fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {
@@ -196,6 +275,10 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
+        NoteAction::TogglePalmMute => toggle_technique(project, ids, Technique::PalmMute, "Palm mute", false),
+        NoteAction::ToggleVibrato => toggle_technique(project, ids, Technique::Vibrato, "Vibrato", false),
+        NoteAction::CycleHarmonic => cycle_harmonic(project, ids),
+        NoteAction::ToggleDead => toggle_technique(project, ids, Technique::Dead, "Dead note", true),
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
         NoteAction::ForceLegato => {
             let targets = if ids.len() > 1 { &ids[1..] } else { &ids[..] };
@@ -276,7 +359,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
-        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } => Ok(Applied::default()),
+        NoteAction::SelectAll | NoteAction::SelectNext { .. } | NoteAction::SelectPrevious { .. } | NoteAction::Copy | NoteAction::Cut | NoteAction::Paste | NoteAction::ToggleLetRing { .. } => Ok(Applied::default()),
     }
 }
 

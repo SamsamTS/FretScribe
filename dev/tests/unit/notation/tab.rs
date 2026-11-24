@@ -377,3 +377,60 @@ fn a_long_phrase_up_the_neck_stays_there_rather_than_dropping_to_a_low_position(
         assert!(f.at(i).is_some_and(|(_, fret)| fret >= 7), "{i}: {:?}", f.at(i));
     }
 }
+
+#[test]
+fn dead_note_takes_a_distinct_string_and_is_ignored_for_movement() {
+    let mut chord = fixture();
+    let (a, b) = (chord.add(64, 0.0, 1.0), chord.add(64, 0.0, 1.0));
+    chord.notes[b].technique = Some(Technique::Dead);
+    chord.solve();
+    assert_ne!(chord.at(a).map(|s| s.0), chord.at(b).map(|s| s.0));
+
+    let phrase = |dead: bool| {
+        let mut f = fixture();
+        let mut ids = f.seq(&[52, 53, 55]);
+        if dead {
+            let d = f.add(76, 3.0, 3.9);
+            f.notes[d].technique = Some(Technique::Dead);
+        }
+        ids.extend((0..3).map(|i| f.add([52, 53, 55][i], 4.0 + i as f64, 4.9 + i as f64)));
+        f.solve();
+        ids.iter().map(|&i| f.at(i)).collect::<Vec<_>>()
+    };
+    assert_eq!(phrase(true), phrase(false));
+}
+
+#[test]
+fn natural_harmonic_nodes_follow_the_capo_and_the_max_fret() {
+    let t = Tuning::standard();
+    let nat = |midi, capo, max| harmonic_candidates(midi, Technique::Harmonic, &t, capo, max);
+    assert_eq!(nat(52, 0, 22), [(0, 12)]);
+    assert_eq!(nat(59, 0, 22), [(0, 7), (0, 19)]);
+    assert_eq!(nat(64, 0, 22), [(0, 5), (1, 7), (1, 19)]);
+    assert_eq!(nat(64, 0, 24)[..2], [(0, 5), (0, 24)]);
+    assert_eq!(nat(54, 2, 22), [(0, 14)]);
+    assert!(nat(53, 0, 22).is_empty());
+}
+
+#[test]
+fn pinch_candidates_try_the_offsets_in_order() {
+    let t = Tuning::standard();
+    assert_eq!(harmonic_candidates(64, Technique::PinchHarmonic, &t, 0, 22), [(0, 12), (1, 7), (2, 2), (0, 5), (1, 0), (0, 0)]);
+    assert_eq!(placement_label(&t, 0, 5, 64, Some(Technique::PinchHarmonic)).as_deref(), Some("E 5 (+19)"));
+    assert_eq!(placement_label(&t, 0, 12, 52, Some(Technique::Harmonic)).as_deref(), Some("E <12>"));
+}
+
+#[test]
+fn harmonics_in_a_melody_take_their_displayed_placement_or_are_reported() {
+    let mut f = fixture();
+    let ids = f.seq(&[52, 53, 55, 52, 53]);
+    f.notes[ids[3]].technique = Some(Technique::Harmonic);
+    f.notes[ids[4]].technique = Some(Technique::Harmonic);
+    assert_eq!(f.solve(), vec![f.notes[ids[4]].id]);
+    assert_eq!(f.at(ids[3]), Some((0, 12)));
+    assert_eq!(f.at(ids[4]), None);
+    f.notes[ids[3]].technique = Some(Technique::PinchHarmonic);
+    f.solve();
+    let (s, fret) = f.at(ids[3]).unwrap();
+    assert!(harmonic_candidates(52, Technique::PinchHarmonic, &f.tuning, 0, 22).contains(&(s, fret)));
+}

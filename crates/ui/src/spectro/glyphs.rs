@@ -112,6 +112,7 @@ pub(crate) struct GlyphItem {
     pub link: Option<(u64, LinkKind)>,
     pub legato_from: Option<u64>,
     pub grace: bool,
+    pub technique: Option<Technique>,
 }
 
 pub(crate) fn items(notes: &[Note], times: &NoteTimes) -> Vec<GlyphItem> {
@@ -167,6 +168,7 @@ pub(crate) fn items_in(notes: &[Note], times: &NoteTimes, window: Option<(f64, f
                 link: n.link_to.filter(|_| !tied).map(|to| (to, kind)).or(dashed.map(|to| (to, LinkKind::Dashed))),
                 legato_from: n.legato.map(|l| l.from).or_else(|| tie_source.get(&n.id).copied()),
                 grace: n.grace_of.is_some(),
+                technique: n.technique,
             })
         })
         .collect()
@@ -238,6 +240,8 @@ pub(crate) struct Scene {
     /// Where the name of the destination of an on-the-beat grace note is centred: between the
     /// arriving link dot and the end dot (or the end) of the note.
     name_areas: HashMap<u64, Rect>,
+    /// Dead and harmonic notes: no free link points.
+    blocked: HashSet<u64>,
 }
 
 impl Scene {
@@ -252,7 +256,7 @@ impl Scene {
     /// Link dots, plus both free link points of `hovered` where no link is attached.
     pub(crate) fn link_points(&self, hovered: Option<u64>) -> Vec<LinkPoint> {
         let mut points = self.dots.clone();
-        if let Some((id, r)) = hovered.and_then(|id| Some((id, *self.rects.get(&id)?))) {
+        if let Some((id, r)) = hovered.filter(|id| !self.blocked.contains(id)).and_then(|id| Some((id, *self.rects.get(&id)?))) {
             let inset = (LEGATO_INSET * self.height).min(r.width() / 2.0);
             for (side, pos) in [(Side::Left, r.left_center() + vec2(inset, 0.0)), (Side::Right, r.right_center() - vec2(inset, 0.0))] {
                 if !self.side_attached(id, side) {
@@ -418,7 +422,7 @@ pub(crate) fn layout(geo: &SpectroGeometry, items: &[GlyphItem], m: &NoteMetrics
         })
         .collect();
     let locked = (0..n).map(|i| (items[i].id, [on_beat[i], !on_beat[i] && (band_to[i].is_some() || items[i].grace)])).collect();
-    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached, locked, name_areas }
+    Scene { height: h, glyphs, rects: items.iter().zip(&rects).map(|(it, r)| (it.id, *r)).collect(), order: items.iter().map(|it| it.id).collect(), dots, attached, locked, name_areas, blocked: items.iter().filter(|it| it.technique.is_some_and(Technique::blocks_links)).map(|it| it.id).collect() }
 }
 
 pub fn note_glyphs(geo: &SpectroGeometry, notes: &[Note], times: &NoteTimes, m: &NoteMetrics) -> Vec<Glyph> {

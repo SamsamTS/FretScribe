@@ -357,3 +357,18 @@ fn view_layout_round_trips_and_older_files_load_with_defaults() {
     bad.sanitise();
     assert!(bad.view.scroll_y == 0.0 && bad.view.pitch.is_none());
 }
+
+#[test]
+fn every_technique_round_trips_and_old_harmonic_files_still_load() {
+    use crate::model::Technique;
+    let all = [Technique::Slide, Technique::Bend, Technique::Harmonic, Technique::PalmMute, Technique::Tie, Technique::Dead, Technique::PinchHarmonic, Technique::Vibrato];
+    for t in all {
+        let mut f = file(0.0);
+        f.project.notes[0].technique = Some(t);
+        assert_eq!(from_json(&to_json(&f).unwrap()).unwrap(), f);
+    }
+    let mut value: Value = serde_json::from_str(&to_json(&file(0.0)).unwrap()).unwrap();
+    value["project"]["notes"][0]["technique"] = serde_json::json!("Harmonic");
+    let loaded = from_json(&value.to_string()).unwrap();
+    assert_eq!(loaded.project.notes[0].technique, Some(Technique::Harmonic));
+}

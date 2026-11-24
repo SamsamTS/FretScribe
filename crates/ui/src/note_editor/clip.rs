@@ -54,6 +54,9 @@ impl Clipboard {
             .map(|c| {
                 let mut n = c.note.clone();
                 n.id = fresh[&c.note.id];
+                if !n.locked_fret {
+                    n.string_fret = None;
+                }
                 n.start = tempo.beats_to_pos(base + c.start_off);
                 n.end = tempo.beats_to_pos(base + c.end_off);
                 n.link_to = n.link_to.and_then(|to| fresh.get(&to).copied());
@@ -79,6 +82,7 @@ impl Clipboard {
                 link_to: n.link_to.and_then(|to| index.get(&to)).map(|&i| (i, if n.technique == Some(Technique::Bend) { LinkKind::Bend } else { LinkKind::Slide })),
                 legato_from: n.legato.and_then(|l| index.get(&l.from).copied()),
                 grace: n.grace_of.is_some(),
+                technique: n.technique,
             })
             .collect();
         GhostShape { glyphs }

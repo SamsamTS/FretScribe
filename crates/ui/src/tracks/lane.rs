@@ -205,8 +205,9 @@ impl TrackLane<'_> {
                         .focus(shared.focus)
                         .region(shared.region.map(|r| (r.start_sec, r.end_sec)))
                         .height(height);
+                    let tails = fretscribe_core::ring::ring_end_secs(shared.project);
                     if notes_here {
-                        widget = widget.notes(&shared.project.notes, shared.times, if is_source { shared.selected } else { &[] });
+                        widget = widget.ring_tails(&tails).notes(&shared.project.notes, shared.times, if is_source { shared.selected } else { &[] });
                     }
                     if is_source {
                         widget = widget.ghost(shared.ghost);

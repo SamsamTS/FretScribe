@@ -246,6 +246,9 @@ impl TabView<'_> {
         if let (true, Some(layout)) = (state.show_stems, self.staff) {
             draw::stems(&ctx, layout);
         }
+        if let Some(layout) = self.staff {
+            crate::note_grid::paint_technique_marks(&painter, layout, |sec| geo.x(view, sec), geo.y(geo.strings.saturating_sub(1) as u8).min(geo.y(0)) - geo.gap, geo.gap * 0.5, st.ink);
+        }
         if let (Some(m), Some((string, fret))) = (&state.menu, state.preview) {
             if let Some(sec) = self.times.start_sec(m.note) {
                 ctx.number(pos2(geo.x(view, sec), geo.y(string)), &fret.to_string(), 1.0, string_color(usize::from(string), n).gamma_multiply(0.8), None);

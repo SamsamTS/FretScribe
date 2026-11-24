@@ -69,6 +69,8 @@ pub enum LinkError {
     NotAdjacent,
     #[error("there is no earlier note to link from")]
     NoPrevious,
+    #[error("note {0} is dead or a harmonic and takes no link")]
+    Ineligible(u64),
     #[error("only grace notes can have a dashed link")]
     DashedNeedsGrace,
 }
@@ -234,6 +236,9 @@ impl Project {
             } else {
                 Err(LinkError::DashedNeedsGrace)
             };
+        }
+        if let Some(bad) = [a, b].into_iter().find(|n| n.technique.is_some_and(Technique::blocks_links)) {
+            return Err(LinkError::Ineligible(bad.id));
         }
         let (sa, sb) = (
             times.start_sec(from).unwrap_or(0.0),

@@ -140,7 +140,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let tempo_map = fretscribe_core::TempoMap::new(&s.project.measures);
         let mut region_points: Vec<f64> = (0..tempo_map.len()).flat_map(|i| tempo_map.grid_lines(i, &s.ui.snap_grid).into_iter().map(|(sec, _)| sec).chain([tempo_map.measure_start_sec(i)])).collect();
         region_points.extend((!tempo_map.is_empty()).then(|| tempo_map.measure_end_sec(tempo_map.len() - 1, audio_len)));
-        let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap);
+        let tools = fretscribe_ui::note_editor::header_tools(&s.project, &s.editor.selection, &s.keymap, s.editor.clipboard.is_some());
         let out = TrackLanes {
             project: &s.project,
             source: &s.store,
@@ -394,7 +394,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     for input in tool_inputs.chain(collected.inputs) {
         let grid = snap_grid.get_or_insert_with(|| if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } });
         let mut effects = {
-            let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, now: ctx.input(|i| i.time), hovered };
+            let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, now: ctx.input(|i| i.time), hovered, playhead_sec: s.ui.playhead_sec };
             s.editor.handle(&mut env, input)
         };
         for effect in effects.drain(..) {

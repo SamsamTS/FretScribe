@@ -50,6 +50,9 @@ pub struct Measure {
     pub time_sig: TimeSignature,
     #[serde(default)]
     pub anchored: bool,
+    /// Let ring: the notes that start in this measure keep ringing (derived display, see `ring`).
+    #[serde(default)]
+    pub let_ring: bool,
 }
 
 impl Measure {
@@ -60,6 +63,7 @@ impl Measure {
             tempo_bpm,
             time_sig,
             anchored: false,
+            let_ring: false,
         }
     }
 
@@ -122,12 +126,21 @@ pub enum Technique {
     PalmMute,
     /// With `link_to`: this note is tied to the next one (same pitch, no interruption).
     Tie,
+    /// A muted percussive hit: the pitch only selects the string.
+    Dead,
+    PinchHarmonic,
+    Vibrato,
 }
 
 impl Technique {
     /// Whether the technique only makes sense together with `Note::link_to`.
     pub fn is_link(self) -> bool {
         matches!(self, Self::Slide | Self::Bend | Self::Tie)
+    }
+
+    /// Dead and harmonic notes take no slide, bend or legato link.
+    pub fn blocks_links(self) -> bool {
+        matches!(self, Self::Dead | Self::Harmonic | Self::PinchHarmonic)
     }
 }
 

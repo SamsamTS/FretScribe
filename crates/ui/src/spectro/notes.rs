@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke};
-use fretscribe_core::{midi_to_name, Note, NoteTimes};
+use fretscribe_core::{midi_to_name, Note, NoteTimes, Technique};
 
 use super::glyphs::{chevron, corner_radius, items_in, label_visible, layout, Glyph, GlyphItem, NoteMetrics, Scene};
 pub use super::glyphs::{HitZone, LinkKind};
@@ -31,11 +31,12 @@ pub struct GhostGlyph {
     pub link_to: Option<(usize, LinkKind)>,
     pub legato_from: Option<usize>,
     pub grace: bool,
+    pub technique: Option<Technique>,
 }
 
 impl GhostShape {
     pub fn note(midi: u8, start_sec: f64, end_sec: f64) -> Self {
-        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false }] }
+        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false, technique: None }] }
     }
 
     fn items(&self) -> Vec<GlyphItem> {
@@ -50,6 +51,7 @@ impl GhostShape {
                 link: g.link_to.map(|(to, kind)| (to as u64, kind)),
                 legato_from: g.legato_from.map(|from| from as u64),
                 grace: g.grace,
+                technique: g.technique,
             })
             .collect()
     }
@@ -108,6 +110,18 @@ impl NoteScene {
         Self { items, scene, metrics }
     }
 
+    /// Faint tails from each note's end to its let ring end.
+    pub(crate) fn draw_tails(&self, painter: &Painter, geo: &SpectroGeometry, tails: &std::collections::HashMap<u64, f64>) {
+        for (id, &sec) in tails {
+            let Some(r) = self.scene.rects.get(id).copied() else { continue };
+            let end = geo.sec_to_x(sec);
+            if end > r.right() {
+                let tail = Rect::from_min_max(egui::pos2(r.right(), r.center().y - r.height() * 0.2), egui::pos2(end, r.center().y + r.height() * 0.2));
+                painter.rect_filled(tail.intersect(painter.clip_rect()), 1.0, Color32::from_white_alpha(28));
+            }
+        }
+    }
+
     /// The note, link or arc under `pos` and the zone hit. `hovered` is the note whose free link
     /// points are shown, normally the one reported by the previous frame.
     pub fn hit(&self, pos: Pos2, hovered: Option<u64>) -> Option<(u64, HitZone)> {
@@ -140,7 +154,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     let halo = Stroke::new(m.stroke() + 2.0, faded(BACKING, 0.6));
     let clip = painter.clip_rect();
 
-    let graces: HashSet<u64> = items.iter().filter(|it| it.grace).map(|it| it.id).collect();
+    let graces: HashSet<u64> = items.iter().filter(|it| it.grace || it.technique == Some(Technique::Dead)).map(|it| it.id).collect();
     for g in &scene.glyphs {
         let Glyph::Note(r, id) = g else { continue };
         if !r.intersects(clip) {
@@ -156,6 +170,23 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
             stroke_path(painter, corners.to_vec(), Stroke::new(1.5_f32, faded(color, 0.95)), true);
         } else {
             painter.rect_stroke(*r, radius, Stroke::new(1.5_f32, faded(color, 0.95)), egui::StrokeKind::Inside);
+        }
+        match items.iter().find(|it| it.id == *id).and_then(|it| it.technique) {
+            Some(Technique::PalmMute) if r.width() >= 14.0 => {
+                painter.text(r.left_top() + egui::vec2(2.0, 1.0), Align2::LEFT_TOP, "PM", FontId::monospace(m.font_px() * 0.8), faded(color, 1.0));
+            }
+            Some(Technique::Vibrato) if r.width() >= 12.0 => {
+                super::super::note_grid::paint_wave(painter, r.left() + 2.0, r.right() - 2.0, r.center().y, r.height() * 0.25, faded(color, 0.5));
+            }
+            _ => {}
+        }
+        let harmonic = items.iter().find(|it| it.id == *id).and_then(|it| it.technique).filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
+        let d = (m.dot_radius() * 1.4).min(r.height() / 2.2);
+        if let Some(t) = harmonic.filter(|_| r.width() >= 4.0 * d) {
+            let c = r.left_center() + egui::vec2(1.5 * d, 0.0);
+            let points = vec![c + egui::vec2(0.0, -d), c + egui::vec2(d, 0.0), c + egui::vec2(0.0, d), c + egui::vec2(-d, 0.0)];
+            let fill = if t == Technique::PinchHarmonic { faded(color, 0.95) } else { Color32::TRANSPARENT };
+            painter.add(Shape::convex_polygon(points, fill, Stroke::new(1.2_f32, faded(color, 0.95))));
         }
     }
 
@@ -188,7 +219,7 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
     if look.names {
         for it in items {
             let Some(r) = scene.name_area(it.id).filter(|r| r.intersects(clip)) else { continue };
-            let name = midi_to_name(it.midi);
+            let name = if it.technique == Some(Technique::Dead) { "×".to_owned() } else { midi_to_name(it.midi) };
             let dots: Vec<Pos2> = points.iter().filter(|p| p.note_id == it.id).map(|p| p.pos).collect();
             if label_visible(r, name.chars().count(), &dots, m) {
                 let font = FontId::monospace(m.font_px());

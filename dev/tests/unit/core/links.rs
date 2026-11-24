@@ -382,3 +382,18 @@ fn link_selection_is_one_undoable_edit() {
     edit.undo(&mut p);
     assert_eq!(p.notes, before);
 }
+
+#[test]
+fn dead_and_harmonic_notes_take_no_link() {
+    for technique in [Technique::Dead, Technique::Harmonic, Technique::PinchHarmonic] {
+        let mut p = project();
+        let (a, b, c) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 64, 2.0, 3.0));
+        p.notes[1].technique = Some(technique);
+        for kind in [LinkType::Slide, LinkType::Bend, LinkType::Legato] {
+            assert_eq!(p.link_notes(a, b, kind), Err(LinkError::Ineligible(b)));
+            assert_eq!(p.link_notes(b, c, kind), Err(LinkError::Ineligible(b)));
+        }
+        assert_eq!(p.link_selection(&[a, b, c]).linked, 0);
+        assert!(p.force_legato(a, b).is_err());
+    }
+}

@@ -61,3 +61,16 @@ fn copying_nothing_gives_no_clipboard() {
     let p = project();
     assert!(Clipboard::copy(&p, &TempoMap::new(&p.measures), &[]).is_none());
 }
+
+#[test]
+fn paste_drops_automatic_strings_but_keeps_locked_ones() {
+    let mut p = project();
+    let (a, b) = (add(&mut p, 60, 1.0, 2.0), add(&mut p, 62, 2.0, 3.0));
+    for (id, lock) in [(a, false), (b, true)] {
+        let n = p.notes.iter_mut().find(|n| n.id == id).unwrap();
+        (n.string_fret, n.locked_fret) = (Some((2, 5)), lock);
+    }
+    let tempo = TempoMap::new(&p.measures);
+    let notes = Clipboard::copy(&p, &tempo, &[a, b]).unwrap().paste_notes(&tempo, at(5.0), 100);
+    assert_eq!((notes[0].string_fret, notes[1].string_fret), (None, Some((2, 5))));
+}

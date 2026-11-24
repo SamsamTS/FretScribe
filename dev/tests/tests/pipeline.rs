@@ -54,3 +54,25 @@ fn changing_the_tuning_reassigns_the_tab() {
     assert!(s.project.notes.iter().all(|n| n.string_fret.is_some()));
     let _ = before;
 }
+
+#[test]
+fn techniques_and_let_ring_go_through_tab_and_staff_without_changing_the_rests() {
+    use fretscribe_core::Technique::{Dead, Harmonic, PalmMute, PinchHarmonic, Vibrato};
+    let mut s = session();
+    for (n, t) in s.project.notes.iter_mut().zip([Dead, Harmonic, PinchHarmonic, PalmMute, Vibrato]) {
+        n.technique = Some(t);
+    }
+    s.project.notes[1].midi = 52;
+    s.project.notes[2].midi = 64;
+    s.infer_all();
+    s.recompute_staff();
+    let rests = |s: &Session| s.staff.events.iter().map(|e| (e.rest, e.x_sec.to_bits())).collect::<Vec<_>>();
+    let plain = rests(&s);
+    assert_eq!(s.project.notes[1].string_fret, Some((0, 12)));
+    assert!(s.project.notes[..5].iter().all(|n| n.string_fret.is_some()));
+    s.project.measures[..2].iter_mut().for_each(|m| m.let_ring = true);
+    s.recompute_staff();
+    assert_eq!(rests(&s), plain);
+    assert!(fretscribe_core::ring::ring_ends(&s.project).contains_key(&5), "the vibrato note rings");
+    assert!(!fretscribe_core::ring::ring_ends(&s.project).contains_key(&1), "dead notes do not");
+}

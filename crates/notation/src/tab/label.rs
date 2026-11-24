@@ -1,6 +1,6 @@
 //! The one place that names strings: spectrogram readout, menus and the tab ruler all go through here.
 
-use fretscribe_core::{midi_to_name, pitch_class_name, Tuning};
+use fretscribe_core::{midi_to_name, pitch_class_name, Technique, Tuning};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LabelStyle {
@@ -45,6 +45,17 @@ pub fn candidate_label_styled(tuning: &Tuning, string: u8, fret: u8, style: Labe
 
 pub fn candidate_label(tuning: &Tuning, string: u8, fret: u8) -> Option<String> {
     candidate_label_styled(tuning, string, fret, LabelStyle::Convention)
+}
+
+/// Menu label of a placement of `midi`: natural harmonics as "E <12>", pinch as "E 5 (+12)", others as `candidate_label`.
+pub fn placement_label(tuning: &Tuning, string: u8, fret: u8, midi: u8, technique: Option<Technique>) -> Option<String> {
+    let name = string_label(tuning, string)?;
+    let open = *tuning.open_strings.get(usize::from(string))?;
+    Some(match technique {
+        Some(Technique::Harmonic) => format!("{name} <{fret}>"),
+        Some(Technique::PinchHarmonic) => format!("{name} {fret} (+{})", i16::from(midi) - i16::from(open) - i16::from(fret)),
+        _ => format!("{name} {fret}"),
+    })
 }
 
 #[cfg(all(test, dev_tests))]

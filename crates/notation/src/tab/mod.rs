@@ -6,9 +6,9 @@ mod solve;
 #[path = "../../../../dev/tests/unit/notation/tab.rs"]
 mod tests;
 
-use fretscribe_core::Tuning;
+use fretscribe_core::{Technique, Tuning};
 
-pub use label::{candidate_label, candidate_label_styled, string_label, string_label_styled, LabelStyle};
+pub use label::{candidate_label, candidate_label_styled, placement_label, string_label, string_label_styled, LabelStyle};
 pub use solve::{assign_tabs, assign_tabs_range, assign_tabs_ranges, group_options, GroupOption};
 
 pub use fretscribe_core::MAX_FRET;
@@ -49,6 +49,37 @@ pub fn candidates(midi: u8, tuning: &Tuning, capo: u8, max_fret: u8) -> Vec<(u8,
             (capo..=max_fret).contains(&fret).then_some((string as u8, fret))
         })
         .collect()
+}
+
+/// Natural harmonic nodes: (fret counted from the capo, semitones above the open string).
+const NODES: [(u8, u8); 8] = [(12, 12), (7, 19), (19, 19), (5, 24), (24, 24), (9, 28), (4, 28), (16, 28)];
+/// Pinch harmonics sound this far above the fretted pitch, smallest first.
+pub const PINCH_OFFSETS: [u8; 3] = [12, 19, 24];
+
+/// The `(string, fret)` shown for a harmonic `midi` (the sounding pitch): `Technique::Harmonic` = natural
+/// nodes (frets above the capo, capo shifting the open pitch), `Technique::PinchHarmonic` = the plain
+/// candidates of `midi` minus each pinch offset, offsets in order; any other technique = `candidates`.
+pub fn harmonic_candidates(midi: u8, kind: Technique, tuning: &Tuning, capo: u8, max_fret: u8) -> Vec<(u8, u8)> {
+    match kind {
+        Technique::Harmonic => tuning
+            .open_strings
+            .iter()
+            .enumerate()
+            .flat_map(|(string, &open)| NODES.iter().filter(move |&&(fret, semis)| u16::from(open) + u16::from(capo) + u16::from(semis) == u16::from(midi) && capo + fret <= max_fret).map(move |&(fret, _)| (string as u8, capo + fret)))
+            .collect(),
+        Technique::PinchHarmonic => {
+            let mut all: Vec<(u8, u8)> = Vec::new();
+            for found in PINCH_OFFSETS.iter().filter_map(|&o| midi.checked_sub(o)).map(|m| candidates(m, tuning, capo, max_fret)) {
+                for c in found {
+                    if !all.contains(&c) {
+                        all.push(c);
+                    }
+                }
+            }
+            all
+        }
+        _ => candidates(midi, tuning, capo, max_fret),
+    }
 }
 
 /// Fret with the lowest number (not below the capo) on any string; ties go to the lower string.

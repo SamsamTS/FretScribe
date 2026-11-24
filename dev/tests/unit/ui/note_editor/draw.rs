@@ -6,7 +6,7 @@ fn pt(beat: f64, midi: f32) -> Pt {
 }
 
 fn draw(p: &Project, press: Pt, cur: Pt, was_slide: bool, alt: bool) -> Option<DrawPlan> {
-    with_ctx(p, &[4, 3], alt, |ctx| plan_draw(press, cur, was_slide, (None, None), ctx))
+    with_ctx(p, &[4, 3], alt, |ctx| plan_draw(press, cur, was_slide, false, (None, None), ctx))
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn drawing_snaps_across_a_tempo_change() {
     let ctx = EditCtx { project: &p, tempo: &tempo, grid: &grid, px_per_sec: PX_PER_SEC, threshold_px: 12.0, alt: false };
     let start = Pt { sec: tempo.pos_to_sec(TimePos::at(m1, 3.0)), midi: 60.0 };
     let end = Pt { sec: tempo.pos_to_sec(TimePos::at(m2, 1.02)), midi: 60.0 };
-    let c = plan_draw(start, end, false, (None, None), &ctx).unwrap().creation;
+    let c = plan_draw(start, end, false, false, (None, None), &ctx).unwrap().creation;
     assert_eq!((c.notes[0].start, c.notes[0].end), (TimePos::at(m1, 3.0), TimePos::at(m2, 1.0)));
 }
 

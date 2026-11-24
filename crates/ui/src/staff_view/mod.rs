@@ -8,10 +8,11 @@ mod links;
 use std::sync::Arc;
 
 use egui::{pos2, vec2, Align2, Color32, FontData, FontDefinitions, FontFamily, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui};
+use fretscribe_core::Technique;
 use fretscribe_notation::staff::{Accidental, Base, GraceMark, StaffEvent, StaffLayout};
 
 use crate::spectro::white;
-use crate::note_grid::NoteGrid;
+use crate::note_grid::{harmonic_tag, NoteGrid};
 use crate::view::TimelineView;
 
 pub const FONT_NAME: &str = "Bravura";
@@ -186,11 +187,18 @@ impl BeamLine {
     }
 }
 
-fn head_char(b: Base) -> &'static str {
+/// Dead notes use the X noteheads (SMuFL `noteheadX*`), harmonics the diamond ones (`noteheadDiamond*`).
+fn head_char(b: Base, technique: Option<Technique>) -> &'static str {
+    let kind = match technique {
+        Some(Technique::Dead) => 1,
+        Some(Technique::Harmonic | Technique::PinchHarmonic) => 2,
+        _ => 0,
+    };
+    let (whole, half, black) = [("\u{E0A2}", "\u{E0A3}", "\u{E0A4}"), ("\u{E0A7}", "\u{E0A8}", "\u{E0A9}"), ("\u{E0D8}", "\u{E0D9}", "\u{E0DB}")][kind];
     match b {
-        Base::Whole => "\u{E0A2}",
-        Base::Half => "\u{E0A3}",
-        _ => "\u{E0A4}",
+        Base::Whole => whole,
+        Base::Half => half,
+        _ => black,
     }
 }
 
@@ -308,7 +316,10 @@ impl Paint<'_> {
             let hx = x + if n.displaced { if up { hw } else { -hw } } else { 0.0 };
             let (y, color) = (self.py(n.step), self.colour(selected, n.id));
             self.ledgers(n.step, hx, hw);
-            self.glyph(head_char(e.duration.base), pos2(hx, y), 1.0, color, Align2::LEFT_CENTER);
+            self.glyph(head_char(e.duration.base, n.technique), pos2(hx, y), 1.0, color, Align2::LEFT_CENTER);
+            if let Some(tag) = harmonic_tag(n.technique) {
+                self.p.text(pos2(hx + hw / 2.0, y - self.s), Align2::CENTER_BOTTOM, tag, FontId::proportional(self.s * 0.8), color);
+            }
             self.dots(hx + hw, n.step, e.duration.dots);
             heads.push(Head { rect: Rect::from_min_size(pos2(hx, y - self.s / 2.0), vec2(hw, self.s)), id: n.id });
             if let Some(a) = n.accidental {
@@ -507,6 +518,8 @@ impl StaffView<'_> {
             paint.tuplets(layout, range);
             links::draw(&paint, layout, self.selected);
         }
+        crate::note_grid::paint_let_ring(paint.p, layout, |sec| paint.tx(sec), paint.top - 2.2 * paint.s, paint.s, self.style.ink);
+        crate::note_grid::paint_technique_marks(paint.p, layout, |sec| paint.tx(sec), paint.top - 2.0 * paint.s, paint.s * 0.75, self.style.ink);
         if let Some(sec) = self.playhead {
             let x = paint.tx(sec);
             painter.vline(x, rect.y_range(), Stroke::new(1.0_f32, self.style.playhead));

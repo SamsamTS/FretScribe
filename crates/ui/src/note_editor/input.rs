@@ -4,7 +4,7 @@ use egui::{Context, CursorIcon, Event, Id, Key, PointerButton, Pos2, Rect};
 use fretscribe_core::{Note, NoteTimes};
 
 use super::editor::{Button, Input, Mods, NoteEditor, Sample};
-use super::{EntryKey, Keymap};
+use super::{EntryKey, Keymap, NoteAction};
 use crate::spectro::{HitZone, NoteScene, SpectroEvent, SpectroGeometry};
 
 pub struct SourcePointer<'a> {
@@ -50,7 +50,8 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
             inputs.push(Input::Press { button: *button, at: sample(p, *button == Button::Right), mods });
         }
     }
-    if let Some(p) = pos.filter(|_| pressed.iter().any(|d| *d) || editor.in_mode()) {
+    // A paste preview keeps its playhead start until the pointer enters the lane.
+    if let Some(p) = pos.filter(|p| pressed.iter().any(|d| *d) || (editor.in_mode() && (inside(*p) || !editor.is_pasting()))) {
         inputs.push(Input::Move { at: sample(p, true), mods });
     }
     for (i, (pb, button)) in buttons.iter().enumerate() {
@@ -94,15 +95,15 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
             if i.key_pressed(Key::Escape) && !cancelled {
                 inputs.push(Input::Escape);
             }
-            inputs.extend(keymap.action_for(i).map(Input::Action));
-            for event in &i.events {
-                match event {
-                    Event::Copy => inputs.push(Input::Copy),
-                    Event::Cut => inputs.push(Input::Cut),
-                    Event::Paste(_) => inputs.push(Input::Paste),
-                    _ => {}
-                }
-            }
+            let keyed = keymap.action_for(i);
+            // The platform may also report Ctrl+C/X/V as clipboard events: one command per press.
+            let events = i.events.iter().filter_map(|e| match e {
+                Event::Copy => Some(NoteAction::Copy),
+                Event::Cut => Some(NoteAction::Cut),
+                Event::Paste(_) => Some(NoteAction::Paste),
+                _ => None,
+            });
+            inputs.extend(keyed.into_iter().chain(events.filter(|a| Some(*a) != keyed)).map(Input::Action));
         });
     }
     let double = ctx.input(|i| i.pointer.button_double_clicked(PointerButton::Primary));

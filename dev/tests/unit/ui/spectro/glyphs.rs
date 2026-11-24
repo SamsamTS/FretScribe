@@ -368,3 +368,10 @@ fn windowed_items_match_full_layout_and_keep_link_partners() {
         assert_eq!((w.link, w.legato_from), (f.link, f.legato_from));
     }
 }
+
+#[test]
+fn dead_notes_show_no_free_link_points() {
+    let (notes, times) = setup(&[(1, 50, 1.0, 2.0, None, Some(Technique::Dead)), (2, 52, 3.0, 4.0, None, None)]);
+    let free = |id| link_points(&geo(), &notes, &times, &metrics(), Some(id)).iter().filter(|p| p.free).count();
+    assert_eq!((free(1), free(2)), (0, 2));
+}
