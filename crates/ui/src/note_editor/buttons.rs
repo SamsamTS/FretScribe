@@ -35,15 +35,16 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
             active: false,
         }
     };
-    let harmonic = ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| matches!(n.technique, Some(Technique::Harmonic | Technique::PinchHarmonic)))), ..button(NoteAction::CycleHarmonic, "Harm", "harmonic", "Cycle harmonic: natural, pinch, none", !selection.ids.is_empty()) };
-    let technique = |action, label, icon, name: &str, t| ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| n.technique == Some(t))), ..button(action, label, icon, name, !selection.ids.is_empty()) };
-    let dead = technique(NoteAction::ToggleDead, "Dead", "dead-note", "Toggle dead (muted) note", Technique::Dead);
+    let some = !selection.ids.is_empty();
+    let technique = |action, label, icon, name: &str, held: fn(Technique) -> bool| ActionButton { active: selected(&|id| project.note(id).and_then(|n| n.technique).is_some_and(held)), ..button(action, label, icon, name, some) };
+    let harmonic = technique(NoteAction::CycleHarmonic, "Harm", "harmonic", "Cycle harmonic: natural, pinch, none", |t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
+    let dead = technique(NoteAction::ToggleDead, "Dead", "dead-note", "Toggle dead (muted) note", |t| t == Technique::Dead);
     let ring = ActionButton {
-        active: !selection.ids.is_empty() && selection.ids.iter().filter_map(|&id| project.note(id)).all(|n| project.measures.iter().any(|m| m.id == n.start.measure && m.let_ring)),
+        active: some && selection.ids.iter().filter_map(|&id| project.note(id)).all(|n| project.measures.iter().any(|m| m.id == n.start.measure && m.let_ring)),
         ..button(NoteAction::ToggleLetRing { propagate: false }, "Ring", "let-ring", "Toggle let ring on the measures of the selection, the hovered measure or the playhead's; Ctrl also changes the following measures", true)
     };
-    let palm = technique(NoteAction::TogglePalmMute, "P.M.", "palm-mute", "Toggle palm mute", Technique::PalmMute);
-    let vibrato = technique(NoteAction::ToggleVibrato, "Vib", "vibrato", "Toggle vibrato", Technique::Vibrato);
+    let palm = technique(NoteAction::TogglePalmMute, "P.M.", "palm-mute", "Toggle palm mute", |t| t == Technique::PalmMute);
+    let vibrato = technique(NoteAction::ToggleVibrato, "Vib", "vibrato", "Toggle vibrato", |t| t == Technique::Vibrato);
     vec![
         button(NoteAction::LinkSelection, "Link", "link", "Link the selected notes", selection.ids.len() >= 2),
         button(NoteAction::UnlinkSelection, "Unlink", "unlink", "Remove the links that start at the selected notes", has_link),

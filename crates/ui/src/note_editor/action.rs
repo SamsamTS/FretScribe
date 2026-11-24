@@ -117,53 +117,59 @@ fn can_take(p: &Project, n: &Note, technique: Technique) -> bool {
     }
 }
 
-/// One undo step; `retab` asks the tab solver to re-run on the changed notes.
-fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, label: &str, retab: bool) -> Result<Applied, ActionError> {
+/// The selected notes that can take `technique`.
+fn eligible(project: &Project, ids: &[u64], technique: Technique) -> Vec<Note> {
     let set: HashSet<u64> = ids.iter().copied().collect();
-    let eligible: Vec<u64> = selected(&project.notes, &set).filter(|n| can_take(project, n, technique)).map(|n| n.id).collect();
-    if eligible.is_empty() {
-        return Ok(Applied { message: Some(format!("{label}: no eligible note")), ..Applied::default() });
-    }
-    let all_set = selected(&project.notes, &set).filter(|n| eligible.contains(&n.id)).all(|n| n.technique == Some(technique));
-    let on = (!all_set).then_some(technique);
+    selected(&project.notes, &set).filter(|n| can_take(project, n, technique)).cloned().collect()
+}
+
+/// Sets `technique` (or `None`) on `notes` in one undo step; the message mentions the `ids` that were skipped.
+fn set_technique(project: &mut Project, notes: &[Note], technique: Option<Technique>, label: &str, skipped: usize, retab: bool) -> Result<Applied, ActionError> {
+    let changed: Vec<u64> = notes.iter().map(|n| n.id).collect();
     let edit = project.edit_notes(label, |p| {
-        p.notes.iter_mut().filter(|n| eligible.contains(&n.id)).for_each(|n| n.technique = on);
+        for n in p.notes.iter_mut().filter(|n| changed.contains(&n.id)) {
+            n.technique = technique;
+            n.string_fret = n.string_fret.filter(|_| n.locked_fret || !retab);
+        }
         Ok(())
     })?;
-    let skipped = ids.len() - eligible.len();
     let message = (skipped > 0).then(|| format!("{skipped} note(s) skipped"));
-    Ok(Applied { edit: Some(edit), message, affected: if retab { eligible } else { Vec::new() }, ..Applied::default() })
+    Ok(Applied { edit: Some(edit), message, affected: if retab { changed } else { Vec::new() }, ..Applied::default() })
+}
+
+/// Toggle: clears the technique when every eligible note has it, else sets it on all of them.
+fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, label: &str, retab: bool) -> Result<Applied, ActionError> {
+    let notes = eligible(project, &ids, technique);
+    if notes.is_empty() {
+        return Ok(Applied { message: Some(format!("{label}: no eligible note")), ..Applied::default() });
+    }
+    let on = (!notes.iter().all(|n| n.technique == Some(technique))).then_some(technique);
+    set_technique(project, &notes, on, label, ids.len() - notes.len(), retab)
+}
+
+fn has_placement(p: &Project, n: &Note, t: Technique) -> bool {
+    !harmonic_candidates(n.midi, t, &p.tuning, p.capo, TabOptions::default().max_fret).is_empty()
 }
 
 /// The harmonic state after `cur`: natural, pinch, none, skipping states the pitch has no placement for.
 fn next_harmonic(p: &Project, n: &Note, cur: Option<Technique>) -> Option<Technique> {
-    let max = TabOptions::default().max_fret;
-    let has = |t| !harmonic_candidates(n.midi, t, &p.tuning, p.capo, max).is_empty();
+    let has = |t| has_placement(p, n, t);
     let states = [None, Some(Technique::Harmonic), Some(Technique::PinchHarmonic)];
     let at = states.iter().position(|s| *s == cur).unwrap_or(0);
     (1..=states.len()).map(|step| states[(at + step) % states.len()]).find(|s| s.is_none_or(has)).flatten()
 }
 
 fn cycle_harmonic(project: &mut Project, ids: Vec<u64>) -> Result<Applied, ActionError> {
-    let set: HashSet<u64> = ids.iter().copied().collect();
-    let eligible: Vec<Note> = selected(&project.notes, &set).filter(|n| can_take(project, n, Technique::Harmonic)).cloned().collect();
-    let Some(first) = eligible.first() else {
+    let notes = eligible(project, &ids, Technique::Harmonic);
+    let Some(first) = notes.first() else {
         return Ok(Applied { message: Some("Harmonic: no eligible note".to_owned()), ..Applied::default() });
     };
-    let harmonic = |t: Option<Technique>| t.filter(|t| t.blocks_links() && *t != Technique::Dead);
-    let target = next_harmonic(project, first, harmonic(first.technique));
-    let max = TabOptions::default().max_fret;
-    let fits = |p: &Project, n: &Note| target.is_none_or(|t| !harmonic_candidates(n.midi, t, &p.tuning, p.capo, max).is_empty());
-    let changed: Vec<u64> = eligible.iter().filter(|n| fits(project, n)).map(|n| n.id).collect();
-    let edit = project.edit_notes("Harmonic", |p| {
-        p.notes.iter_mut().filter(|n| changed.contains(&n.id)).for_each(|n| {
-            n.technique = target;
-            n.string_fret = n.string_fret.filter(|_| n.locked_fret);
-        });
-        Ok(())
-    })?;
-    let message = Some(match target { Some(Technique::Harmonic) => "Natural harmonic", Some(_) => "Pinch harmonic", None => "No harmonic" }.to_owned());
-    Ok(Applied { edit: Some(edit), message, affected: changed, ..Applied::default() })
+    let current = first.technique.filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
+    let target = next_harmonic(project, first, current);
+    let fitting: Vec<Note> = notes.iter().filter(|n| target.is_none_or(|t| has_placement(project, n, t))).cloned().collect();
+    let mut applied = set_technique(project, &fitting, target, "Harmonic", 0, true)?;
+    applied.message = Some(match target { Some(Technique::Harmonic) => "Natural harmonic", Some(_) => "Pinch harmonic", None => "No harmonic" }.to_owned());
+    Ok(applied)
 }
 
 fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {

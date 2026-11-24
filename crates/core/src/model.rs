@@ -184,11 +184,6 @@ pub struct Note {
 }
 
 impl Note {
-    /// Whether the note may take a dead or harmonic technique, or a slide, bend or legato link.
-    pub fn takes_links(&self) -> bool {
-        self.grace_of.is_none() && !self.technique.is_some_and(Technique::blocks_links)
-    }
-
     pub fn new(id: u64, midi: u8, start: TimePos, end: TimePos) -> Self {
         Self {
             id,
