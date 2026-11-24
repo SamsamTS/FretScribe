@@ -10,6 +10,7 @@ pub mod model;
 mod overlap;
 pub mod persist;
 pub mod pitch;
+pub mod ring;
 pub mod snap;
 pub mod snap_note;
 pub mod tempo;

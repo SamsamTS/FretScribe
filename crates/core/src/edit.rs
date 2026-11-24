@@ -204,6 +204,28 @@ impl Project {
         }
     }
 
+    /// Sets let ring on measure `index`; `propagate` extends it to the contiguous following measures that had
+    /// the same old value (`measures::set_let_ring`). Not a grid edit: no note moves.
+    pub fn set_let_ring(&mut self, index: usize, on: bool, propagate: bool) -> Result<ProjectEdit, EditError> {
+        self.edit_notes("Let ring", |p| {
+            let range = measures::set_let_ring(&mut p.measures, index, on)?;
+            if !propagate {
+                (index + 1..range.end).for_each(|i| p.measures[i].let_ring = !on);
+            }
+            Ok(())
+        })
+    }
+
+    /// Sets let ring on exactly the measures of `range`.
+    pub fn set_let_ring_range(&mut self, range: std::ops::Range<usize>, on: bool) -> Result<ProjectEdit, EditError> {
+        self.edit_notes("Let ring", |p| {
+            p.check_measure(range.start)?;
+            p.check_measure(range.end.saturating_sub(1))?;
+            p.measures[range].iter_mut().for_each(|m| m.let_ring = on);
+            Ok(())
+        })
+    }
+
     pub fn set_tempo_scoped(
         &mut self,
         index: usize,
@@ -302,6 +324,7 @@ impl Project {
                     tempo_bpm: f.tempo_bpm,
                     time_sig: f.time_sig,
                     anchored: true,
+                    let_ring: p.measures.get(k).is_some_and(|m| m.let_ring),
                 });
             }
             p.measures = measures;
@@ -444,7 +467,7 @@ impl Project {
                 tempo_bpm,
                 TimeSignature::new(sig.numerator - first_numerator, sig.denominator),
             );
-            p.measures.insert(index + 1, second);
+            p.measures.insert(index + 1, Measure { let_ring: p.measures[index].let_ring, ..second });
             Ok(())
         })
     }

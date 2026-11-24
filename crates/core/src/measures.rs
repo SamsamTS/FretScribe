@@ -136,6 +136,16 @@ fn set_scoped(measures: &mut [Measure], index: usize, propagation: Propagation, 
     index..end
 }
 
+/// Sets let ring on `index` and on every contiguous following measure that had the same old value as `index`
+/// (the run stops at the first measure that differs). Returns the edited range.
+pub fn set_let_ring(measures: &mut [Measure], index: usize, on: bool) -> Result<Range<usize>, EditError> {
+    check_index(measures, index)?;
+    let old = measures[index].let_ring;
+    let end = measures[index..].iter().position(|m| m.let_ring != old).map_or(measures.len(), |p| index + p);
+    measures[index..end].iter_mut().for_each(|m| m.let_ring = on);
+    Ok(index..end)
+}
+
 /// Same propagation rule as `set_tempo`, applied to the time signature. A manual change of either drops the fit (anchor) of every measure it changes.
 pub fn set_time_sig(
     measures: &mut [Measure],

@@ -50,6 +50,9 @@ pub struct Measure {
     pub time_sig: TimeSignature,
     #[serde(default)]
     pub anchored: bool,
+    /// Let ring: the notes that start in this measure keep ringing (derived display, see `ring`).
+    #[serde(default)]
+    pub let_ring: bool,
 }
 
 impl Measure {
@@ -60,6 +63,7 @@ impl Measure {
             tempo_bpm,
             time_sig,
             anchored: false,
+            let_ring: false,
         }
     }
 
