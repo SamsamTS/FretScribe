@@ -49,6 +49,7 @@ pub struct StaffNote {
     pub tie_next: bool,
     /// Notehead on the other side of the stem (second in a chord).
     pub displaced: bool,
+    pub technique: Option<fretscribe_core::Technique>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -212,6 +213,7 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
                     accidental: None,
                     tie_next: k + 1 < count || n.e > b,
                     displaced: false,
+                    technique: n.technique,
                 })
                 .collect();
             carried.push(notes.iter().map(|n| tied.contains(&n.id)).collect());

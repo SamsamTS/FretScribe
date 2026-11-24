@@ -14,6 +14,13 @@ fn ledger_lines_stop_at_the_note() {
 }
 
 #[test]
+fn dead_notes_use_x_noteheads_by_duration() {
+    let d = Some(Technique::Dead);
+    assert_eq!([Base::Whole, Base::Half, Base::Quarter].map(|b| head_char(b, d)), ["\u{E0A7}", "\u{E0A8}", "\u{E0A9}"]);
+    assert_eq!(head_char(Base::Quarter, None), "\u{E0A4}");
+}
+
+#[test]
 fn glyph_codes() {
     assert_eq!(flag_char(1, true), '\u{E240}');
     assert_eq!(flag_char(2, false), '\u{E243}');

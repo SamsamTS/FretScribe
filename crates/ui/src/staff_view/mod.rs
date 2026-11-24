@@ -8,6 +8,7 @@ mod links;
 use std::sync::Arc;
 
 use egui::{pos2, vec2, Align2, Color32, FontData, FontDefinitions, FontFamily, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui};
+use fretscribe_core::Technique;
 use fretscribe_notation::staff::{Accidental, Base, GraceMark, StaffEvent, StaffLayout};
 
 use crate::spectro::white;
@@ -186,11 +187,16 @@ impl BeamLine {
     }
 }
 
-fn head_char(b: Base) -> &'static str {
-    match b {
-        Base::Whole => "\u{E0A2}",
-        Base::Half => "\u{E0A3}",
-        _ => "\u{E0A4}",
+/// Dead notes use the X noteheads (SMuFL `noteheadXWhole/Half/Black`).
+fn head_char(b: Base, technique: Option<Technique>) -> &'static str {
+    let dead = technique == Some(Technique::Dead);
+    match (b, dead) {
+        (Base::Whole, false) => "\u{E0A2}",
+        (Base::Whole, true) => "\u{E0A7}",
+        (Base::Half, false) => "\u{E0A3}",
+        (Base::Half, true) => "\u{E0A8}",
+        (_, false) => "\u{E0A4}",
+        (_, true) => "\u{E0A9}",
     }
 }
 
@@ -308,7 +314,7 @@ impl Paint<'_> {
             let hx = x + if n.displaced { if up { hw } else { -hw } } else { 0.0 };
             let (y, color) = (self.py(n.step), self.colour(selected, n.id));
             self.ledgers(n.step, hx, hw);
-            self.glyph(head_char(e.duration.base), pos2(hx, y), 1.0, color, Align2::LEFT_CENTER);
+            self.glyph(head_char(e.duration.base, n.technique), pos2(hx, y), 1.0, color, Align2::LEFT_CENTER);
             self.dots(hx + hw, n.step, e.duration.dots);
             heads.push(Head { rect: Rect::from_min_size(pos2(hx, y - self.s / 2.0), vec2(hw, self.s)), id: n.id });
             if let Some(a) = n.accidental {

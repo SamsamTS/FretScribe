@@ -153,7 +153,7 @@ fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, cha
 }
 
 fn fret_text(n: &Note) -> String {
-    n.string_fret.map_or_else(|| "?".to_owned(), |(_, fret)| fret.to_string())
+    n.string_fret.map_or_else(|| "?".to_owned(), |(_, fret)| if n.technique == Some(Technique::Dead) { "x".to_owned() } else { fret.to_string() })
 }
 
 /// Grace notes that start on (or just before) their main note would print on top of it: each one
@@ -202,7 +202,7 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
         let rect = match n.string_fret {
             Some((string, fret)) => {
                 let ghost = bend_ends.contains(&n.id);
-                let text = if ghost { format!("({fret})") } else { fret.to_string() };
+                let text = if n.technique == Some(Technique::Dead) { "x".to_owned() } else if ghost { format!("({fret})") } else { fret.to_string() };
                 let color = if selected { c.st.selected } else if ghost { c.st.ink.gamma_multiply(0.55) } else { c.st.ink };
                 let rect = c.number(pos2(x, c.geo.y(string)), &text, scale, color, flash);
                 if n.locked_fret {
