@@ -226,3 +226,29 @@ fn toggle_dead_on_a_mix_sets_all_eligible_in_one_undo_step() {
     edit.undo(&mut p);
     assert_eq!((note(&p, a).technique, note(&p, b).technique), (None, Some(Technique::Dead)));
 }
+
+#[test]
+fn cycle_harmonic_goes_natural_pinch_none_and_skips_states_without_placement() {
+    let mut p = project();
+    let (node, plain) = (add(&mut p, 52, 0.0, 1.0), add(&mut p, 53, 1.0, 2.0));
+    let tech = |p: &Project, id| note(p, id).technique;
+    let seen: Vec<_> = (0..3).map(|_| { run(&mut p, &[node], NoteAction::CycleHarmonic).unwrap(); tech(&p, node) }).collect();
+    assert_eq!(seen, [Some(Technique::Harmonic), Some(Technique::PinchHarmonic), None]);
+    let seen: Vec<_> = (0..2).map(|_| { run(&mut p, &[plain], NoteAction::CycleHarmonic).unwrap(); tech(&p, plain) }).collect();
+    assert_eq!(seen, [Some(Technique::PinchHarmonic), None]);
+}
+
+#[test]
+fn cycle_harmonic_follows_the_first_eligible_note_is_one_step_and_skips_linked_notes() {
+    let mut p = project();
+    let (a, b, c) = (add(&mut p, 52, 0.0, 1.0), add(&mut p, 52, 2.0, 3.0), add(&mut p, 60, 4.0, 5.0));
+    p.notes[1].technique = Some(Technique::PinchHarmonic);
+    let applied = run(&mut p, &[a, b], NoteAction::CycleHarmonic).unwrap();
+    assert_eq!((note(&p, a).technique, note(&p, b).technique), (Some(Technique::Harmonic), Some(Technique::Harmonic)));
+    applied.edit.unwrap().undo(&mut p);
+    assert_eq!(note(&p, b).technique, Some(Technique::PinchHarmonic));
+    p.link_notes(b, c, LinkType::Slide).unwrap_err();
+    p.link_notes(a, c, LinkType::Slide).unwrap();
+    let applied = run(&mut p, &[a, c], NoteAction::CycleHarmonic).unwrap();
+    assert!(applied.edit.is_none());
+}

@@ -1,5 +1,6 @@
 //! Every editing command as one enum; the track head buttons and the keymap only produce these.
 
+use fretscribe_notation::tab::{harmonic_candidates, TabOptions};
 use fretscribe_core::{min_subdivision_beats, Technique, LinkReport, step_on_grid, EditError, LinkType, Note, Project, ProjectEdit, SnapGrid, TempoMap, MAX_FRET};
 use std::collections::HashSet;
 use thiserror::Error;
@@ -36,6 +37,8 @@ pub enum NoteAction {
     LinkHover,
     /// Sets the technique on every eligible selected note, or clears it when they all have it.
     ToggleDead,
+    /// Cycles natural, pinch, none (plain notes start with natural when their pitch has a node).
+    CycleHarmonic,
     /// Clipboard commands: handled by the editor, which owns the clipboard (`apply` ignores them).
     Copy,
     Cut,
@@ -125,6 +128,37 @@ fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, 
     let skipped = ids.len() - eligible.len();
     let message = (skipped > 0).then(|| format!("{skipped} note(s) skipped"));
     Ok(Applied { edit: Some(edit), message, affected: if retab { eligible } else { Vec::new() }, ..Applied::default() })
+}
+
+/// The harmonic state after `cur`: natural, pinch, none, skipping states the pitch has no placement for.
+fn next_harmonic(p: &Project, n: &Note, cur: Option<Technique>) -> Option<Technique> {
+    let max = TabOptions::default().max_fret;
+    let has = |t| !harmonic_candidates(n.midi, t, &p.tuning, p.capo, max).is_empty();
+    let states = [None, Some(Technique::Harmonic), Some(Technique::PinchHarmonic)];
+    let at = states.iter().position(|s| *s == cur).unwrap_or(0);
+    (1..=states.len()).map(|step| states[(at + step) % states.len()]).find(|s| s.is_none_or(has)).flatten()
+}
+
+fn cycle_harmonic(project: &mut Project, ids: Vec<u64>) -> Result<Applied, ActionError> {
+    let set: HashSet<u64> = ids.iter().copied().collect();
+    let eligible: Vec<Note> = selected(&project.notes, &set).filter(|n| can_take(project, n, Technique::Harmonic)).cloned().collect();
+    let Some(first) = eligible.first() else {
+        return Ok(Applied { message: Some("Harmonic: no eligible note".to_owned()), ..Applied::default() });
+    };
+    let harmonic = |t: Option<Technique>| t.filter(|t| t.blocks_links() && *t != Technique::Dead);
+    let target = next_harmonic(project, first, harmonic(first.technique));
+    let max = TabOptions::default().max_fret;
+    let fits = |p: &Project, n: &Note| target.is_none_or(|t| !harmonic_candidates(n.midi, t, &p.tuning, p.capo, max).is_empty());
+    let changed: Vec<u64> = eligible.iter().filter(|n| fits(project, n)).map(|n| n.id).collect();
+    let edit = project.edit_notes("Harmonic", |p| {
+        p.notes.iter_mut().filter(|n| changed.contains(&n.id)).for_each(|n| {
+            n.technique = target;
+            n.string_fret = n.string_fret.filter(|_| n.locked_fret);
+        });
+        Ok(())
+    })?;
+    let message = Some(match target { Some(Technique::Harmonic) => "Natural harmonic", Some(_) => "Pinch harmonic", None => "No harmonic" }.to_owned());
+    Ok(Applied { edit: Some(edit), message, affected: changed, ..Applied::default() })
 }
 
 fn selected<'a>(notes: &'a [Note], set: &'a HashSet<u64>) -> impl Iterator<Item = &'a Note> {
@@ -230,6 +264,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             })?;
             Ok(edited(edit, ids))
         }
+        NoteAction::CycleHarmonic => cycle_harmonic(project, ids),
         NoteAction::ToggleDead => toggle_technique(project, ids, Technique::Dead, "Dead note", true),
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),
         NoteAction::ForceLegato => {

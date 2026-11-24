@@ -63,3 +63,12 @@ impl NoteGrid {
 #[cfg(all(test, dev_tests))]
 #[path = "../../../dev/tests/unit/ui/note_grid.rs"]
 mod tests;
+
+/// The small text above a harmonic (tab and staff).
+pub fn harmonic_tag(technique: Option<fretscribe_core::Technique>) -> Option<&'static str> {
+    match technique {
+        Some(fretscribe_core::Technique::Harmonic) => Some("N.H."),
+        Some(fretscribe_core::Technique::PinchHarmonic) => Some("P.H."),
+        _ => None,
+    }
+}

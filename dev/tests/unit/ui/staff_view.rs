@@ -18,6 +18,7 @@ fn dead_notes_use_x_noteheads_by_duration() {
     let d = Some(Technique::Dead);
     assert_eq!([Base::Whole, Base::Half, Base::Quarter].map(|b| head_char(b, d)), ["\u{E0A7}", "\u{E0A8}", "\u{E0A9}"]);
     assert_eq!(head_char(Base::Quarter, None), "\u{E0A4}");
+    assert_eq!([Base::Whole, Base::Half, Base::Eighth].map(|b| head_char(b, Some(Technique::PinchHarmonic))), ["\u{E0D8}", "\u{E0D9}", "\u{E0DB}"]);
 }
 
 #[test]

@@ -8,6 +8,7 @@ use fretscribe_core::{Legato, LinkType, Note, NoteTimes, Project, Technique};
 use fretscribe_notation::staff::{bend_label, StaffLayout};
 
 use super::{Geo, TabStyle};
+use crate::note_grid::harmonic_tag;
 use crate::view::TimelineView;
 
 const GRACE_SCALE: f32 = 0.7;
@@ -153,7 +154,7 @@ fn draw_link(c: &Ctx, link: &Link, from: &Note, to: &Note, a: Rect, b: Rect, cha
 }
 
 fn fret_text(n: &Note) -> String {
-    n.string_fret.map_or_else(|| "?".to_owned(), |(_, fret)| if n.technique == Some(Technique::Dead) { "x".to_owned() } else { fret.to_string() })
+    n.string_fret.map_or_else(|| "?".to_owned(), |(_, fret)| match n.technique { Some(Technique::Dead) => "x".to_owned(), Some(Technique::Harmonic) => format!("<{fret}>"), _ => fret.to_string() })
 }
 
 /// Grace notes that start on (or just before) their main note would print on top of it: each one
@@ -202,11 +203,14 @@ pub(super) fn notes(c: &Ctx, flashes: &[(u64, f64)]) -> Vec<(u64, Rect)> {
         let rect = match n.string_fret {
             Some((string, fret)) => {
                 let ghost = bend_ends.contains(&n.id);
-                let text = if n.technique == Some(Technique::Dead) { "x".to_owned() } else if ghost { format!("({fret})") } else { fret.to_string() };
+                let text = if n.technique == Some(Technique::Dead) { "x".to_owned() } else if n.technique == Some(Technique::Harmonic) { format!("<{fret}>") } else if ghost { format!("({fret})") } else { fret.to_string() };
                 let color = if selected { c.st.selected } else if ghost { c.st.ink.gamma_multiply(0.55) } else { c.st.ink };
                 let rect = c.number(pos2(x, c.geo.y(string)), &text, scale, color, flash);
                 if n.locked_fret {
                     c.p.circle_filled(pos2(x, rect.bottom() + 1.5), 1.4, color);
+                }
+                if let Some(tag) = harmonic_tag(n.technique) {
+                    c.label(pos2(x, rect.top() - 1.0), tag, color);
                 }
                 rect
             }

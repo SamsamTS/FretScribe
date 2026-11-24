@@ -12,7 +12,7 @@ use fretscribe_core::Technique;
 use fretscribe_notation::staff::{Accidental, Base, GraceMark, StaffEvent, StaffLayout};
 
 use crate::spectro::white;
-use crate::note_grid::NoteGrid;
+use crate::note_grid::{harmonic_tag, NoteGrid};
 use crate::view::TimelineView;
 
 pub const FONT_NAME: &str = "Bravura";
@@ -187,16 +187,18 @@ impl BeamLine {
     }
 }
 
-/// Dead notes use the X noteheads (SMuFL `noteheadXWhole/Half/Black`).
+/// Dead notes use the X noteheads (SMuFL `noteheadX*`), harmonics the diamond ones (`noteheadDiamond*`).
 fn head_char(b: Base, technique: Option<Technique>) -> &'static str {
-    let dead = technique == Some(Technique::Dead);
-    match (b, dead) {
-        (Base::Whole, false) => "\u{E0A2}",
-        (Base::Whole, true) => "\u{E0A7}",
-        (Base::Half, false) => "\u{E0A3}",
-        (Base::Half, true) => "\u{E0A8}",
-        (_, false) => "\u{E0A4}",
-        (_, true) => "\u{E0A9}",
+    let kind = match technique {
+        Some(Technique::Dead) => 1,
+        Some(Technique::Harmonic | Technique::PinchHarmonic) => 2,
+        _ => 0,
+    };
+    let (whole, half, black) = [("\u{E0A2}", "\u{E0A3}", "\u{E0A4}"), ("\u{E0A7}", "\u{E0A8}", "\u{E0A9}"), ("\u{E0D8}", "\u{E0D9}", "\u{E0DB}")][kind];
+    match b {
+        Base::Whole => whole,
+        Base::Half => half,
+        _ => black,
     }
 }
 
@@ -315,6 +317,9 @@ impl Paint<'_> {
             let (y, color) = (self.py(n.step), self.colour(selected, n.id));
             self.ledgers(n.step, hx, hw);
             self.glyph(head_char(e.duration.base, n.technique), pos2(hx, y), 1.0, color, Align2::LEFT_CENTER);
+            if let Some(tag) = harmonic_tag(n.technique) {
+                self.p.text(pos2(hx + hw / 2.0, y - self.s), Align2::CENTER_BOTTOM, tag, FontId::proportional(self.s * 0.8), color);
+            }
             self.dots(hx + hw, n.step, e.duration.dots);
             heads.push(Head { rect: Rect::from_min_size(pos2(hx, y - self.s / 2.0), vec2(hw, self.s)), id: n.id });
             if let Some(a) = n.accidental {

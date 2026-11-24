@@ -159,6 +159,14 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         } else {
             painter.rect_stroke(*r, radius, Stroke::new(1.5_f32, faded(color, 0.95)), egui::StrokeKind::Inside);
         }
+        let harmonic = items.iter().find(|it| it.id == *id).and_then(|it| it.technique).filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
+        let d = (m.dot_radius() * 1.4).min(r.height() / 2.2);
+        if let Some(t) = harmonic.filter(|_| r.width() >= 4.0 * d) {
+            let c = r.left_center() + egui::vec2(1.5 * d, 0.0);
+            let points = vec![c + egui::vec2(0.0, -d), c + egui::vec2(d, 0.0), c + egui::vec2(0.0, d), c + egui::vec2(-d, 0.0)];
+            let fill = if t == Technique::PinchHarmonic { faded(color, 0.95) } else { Color32::TRANSPARENT };
+            painter.add(Shape::convex_polygon(points, fill, Stroke::new(1.2_f32, faded(color, 0.95))));
+        }
     }
 
     for g in &scene.glyphs {

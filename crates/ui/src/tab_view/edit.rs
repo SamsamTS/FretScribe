@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use fretscribe_core::{EditError, LinkType, Project, ProjectEdit, Tuning};
-use fretscribe_notation::tab::{assign_tabs, assign_tabs_range, candidate_label, group_options, GroupOption, TabOptions};
+use fretscribe_notation::tab::{assign_tabs, assign_tabs_range, placement_label, group_options, GroupOption, TabOptions};
 use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -219,7 +219,7 @@ pub fn menu_model(project: &Project, selection: &[u64], note: u64, opts: &TabOpt
     let near = previous.and_then(|(_, f)| all.iter().min_by_key(|&&(s, fret)| (fret.abs_diff(f), s)).copied()).filter(|_| all.len() > 1);
     let mut list: Vec<Placement> = all
         .iter()
-        .filter_map(|&(string, fret)| Some(Placement { string, fret, label: candidate_label(&project.tuning, string, fret)?, auto: auto == Some(string), near: near == Some((string, fret)) }))
+        .filter_map(|&(string, fret)| Some(Placement { string, fret, label: placement_label(&project.tuning, string, fret, n.midi, n.technique)?, auto: auto == Some(string), near: near == Some((string, fret)) }))
         .collect();
     list.sort_by_key(|p| std::cmp::Reverse(p.string));
     model.placements = list;

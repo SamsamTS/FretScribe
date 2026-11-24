@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use fretscribe_core::{Note, NoteTimes, Technique, Tuning};
 
-use super::TabOptions;
+use super::{harmonic_candidates, TabOptions};
 
 type Slot = Option<(u8, u8)>;
 
@@ -172,6 +172,14 @@ fn derive(notes: &[Note], links: &Links, ctx: &Ctx, members: &[usize], string: u
     Some(frets)
 }
 
+/// The displayed placements of a lone harmonic note (`None` for any other group).
+fn harmonic_slots(ctx: &Ctx, notes: &[Note], members: &[usize]) -> Option<Vec<(u8, u8)>> {
+    let [m] = members else { return None };
+    let n = &notes[*m];
+    let kind = n.technique.filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic))?;
+    Some(harmonic_candidates(n.midi, kind, ctx.tuning, ctx.capo, ctx.opts.max_fret))
+}
+
 fn build_groups(notes: &[Note], ctx: &Ctx) -> Vec<Group> {
     let mut links = read_links(notes);
     let mut by_root: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -184,12 +192,15 @@ fn build_groups(notes: &[Note], ctx: &Ctx) -> Vec<Group> {
         .map(|mut members| {
             members.sort_by(|&a, &b| ctx.spans[a].0.total_cmp(&ctx.spans[b].0).then(notes[a].id.cmp(&notes[b].id)));
             let locked = members.iter().any(|&m| is_locked(&notes[m]));
-            let mut options: Vec<Vec<Slot>> = (0..ctx.tuning.open_strings.len())
-                .filter_map(|s| {
-                    let frets = derive(notes, &links, ctx, &members, s)?;
-                    Some(frets.into_iter().map(|f| Some((s as u8, f))).collect())
-                })
-                .collect();
+            let mut options: Vec<Vec<Slot>> = match harmonic_slots(ctx, notes, &members) {
+                Some(slots) => slots.into_iter().map(|s| vec![Some(s)]).collect(),
+                None => (0..ctx.tuning.open_strings.len())
+                    .filter_map(|s| {
+                        let frets = derive(notes, &links, ctx, &members, s)?;
+                        Some(frets.into_iter().map(|f| Some((s as u8, f))).collect())
+                    })
+                    .collect(),
+            };
             if locked {
                 options.retain(|o| members.iter().zip(o).all(|(&m, slot)| !is_locked(&notes[m]) || *slot == notes[m].string_fret));
                 if options.is_empty() {
@@ -562,6 +573,11 @@ pub fn group_options(notes: &[Note], tuning: &Tuning, capo: u8, opts: &TabOption
     let mut links = read_links(notes);
     let root = find(&mut links.parent, at);
     let members: Vec<usize> = (0..notes.len()).filter(|&i| find(&mut links.parent, i) == root).collect();
+    if let Some(slots) = harmonic_slots(&ctx, notes, &members) {
+        // One placement per string (the first, smallest offset): the menu and drag address placements by string.
+        let mut seen = Vec::new();
+        return slots.into_iter().filter(|s| !seen.contains(&s.0) && { seen.push(s.0); true }).map(|(string, fret)| GroupOption { string, frets: vec![(id, fret)] }).collect();
+    }
     (0..tuning.open_strings.len())
         .filter_map(|s| {
             let frets = derive(notes, &links, &ctx, &members, s)?;
