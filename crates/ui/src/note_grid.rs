@@ -89,9 +89,11 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
         p.line_segment([end, end + egui::vec2(0.0, unit * 0.5)], stroke);
     }
     for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
-        let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
+        let (x0, end) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
+        let period = unit * 0.6 * WAVE_PERIOD;
+        let x1 = x0 + ((end - x0) / period).floor().max(1.0) * period;
         if x1 >= clip.left() && x0 <= clip.right() {
-            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.6, color.gamma_multiply(0.5));
+            paint_wave(p, x0, x1, y - unit * 1.3, unit * 0.6, color.gamma_multiply(0.5));
         }
     }
 }
@@ -117,17 +119,20 @@ pub fn paint_let_ring(p: &egui::Painter, layout: &fretscribe_notation::staff::St
     }
 }
 
-/// A wave `height` px tall from `x0` to `x1` around `y`, its period and thickness proportional to `height`.
+/// Period of `paint_wave` in heights.
+const WAVE_PERIOD: f32 = 3.0;
+
+/// A wave `height` px tall, starting mid upstroke, from `x0` to `x1` around `y`, its period and thickness proportional to `height`.
 /// One feathered triangle strip: the width swells smoothly on the downward strokes, and nothing overlaps, so
 /// a translucent `color` stays uniform.
 pub fn paint_wave(p: &egui::Painter, x0: f32, x1: f32, y: f32, height: f32, color: egui::Color32) {
-    let (amp, period) = (height / 2.0, height * 3.0);
+    let (amp, period) = (height / 2.0, height * WAVE_PERIOD);
     let (thin, thick, feather) = (0.8_f32, (period * 0.25).max(1.6), 0.7_f32);
     let steps = (((x1 - x0) / period.max(1.0)) * 16.0).ceil().max(2.0) as usize;
     let mut mesh = egui::Mesh::default();
     for i in 0..=steps {
         let x = x0 + (x1 - x0) * i as f32 / steps as f32;
-        let phase = (x - x0) / period * std::f32::consts::TAU;
+        let phase = (x - x0) / period * std::f32::consts::TAU + std::f32::consts::PI;
         let half = 0.5 * (thin + (thick - thin) * 0.5 * (1.0 + phase.cos()));
         let cy = y + amp * phase.sin();
         for (dy, c) in [(-half - feather, egui::Color32::TRANSPARENT), (-half, color), (half, color), (half + feather, egui::Color32::TRANSPARENT)] {
