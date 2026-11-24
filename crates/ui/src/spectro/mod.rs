@@ -117,6 +117,8 @@ pub struct SpectrogramView<'a> {
     audio_offset_sec: f64,
     focus: Option<(f32, f32, f32)>,
     region: Option<(f64, f64)>,
+    /// Note id to the second its let ring ends (a faint tail, display only).
+    ring_tails: Option<&'a std::collections::HashMap<u64, f64>>,
 }
 
 impl<'a> SpectrogramView<'a> {
@@ -138,6 +140,7 @@ impl<'a> SpectrogramView<'a> {
             audio_offset_sec: 0.0,
             focus: None,
             region: None,
+            ring_tails: None,
         }
     }
 
@@ -160,6 +163,11 @@ impl<'a> SpectrogramView<'a> {
 
     pub fn notes(mut self, notes: &'a [Note], times: &'a NoteTimes, selected: &'a [u64]) -> Self {
         (self.notes, self.times, self.selected) = (notes, Some(times), selected);
+        self
+    }
+
+    pub fn ring_tails(mut self, tails: &'a std::collections::HashMap<u64, f64>) -> Self {
+        self.ring_tails = Some(tails);
         self
     }
 
@@ -316,6 +324,9 @@ impl<'a> SpectrogramView<'a> {
         }
         let labels = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("pitch_labels"))).with_clip_rect(rect.intersect(ui.clip_rect()));
         self.draw_guides(&painter, &labels, &geo, cursor_midi);
+        if let Some(tails) = self.ring_tails {
+            scene.draw_tails(&painter, &geo, tails);
+        }
         notes::draw_notes(&painter, &scene, self.selected, self.note_opacity, hovered_id);
         if let Some(ghost) = self.ghost {
             notes::draw_ghost(&painter, &geo, ghost);

@@ -110,6 +110,18 @@ impl NoteScene {
         Self { items, scene, metrics }
     }
 
+    /// Faint tails from each note's end to its let ring end.
+    pub(crate) fn draw_tails(&self, painter: &Painter, geo: &SpectroGeometry, tails: &std::collections::HashMap<u64, f64>) {
+        for (id, &sec) in tails {
+            let Some(r) = self.scene.rects.get(id).copied() else { continue };
+            let end = geo.sec_to_x(sec);
+            if end > r.right() {
+                let tail = Rect::from_min_max(egui::pos2(r.right(), r.center().y - r.height() * 0.2), egui::pos2(end, r.center().y + r.height() * 0.2));
+                painter.rect_filled(tail.intersect(painter.clip_rect()), 1.0, Color32::from_white_alpha(28));
+            }
+        }
+    }
+
     /// The note, link or arc under `pos` and the zone hit. `hovered` is the note whose free link
     /// points are shown, normally the one reported by the previous frame.
     pub fn hit(&self, pos: Pos2, hovered: Option<u64>) -> Option<(u64, HitZone)> {

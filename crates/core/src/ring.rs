@@ -29,6 +29,15 @@ pub fn ring_ends(project: &Project) -> HashMap<u64, TimePos> {
     ends
 }
 
+/// `ring_ends` in seconds (empty, and cheap, when no measure has let ring).
+pub fn ring_end_secs(project: &Project) -> HashMap<u64, f64> {
+    if !project.measures.iter().any(|m| m.let_ring) {
+        return HashMap::new();
+    }
+    let map = TempoMap::new(&project.measures);
+    ring_ends(project).into_iter().map(|(id, pos)| (id, map.pos_to_sec(pos))).collect()
+}
+
 #[cfg(all(test, dev_tests))]
 #[path = "../../../dev/tests/unit/core/ring.rs"]
 mod tests;

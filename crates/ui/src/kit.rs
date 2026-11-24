@@ -17,6 +17,14 @@ macro_rules! icons {
 }
 
 icons!(
+    "copy",
+    "cut",
+    "paste",
+    "dead-note",
+    "harmonic",
+    "palm-mute",
+    "vibrato",
+    "let-ring",
     "home",
     "add-track",
     "open",
