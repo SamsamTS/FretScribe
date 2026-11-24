@@ -91,7 +91,7 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
     for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
         let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
         if x1 >= clip.left() && x0 <= clip.right() {
-            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.3, unit * 1.4, color.gamma_multiply(0.65));
+            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.6, color.gamma_multiply(0.65));
         }
     }
 }
@@ -117,20 +117,30 @@ pub fn paint_let_ring(p: &egui::Painter, layout: &fretscribe_notation::staff::St
     }
 }
 
-/// A wave from `x0` to `x1` around `y`, one period per `period` pixels, thicker on the downward strokes
-/// (anti-aliased polylines, one run per stroke direction).
-pub fn paint_wave(p: &egui::Painter, x0: f32, x1: f32, y: f32, amp: f32, period: f32, color: egui::Color32) {
-    let steps = (((x1 - x0) / period.max(1.0)) * 12.0).ceil().max(2.0) as usize;
-    let thick = (amp * 0.7).clamp(1.8, 2.8);
-    let phase = |i: f32| i / steps as f32 * (x1 - x0) / period * std::f32::consts::TAU;
-    let point = |i: usize| egui::pos2(x0 + (x1 - x0) * i as f32 / steps as f32, y + amp * phase(i as f32).sin());
-    let down = |i: usize| phase(i as f32 - 0.5).cos() > 0.0;
-    let mut run = vec![point(0)];
-    for i in 1..=steps {
-        run.push(point(i));
-        if i == steps || down(i + 1) != down(i) {
-            let width = if down(i) { thick } else { 1.0 };
-            p.add(egui::Shape::line(std::mem::replace(&mut run, vec![point(i)]), egui::Stroke::new(width, color)));
+/// A wave `height` px tall from `x0` to `x1` around `y`, its period and thickness proportional to `height`.
+/// One feathered triangle strip: the width swells smoothly on the downward strokes, and nothing overlaps, so
+/// a translucent `color` stays uniform.
+pub fn paint_wave(p: &egui::Painter, x0: f32, x1: f32, y: f32, height: f32, color: egui::Color32) {
+    let (amp, period) = (height / 2.0, height * 2.4);
+    let (thin, thick, feather) = (0.8_f32, (period * 0.25).max(1.6), 0.7_f32);
+    let steps = (((x1 - x0) / period.max(1.0)) * 16.0).ceil().max(2.0) as usize;
+    let mut mesh = egui::Mesh::default();
+    for i in 0..=steps {
+        let x = x0 + (x1 - x0) * i as f32 / steps as f32;
+        let phase = (x - x0) / period * std::f32::consts::TAU;
+        let half = 0.5 * (thin + (thick - thin) * 0.5 * (1.0 + phase.cos()));
+        let cy = y + amp * phase.sin();
+        for (dy, c) in [(-half - feather, egui::Color32::TRANSPARENT), (-half, color), (half, color), (half + feather, egui::Color32::TRANSPARENT)] {
+            mesh.colored_vertex(egui::pos2(x, cy + dy), c);
+        }
+        if i > 0 {
+            let k = 4 * i as u32;
+            for band in 0..3 {
+                let a = k - 4 + band;
+                mesh.add_triangle(a, a + 1, a + 4);
+                mesh.add_triangle(a + 1, a + 4, a + 5);
+            }
         }
     }
+    p.add(egui::Shape::mesh(mesh));
 }
