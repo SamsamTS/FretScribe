@@ -91,7 +91,7 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
     for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
         let (x0, x1) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
         if x1 >= clip.left() && x0 <= clip.right() {
-            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.3, unit * 0.8, color.gamma_multiply(0.65));
+            paint_wave(p, x0, x1, y - unit * 0.6, unit * 0.3, unit * 1.4, color.gamma_multiply(0.65));
         }
     }
 }
