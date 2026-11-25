@@ -32,4 +32,6 @@ Every test, example and CLI tool lives under `dev/`, which can be deleted withou
 - `dev/tests` (crate `fretscribe-tests`): integration tests (public API only) in `tests/`; `cargo test --release -p fretscribe-tests`.
 - `dev/tests/unit/<crate>/<module>.rs`: the unit tests. Each file is a child module of the module it tests, declared there as `#[cfg(all(test, dev_tests))] #[path = "../../../dev/tests/unit/<crate>/<module>.rs"] mod tests;` (adjust the `../` count). Test-only helpers that need private access are child modules too (`test_support`, `testkit`). Each crate's `build.rs` sets cfg `dev_tests` only if `dev/tests/unit` exists, so without `dev/` nothing refers to the missing files.
 - Product code never depends on `dev/`, and a new test, demo, example or export test always goes there.
+- Headless widget tests that click icons or text need `theme::install_fonts` and `kit::install` (else an image error label covers the buttons), `tooltip_delay = f32::INFINITY` and a roomy `screen_rect` (a tooltip can cover the target).
+- Running the app under Xvfb (building it needs `libasound2-dev`): there is no window manager, so `xdotool windowfocus` before typing; use a throwaway `HOME`, or the autosave recovery dialog opens on later runs.
 - To drop `dev/`: delete it and remove `"dev/*"` from `members` in `Cargo.toml` (cargo rejects a glob that matches nothing).
