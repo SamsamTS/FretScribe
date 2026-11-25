@@ -22,7 +22,7 @@ pub fn drag_limits(measures: &[Measure], index: usize) -> (f64, f64) {
 
     let mut reach = 0.0;
     for (j, next) in measures.iter().enumerate().skip(index + 1) {
-        if next.anchored {
+        if next.is_anchored() {
             hi = hi.min(next.start_sec - MARGIN_SEC - reach);
             break;
         }

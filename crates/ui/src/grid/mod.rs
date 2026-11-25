@@ -4,14 +4,11 @@
 mod drag;
 mod draw;
 mod event;
+mod header;
 mod lines;
-mod popup;
 mod style;
 
-use egui::{
-    pos2, vec2, Area, Button, Context, CursorIcon, Frame, Id, Order, Rect, Response, Sense,
-    TextStyle, Ui,
-};
+use egui::{pos2, vec2, Area, Button, Context, CursorIcon, Frame, Id, Order, Rect, Response, Sense, Ui};
 use fretscribe_core::{Measure, NotePolicy, SnapGrid, TempoMap, TimeSignature};
 
 use crate::view::TimelineView;
@@ -19,17 +16,13 @@ use crate::view::TimelineView;
 pub use drag::{drag_limits, dragged_start};
 pub use draw::{line_rect, Dots, LineBatch};
 pub use event::GridEvent;
+pub use header::{confidence_color, fitted_suffix, number_event, toggle_event, visible_items, Field, FitInfo, HeaderData, Item};
 pub use lines::{is_triplet, visible_lines, GridLine, LineKind, MIN_MAIN_BEAT_PX, MIN_SUBDIVISION_PX};
-pub use popup::{policy_label, MeasureSettings};
 pub use style::GridStyle;
-
-use popup::{PopupOutcome, SettingsPopup};
 
 const HIT_HALF_WIDTH: f32 = 4.0;
 const MIN_MOVE_SEC: f64 = 1e-6;
 const DOTS: Dots = Dots { width_px: 1.0, dot_px: 2.0, gap_px: 3.0 };
-const LABEL_PADDING: f32 = 3.0;
-const LABEL_MARGIN_PX: f64 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DragState {
@@ -46,6 +39,7 @@ pub struct GridOverlay<'a> {
     style: GridStyle,
     autofit: bool,
     passthrough: Option<Rect>,
+    header: Option<header::HeaderData<'a>>,
 }
 
 impl<'a> GridOverlay<'a> {
@@ -58,6 +52,7 @@ impl<'a> GridOverlay<'a> {
             style: GridStyle::default(),
             autofit: false,
             passthrough: None,
+            header: None,
         }
     }
 
@@ -76,6 +71,12 @@ impl<'a> GridOverlay<'a> {
     /// reported as `GridEvent::AutoFitRequested`.
     pub fn autofit(mut self, available: bool) -> Self {
         self.autofit = available;
+        self
+    }
+
+    /// Adds the measure header band.
+    pub fn with_header(mut self, data: HeaderData<'a>) -> Self {
+        self.header = Some(data);
         self
     }
 
@@ -106,11 +107,14 @@ impl<'a> GridOverlay<'a> {
             .intersect(rect);
             for (k, hit) in self.hit_parts(hit).into_iter().enumerate() {
                 let response = ui.interact(hit, id.with(("line", measure.id, k)), Sense::click_and_drag());
+                let frozen = barline_locked(self.tempo.measures(), line.measure);
                 if response.hovered() || response.dragged() {
                     hovered = Some(line.measure);
-                    ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
+                    ctx.set_cursor_icon(if frozen { CursorIcon::NotAllowed } else { CursorIcon::ResizeHorizontal });
                 }
-                self.track_drag(ui, id, rect, &response, line.measure, &mut events);
+                if !frozen {
+                    self.track_drag(ui, id, rect, &response, line.measure, &mut events);
+                }
                 response.context_menu(|ui| self.context_menu(ui, line.measure, &mut events));
             }
         }
@@ -121,11 +125,12 @@ impl<'a> GridOverlay<'a> {
 
         let painter = ui.painter_at(rect);
         painter.add(self.line_shape(&ctx, rect, &lines, hovered, drag));
-        self.labels(ui, id, rect, &lines);
+        if let Some(data) = self.header {
+            self.header(ui, id, rect, data, &mut events);
+        }
         if let Some(drag) = drag {
             self.drag_tooltip(ui, id, &drag);
         }
-        self.settings_popup(&ctx, id, &mut events);
         events
     }
 
@@ -159,7 +164,7 @@ impl<'a> GridOverlay<'a> {
         rect.left() + self.view.sec_to_x(sec)
     }
 
-    fn drag_policy(&self, ui: &Ui) -> NotePolicy {
+    fn edit_policy(&self, ui: &Ui) -> NotePolicy {
         if ui.input(|i| i.modifiers.alt) {
             self.policy.inverted()
         } else {
@@ -242,7 +247,7 @@ impl<'a> GridOverlay<'a> {
                 events.push(GridEvent::MeasureMoved {
                     index,
                     new_start_sec: state.current_start_sec,
-                    policy: self.drag_policy(ui),
+                    policy: self.edit_policy(ui),
                 });
             }
         }
@@ -253,7 +258,7 @@ impl<'a> GridOverlay<'a> {
         let Some(pointer) = ctx.input(|i| i.pointer.latest_pos()) else { return };
         let Some(index) = self.tempo.index_of(drag.measure_id) else { return };
         let mut text = format!("Measure {}: {}", index + 1, format_time(drag.current_start_sec));
-        if self.drag_policy(ui) == NotePolicy::KeepAudioPosition {
+        if self.edit_policy(ui) == NotePolicy::KeepAudioPosition {
             text.push_str(" (notes stay with the audio)");
         }
         Area::new(id.with("drag_tooltip"))
@@ -265,119 +270,47 @@ impl<'a> GridOverlay<'a> {
             });
     }
 
-    fn labels(&self, ui: &mut Ui, id: Id, rect: Rect, lines: &[GridLine]) {
-        let ctx = ui.ctx().clone();
-        let painter = ui.painter_at(rect);
-        let font = TextStyle::Small.resolve(ui.style());
-        let pps = self.view.pixels_per_sec;
-        for line in lines.iter().filter(|l| l.kind == LineKind::Measure) {
-            let measures = self.tempo.measures();
-            let Some(measure) = measures.get(line.measure) else { continue };
-            let end = measures.get(line.measure + 1).map_or(
-                measure.start_sec + self.tempo.measure_duration_sec(line.measure),
-                |next| next.start_sec,
-            );
-            let effective = self.tempo.effective_bpm(line.measure);
-            let galley = painter.layout_job(label_job(measure, effective, font.clone(), self.style.label_text));
-            if (end - measure.start_sec) * pps < f64::from(galley.size().x) + LABEL_MARGIN_PX {
-                continue;
-            }
-            let origin = pos2(self.x_of(rect, line.sec) + 4.0, rect.top() + 3.0);
-            let label_rect = Rect::from_min_size(origin, galley.size())
-                .expand2(vec2(LABEL_PADDING, LABEL_PADDING / 2.0));
-            let hit = label_rect.intersect(rect);
-            if hit.width() <= 0.0 || hit.height() <= 0.0 {
-                continue;
-            }
-            if self.passthrough.is_some_and(|p| p.contains_rect(hit)) {
-                painter.rect_filled(label_rect, 3.0, self.style.label_background);
-                painter.galley(origin, galley, self.style.label_text);
-                continue;
-            }
-            let response = ui.interact(hit, id.with(("label", measure.id)), Sense::click());
-            let background = if response.hovered() {
-                ctx.set_cursor_icon(CursorIcon::PointingHand);
-                self.style.label_background_hover
-            } else {
-                self.style.label_background
-            };
-            painter.rect_filled(label_rect, 3.0, background);
-            painter.galley(origin, galley, self.style.label_text);
-            if response.clicked() {
-                let popup = SettingsPopup {
-                    settings: MeasureSettings::new(line.measure, measure, self.policy),
-                    anchor: label_rect.left_bottom() + vec2(0.0, 4.0),
-                };
-                ctx.data_mut(|d| d.insert_temp(id.with("popup"), popup));
-            }
-        }
-    }
-
-    fn settings_popup(&self, ctx: &Context, id: Id, events: &mut Vec<GridEvent>) {
-        let popup_id = id.with("popup");
-        let Some(mut popup) = ctx.data(|d| d.get_temp::<SettingsPopup>(popup_id)) else { return };
-        let Some(index) = self.tempo.index_of(popup.settings.measure_id) else {
-            ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id));
-            return;
-        };
-        popup.settings.index = index;
-        let policy_before = popup.settings.policy;
-        let outcome = popup::show(ctx, popup_id, &mut popup);
-        if popup.settings.policy != policy_before {
-            events.push(GridEvent::NotePolicyChanged(popup.settings.policy));
-        }
-        match outcome {
-            PopupOutcome::Open => ctx.data_mut(|d| d.insert_temp(popup_id, popup)),
-            PopupOutcome::Confirm => {
-                events.extend(popup.settings.events());
-                ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id));
-            }
-            PopupOutcome::Cancel => ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id)),
-            PopupOutcome::AutoFit => {
-                events.push(GridEvent::AutoFitRequested { index });
-                ctx.data_mut(|d| d.remove::<SettingsPopup>(popup_id));
-            }
-        }
-    }
-
     fn context_menu(&self, ui: &mut Ui, index: usize, events: &mut Vec<GridEvent>) {
-        let measures = self.tempo.measures();
-        let Some(measure) = measures.get(index) else { return };
-        let policy = self.policy;
-
-        if ui.button("Insert measure here").clicked() {
-            events.push(GridEvent::InsertMeasure { index, policy });
-            ui.close_menu();
-        }
-        let can_delete = measures.len() > 1;
-        if ui.add_enabled(can_delete, Button::new("Delete measure")).clicked() {
-            events.push(GridEvent::DeleteMeasure { index, policy });
-            ui.close_menu();
-        }
-        let split = default_split_beat(measure.time_sig);
-        if ui.add_enabled(split.is_some(), Button::new("Split measure")).clicked() {
-            if let Some(at_beat) = split {
-                events.push(GridEvent::SplitMeasure { index, at_beat });
-            }
-            ui.close_menu();
-        }
-        let can_merge = can_merge_with_previous(measures, index);
-        if ui.add_enabled(can_merge, Button::new("Merge with previous")).clicked() {
-            events.push(GridEvent::MergeMeasures { index: index - 1 });
+        if self.structure_menu(ui, index, events) {
             ui.close_menu();
         }
         if self.autofit {
             ui.separator();
-            if ui.button("Snap grid to detected beats").clicked() {
-                events.push(GridEvent::AutoFitRequested { index: 0 });
-                ui.close_menu();
-            }
-            if ui.button("Auto-fit from this measure").clicked() {
-                events.push(GridEvent::AutoFitRequested { index });
-                ui.close_menu();
+            for (label, from) in [("Snap grid to detected beats", 0), ("Auto-fit from this measure", index)] {
+                if ui.button(label).clicked() {
+                    events.push(GridEvent::AutoFitRequested { index: from });
+                    ui.close_menu();
+                }
             }
         }
     }
+
+    /// The entries shared by the barline menu and the header's overflow menu. True once one was picked.
+    fn structure_menu(&self, ui: &mut Ui, index: usize, events: &mut Vec<GridEvent>) -> bool {
+        let measures = self.tempo.measures();
+        let Some(measure) = measures.get(index) else { return false };
+        let policy = self.policy;
+        let split = default_split_beat(measure.time_sig);
+        let entries = [
+            ("Insert measure here", true, Some(GridEvent::InsertMeasure { index, policy })),
+            ("Delete measure", measures.len() > 1 && !measure.locked, Some(GridEvent::DeleteMeasure { index, policy })),
+            ("Split measure", !measure.locked, split.map(|at_beat| GridEvent::SplitMeasure { index, at_beat })),
+            ("Merge with previous", can_merge_with_previous(measures, index), index.checked_sub(1).map(|previous| GridEvent::MergeMeasures { index: previous })),
+        ];
+        let mut picked = false;
+        for (label, enabled, event) in entries {
+            if ui.add_enabled(enabled && event.is_some(), Button::new(label)).clicked() {
+                events.extend(event);
+                picked = true;
+            }
+        }
+        picked
+    }
+}
+
+/// The barline starting measure `index` cannot move: it or the measure it ends is locked.
+pub fn barline_locked(measures: &[Measure], index: usize) -> bool {
+    measures[index.saturating_sub(1)..=index].iter().any(|m| m.locked)
 }
 
 /// Middle of the measure, rounded down to a whole number of the signature's units.
@@ -389,33 +322,9 @@ pub fn default_split_beat(sig: TimeSignature) -> Option<f64> {
 pub fn can_merge_with_previous(measures: &[Measure], index: usize) -> bool {
     let previous = index.checked_sub(1).and_then(|p| measures.get(p));
     match (previous, measures.get(index)) {
-        (Some(a), Some(b)) => a.time_sig.denominator == b.time_sig.denominator,
+        (Some(a), Some(b)) => a.time_sig.denominator == b.time_sig.denominator && !a.locked && !b.locked,
         _ => false,
     }
-}
-
-pub fn measure_label(measure: &Measure) -> String {
-    format!(
-        "{}/{} \u{2669}={}",
-        measure.time_sig.numerator,
-        measure.time_sig.denominator,
-        format_bpm(measure.tempo_bpm)
-    )
-}
-
-/// The realised tempo as " (55.3)", only when it differs visibly from the nominal one.
-pub fn effective_suffix(measure: &Measure, effective_bpm: f64) -> Option<String> {
-    let shown = format_bpm(effective_bpm);
-    (shown != format_bpm(measure.tempo_bpm)).then(|| format!(" ({shown})"))
-}
-
-fn label_job(measure: &Measure, effective_bpm: f64, font: egui::FontId, color: egui::Color32) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::default();
-    job.append(&measure_label(measure), 0.0, egui::TextFormat::simple(font.clone(), color));
-    if let Some(suffix) = effective_suffix(measure, effective_bpm) {
-        job.append(&suffix, 0.0, egui::TextFormat::simple(font, color.gamma_multiply(0.55)));
-    }
-    job
 }
 
 pub fn format_bpm(bpm: f64) -> String {
@@ -435,6 +344,10 @@ pub fn format_time(sec: f64) -> String {
     let total_ms = (sec.abs() * 1000.0).round() as u64;
     format!("{sign}{}:{:02}.{:03}", total_ms / 60_000, (total_ms / 1000) % 60, total_ms % 1000)
 }
+
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/ui/grid/header.rs"]
+mod header_tests;
 
 #[cfg(all(test, dev_tests))]
 #[path = "../../../../dev/tests/unit/ui/grid.rs"]

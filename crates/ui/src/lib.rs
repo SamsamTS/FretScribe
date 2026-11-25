@@ -13,7 +13,7 @@ pub mod theme;
 pub mod tracks;
 pub mod view;
 
-pub use grid::{GridEvent, GridOverlay, GridStyle};
+pub use grid::{FitInfo, GridEvent, GridOverlay, GridStyle, HeaderData};
 pub use nav::{NavContext, NavRegions, ViewController, ViewTuning};
 pub use note_grid::NoteGrid;
 pub use overview::{ZoomStep, OverviewEvent, OverviewOutput, OverviewStyle, OverviewTimeline};

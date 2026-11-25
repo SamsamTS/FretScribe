@@ -23,6 +23,12 @@ pub const TEXT: Color32 = Color32::from_rgb(0xE8, 0xEA, 0xEE);
 pub const LABEL: Color32 = Color32::from_rgb(0xD5, 0xDA, 0xE3);
 pub const HINT: Color32 = Color32::from_rgb(0x9A, 0xA3, 0xB2);
 pub const ERROR: Color32 = Color32::from_rgb(0xE5, 0x5B, 0x5B);
+pub const HEADER_BG: Color32 = Color32::from_rgb(0x1B, 0x1E, 0x24);
+pub const HEADER_HOVER: Color32 = Color32::from_rgb(0x20, 0x25, 0x2B);
+pub const HEADER_SELECTED: Color32 = Color32::from_rgb(0x2A, 0x24, 0x18);
+pub const CONFIDENCE_HIGH: Color32 = Color32::from_rgb(0x4F, 0xC3, 0x8A);
+pub const CONFIDENCE_MID: Color32 = Color32::from_rgb(0xF0, 0xAA, 0x3C);
+pub const CONFIDENCE_LOW: Color32 = Color32::from_rgb(0xE5, 0x60, 0x6E);
 pub const CONTROL_RADIUS: u8 = 8;
 pub const PANEL_RADIUS: u8 = 14;
 

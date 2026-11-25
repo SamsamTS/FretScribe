@@ -25,7 +25,7 @@ use fretscribe_core::{Track, TrackRole};
 use rayon::prelude::*;
 use realfft::RealFftPlanner;
 
-pub use fit::{fit_measures, fitted_grid, MeasureFit};
+pub use fit::{end_fits, fit_measures, MeasureFit};
 
 const FFT_SIZE: usize = 1024;
 pub const HOP: usize = 512;

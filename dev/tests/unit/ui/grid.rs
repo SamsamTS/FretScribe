@@ -6,13 +6,6 @@ fn project() -> Project {
 }
 
 #[test]
-fn effective_tempo_is_shown_only_when_it_differs() {
-    let m = Measure::new(1, 0.0, 56.0, TimeSignature::COMMON);
-    assert_eq!(effective_suffix(&m, 55.3).as_deref(), Some(" (55.3)"));
-    assert_eq!(effective_suffix(&m, 56.01), None);
-}
-
-#[test]
 fn time_text() {
     assert_eq!(format_time(0.0), "0:00.000");
     assert_eq!(format_time(65.2504), "1:05.250");
@@ -41,4 +34,13 @@ fn merge_needs_a_previous_measure_with_the_same_denominator() {
     ms[1].time_sig = TimeSignature::new(6, 8);
     assert!(!can_merge_with_previous(&ms, 1));
     assert!(!can_merge_with_previous(&ms, 9));
+}
+
+#[test]
+fn a_barline_is_frozen_by_either_of_its_measures() {
+    let mut p = project();
+    p.measures[1].locked = true;
+    let frozen: Vec<bool> = (0..4).map(|i| barline_locked(&p.measures, i)).collect();
+    assert_eq!(frozen, [false, true, true, false]);
+    assert!(!can_merge_with_previous(&p.measures, 1) && !can_merge_with_previous(&p.measures, 2));
 }
