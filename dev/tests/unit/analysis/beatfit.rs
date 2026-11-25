@@ -15,8 +15,8 @@ fn click_env(beats: &[f64]) -> OnsetEnvelope {
 fn fitted(env: &OnsetEnvelope, grid: &[Measure]) -> Vec<Measure> {
     let fits = fit_measures(env, grid, 0.25);
     let mut out = grid.to_vec();
-    for (m, f) in out.iter_mut().zip(fitted_grid(grid, &fits)) {
-        (m.start_sec, m.tempo_bpm) = (f.start_sec, f.tempo_bpm);
+    for (m, previous) in out.iter_mut().skip(1).zip(end_fits(grid, &fits)) {
+        m.start_sec = previous.end_sec;
     }
     out
 }
@@ -122,11 +122,12 @@ fn helper_drum_track_beats_a_noisy_guitar_alone() {
 }
 
 #[test]
-fn fitted_grid_is_accepted_by_auto_fit() {
+fn end_fits_are_accepted_by_auto_fit() {
     let beats = drifting_beats(BEATS, BPM, 0.05, 0.02, 2);
     let grid = rough_grid(BPM, LEN_SEC);
     let fits = fit_measures(&click_env(&beats), &grid, 0.25);
     let mut project = Project::new(Track::new(1, "g", TrackRole::Guitar), LEN_SEC, BPM, grid[0].time_sig);
-    project.auto_fit(&fitted_grid(&grid, &fits), NotePolicy::KeepAudioPosition).unwrap();
+    let ends: Vec<_> = end_fits(&grid, &fits).into_iter().map(Some).collect();
+    project.auto_fit(&ends, NotePolicy::KeepAudioPosition).unwrap();
     project.validate().unwrap();
 }

@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use fretscribe_analysis::beatfit::synth::*;
-use fretscribe_analysis::beatfit::{estimate_tempo, fit_measures, fitted_grid, onset_envelope};
+use fretscribe_analysis::beatfit::{estimate_tempo, end_fits, fit_measures, onset_envelope};
 
 const BPM: f64 = 120.0;
 const LEN_SEC: f64 = 33.0;
@@ -22,8 +22,8 @@ fn main() {
         let fits = fit_measures(&env, &grid, 0.25);
         let elapsed = start.elapsed().as_secs_f64() * 1e3;
         let mut fitted = grid.clone();
-        for (m, f) in fitted.iter_mut().zip(fitted_grid(&grid, &fits)) {
-            (m.start_sec, m.tempo_bpm) = (f.start_sec, f.tempo_bpm);
+        for (m, previous) in fitted.iter_mut().skip(1).zip(end_fits(&grid, &fits)) {
+            m.start_sec = previous.end_sec;
         }
         let tempo = estimate_tempo(&env, (60.0, 240.0)).first().map_or(0.0, |c| c.0);
         println!(

@@ -10,9 +10,9 @@ use fretscribe_ui::NoteGrid;
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
-use fretscribe_ui::view::LANE_HEADER_WIDTH;
+use fretscribe_ui::view::{RegionSelection, LANE_HEADER_WIDTH, MEASURE_HEADER_H};
 use fretscribe_ui::{
-    GridEvent, GridOverlay, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
+    GridEvent, GridOverlay, HeaderData, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
 };
 
 use crate::session::Session;
@@ -123,10 +123,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
         let area = ui.available_rect_before_wrap();
         let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
-        let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
+        let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom() + MEASURE_HEADER_H), area.max);
         seek_origin = ruler.left_top();
         // The corner above the track headers shares the toolbar's background and captions like its groups.
-        let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
+        let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), lanes.top()));
         ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
@@ -172,7 +172,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         }
         let timeline = Rect::from_min_max(pos2(lanes.left() + LANE_HEADER_WIDTH, ruler.top()), area.max);
         let note_drawing = source_pointer.as_ref().map(|p| p.geometry.rect);
-        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).show(ui, timeline));
+        let header = HeaderData { top: ruler.bottom(), fits: &s.fits.info, region: s.region, audio_len_sec: audio_len };
+        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).with_header(header).show(ui, timeline));
     });
     // The grid continues through the notation panel with the same time axis.
     let notation_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
@@ -199,7 +200,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         handle_track_event(s, e, &mut requests);
     }
     for e in grid_events {
-        handle_grid(s, e);
+        handle_grid(s, e, audio_len);
     }
     for e in staff_events {
         match e {
@@ -333,12 +334,34 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
     }
 }
 
-fn handle_grid(s: &mut Session, e: GridEvent) {
+/// Selects measure `index` as the region, or with `extend` the range from the last clicked measure.
+fn select_measures(s: &mut Session, index: usize, extend: bool, audio_len: f64) {
+    let measures = &s.project.measures;
+    let Some(clicked) = measures.get(index) else { return };
+    let anchor = s.measure_anchor.filter(|_| extend).and_then(|id| measures.iter().position(|m| m.id == id));
+    if anchor.is_none() {
+        s.measure_anchor = Some(clicked.id);
+    }
+    let anchor = anchor.unwrap_or(index);
+    let (first, last) = (anchor.min(index), anchor.max(index));
+    let end = measures.get(last + 1).map_or(measures[last].start_sec + measures[last].nominal_duration_sec(), |next| next.start_sec);
+    let region = RegionSelection::normalised(measures[first].start_sec, end, audio_len);
+    handle_overview(s, OverviewEvent::RegionChanged(region));
+}
+
+fn handle_grid(s: &mut Session, e: GridEvent, audio_len: f64) {
     match e {
-        GridEvent::NotePolicyChanged(p) => {
-            s.policy = p;
+        GridEvent::MeasureSelected { index, extend } => return select_measures(s, index, extend, audio_len),
+        GridEvent::MeasureLoopRequested(index) => {
+            let covered = s.project.measures.get(index).zip(s.region).is_some_and(|(m, r)| r.contains(m.start_sec + m.nominal_duration_sec() / 2.0));
+            if !covered {
+                select_measures(s, index, false, audio_len);
+            }
+            s.ui.loop_enabled = true;
+            s.player_resync(false);
             return;
         }
+        GridEvent::AutoFitToggled { index, on, propagate, policy } => return s.toggle_auto_fit(index, on, propagate, policy),
         GridEvent::AutoFitRequested { index } => return s.start_auto_fit(index),
         _ => {}
     }
