@@ -5,7 +5,7 @@ mod glyphs;
 mod notes;
 mod pointer;
 mod readout;
-mod ruler;
+mod seek_line;
 mod waveform;
 
 use std::rc::Rc;
@@ -18,7 +18,7 @@ use fretscribe_core::{midi_to_name, Note, NoteTimes, PitchRef, Tuning};
 pub use glyphs::{link_points, note_glyphs, Glyph, LinkPoint, NoteMetrics, Side};
 pub use notes::{hit_test, GhostGlyph, GhostShape, HitZone, LinkKind, NoteScene, SpectroGeometry};
 pub use readout::{is_natural, open_pitches, place_readout, readout, Readout};
-pub use ruler::{format_time, paint_seek_line, ruler_step, show_time_ruler};
+pub use seek_line::paint_seek_line;
 pub use waveform::{Peak, WaveformView};
 
 use crate::view::{PitchView, TimelineView};

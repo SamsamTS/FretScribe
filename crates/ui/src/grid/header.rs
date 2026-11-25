@@ -1,4 +1,4 @@
-//! The per-measure header band under the time ruler. Items that do not fit the visible part of a measure
+//! The per-measure header band at the top of the timeline. Items that do not fit the visible part of a measure
 //! are dropped by priority; the others stick to the left edge of the view while the measure starts before it.
 
 use std::collections::HashMap;
@@ -32,8 +32,6 @@ pub struct FitInfo {
 /// What the header needs besides the grid.
 #[derive(Clone, Copy)]
 pub struct HeaderData<'a> {
-    /// Top of the band (the bottom of the time ruler).
-    pub top: f32,
     /// By measure id.
     pub fits: &'a HashMap<u64, FitInfo>,
     pub region: Option<RegionSelection>,
@@ -209,7 +207,7 @@ impl Content {
 
 impl GridOverlay<'_> {
     pub(super) fn header(&self, ui: &mut Ui, id: Id, rect: Rect, data: HeaderData, events: &mut Vec<GridEvent>) {
-        let band = Rect::from_min_max(pos2(rect.left(), data.top), pos2(rect.right(), data.top + MEASURE_HEADER_H));
+        let band = Rect::from_min_max(rect.left_top(), pos2(rect.right(), rect.top() + MEASURE_HEADER_H));
         let measures = self.tempo.measures();
         let painter = ui.painter_at(rect);
         painter.rect_filled(band, 0.0, theme::HEADER_BG);

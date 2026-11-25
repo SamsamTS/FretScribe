@@ -1,11 +1,11 @@
 //! One frame of the editor screen: overview, lanes, notation panel, grid overlay and the event loop
 //! that applies every widget event to the session.
 
-use eframe::egui::{self, pos2, vec2, Context, Rect, UiBuilder};
+use eframe::egui::{self, pos2, Context, Rect};
 use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{BeatKind, EditError, NoteTimes, Project, TempoMap, Track};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env};
-use fretscribe_ui::spectro::{paint_seek_line, show_time_ruler};
+use fretscribe_ui::spectro::paint_seek_line;
 use fretscribe_ui::NoteGrid;
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
@@ -18,7 +18,6 @@ use fretscribe_ui::{
 use crate::session::Session;
 use crate::{toolbar, Request};
 
-const RULER_H: f32 = 22.0;
 
 /// Draws the whole editor and returns what the shell itself must do (dialogs, screens).
 pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
@@ -114,7 +113,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
     GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);
 
-    // Lanes: time ruler then one lane per track.
+    // Lanes: the measure header then one lane per track.
     let mut grid_events = Vec::new();
     let mut lane_events = Vec::new();
     let mut spectro_events: Vec<SpectroEvent> = Vec::new();
@@ -122,20 +121,18 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let mut seek_origin = pos2(0.0, 0.0);
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
         let area = ui.available_rect_before_wrap();
-        let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
-        let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom() + MEASURE_HEADER_H), area.max);
-        seek_origin = ruler.left_top();
+        let timeline_left = area.left() + LANE_HEADER_WIDTH;
+        let lanes = Rect::from_min_max(pos2(area.left(), area.top() + MEASURE_HEADER_H), area.max);
+        seek_origin = pos2(timeline_left, area.top());
         // The corner above the track headers shares the toolbar's background and captions like its groups.
-        let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), lanes.top()));
+        let corner = Rect::from_min_max(area.left_top(), pos2(timeline_left, lanes.top()));
         ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
-        let notation_timeline = Rect::from_min_max(pos2(ruler.left(), notation_rect.top()), notation_rect.max);
-        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes });
+        let notation_timeline = Rect::from_min_max(pos2(timeline_left, notation_rect.top()), notation_rect.max);
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(seek_origin, area.max).union(notation_timeline), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
-        let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
-        spectro_events.extend(seek);
         // Region edges snap to the current grid subdivisions (the measure starts when it has none).
         let tempo_map = fretscribe_core::TempoMap::new(&s.project.measures);
         let mut region_points: Vec<f64> = (0..tempo_map.len()).flat_map(|i| tempo_map.grid_lines(i, &s.ui.snap_grid).into_iter().map(|(sec, _)| sec).chain([tempo_map.measure_start_sec(i)])).collect();
@@ -170,9 +167,9 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
                 spectro_events.push(e);
             }
         }
-        let timeline = Rect::from_min_max(pos2(lanes.left() + LANE_HEADER_WIDTH, ruler.top()), area.max);
+        let timeline = Rect::from_min_max(seek_origin, area.max);
         let note_drawing = source_pointer.as_ref().map(|p| p.geometry.rect);
-        let header = HeaderData { top: ruler.bottom(), fits: &s.fits.info, region: s.region, audio_len_sec: audio_len };
+        let header = HeaderData { fits: &s.fits.info, region: s.region, audio_len_sec: audio_len };
         grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).with_header(header).show(ui, timeline));
     });
     // The grid continues through the notation panel with the same time axis.

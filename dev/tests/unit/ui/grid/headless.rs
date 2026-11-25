@@ -61,7 +61,7 @@ impl Harness {
                 rect = ui.max_rect();
                 let mut grid = GridOverlay::new(&tempo, &view, &snap).note_policy(policy);
                 if header {
-                    grid = grid.with_header(HeaderData { top: rect.top(), fits: &fits, region: None, audio_len_sec: 8.0 });
+                    grid = grid.with_header(HeaderData { fits: &fits, region: None, audio_len_sec: 8.0 });
                 }
                 out = grid.show(ui, rect);
             });

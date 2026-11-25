@@ -8,7 +8,7 @@ use fretscribe_core::ViewState;
 /// Width in points of the left column of every lane strip; the timeline starts at its right edge.
 pub const LANE_HEADER_WIDTH: f32 = 288.0;
 
-/// Height of the measure header band under the time ruler.
+/// Height of the measure header band at the top of the timeline.
 pub const MEASURE_HEADER_H: f32 = 36.0;
 
 pub const MIN_PIXELS_PER_SEC: f64 = 0.5;
