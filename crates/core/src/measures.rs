@@ -77,7 +77,7 @@ pub fn cover_audio(measures: &mut Vec<Measure>, audio_len_sec: f64, next_id: &mu
 
 pub(crate) fn recompute_starts(measures: &mut [Measure], from: usize) {
     for j in from.max(1)..measures.len() {
-        if !measures[j].anchored {
+        if !measures[j].is_anchored() {
             let prev = &measures[j - 1];
             measures[j].start_sec = prev.start_sec + prev.nominal_duration_sec();
         }
@@ -97,10 +97,27 @@ fn check_index(measures: &[Measure], index: usize) -> Result<(), EditError> {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Propagation {
-    /// The edit also applies to every following measure.
+    /// The edit also applies to every following measure (locked ones are skipped).
     #[default]
     Following,
+    /// The following measures that had the same old value, stopping before a locked one.
+    Identical,
     Single,
+}
+
+/// `index` and the contiguous following measures with the same `key` as `index`. Include `locked` in the
+/// key to stop before a locked measure.
+pub fn contiguous_same<K: PartialEq>(measures: &[Measure], index: usize, key: impl Fn(&Measure) -> K) -> Range<usize> {
+    let Some(first) = measures.get(index).map(&key) else { return index..index };
+    let end = measures[index..].iter().position(|m| key(m) != first).map_or(measures.len(), |p| index + p);
+    index..end
+}
+
+pub(crate) fn check_unlocked(measures: &[Measure], index: usize) -> Result<(), EditError> {
+    match measures.get(index) {
+        Some(m) if m.locked => Err(EditError::MeasureLocked(index)),
+        _ => Ok(()),
+    }
 }
 
 /// Edits `index` and every following measure. Returns the edited range.
@@ -119,31 +136,55 @@ pub fn set_tempo_scoped(
     propagation: Propagation,
 ) -> Result<Range<usize>, EditError> {
     check_index(measures, index)?;
+    check_unlocked(measures, index)?;
     if !valid_tempo(new_bpm) {
         return Err(EditError::InvalidTempo(new_bpm));
     }
-    Ok(set_scoped(measures, index, propagation, |m| m.tempo_bpm != new_bpm, |m| m.tempo_bpm = new_bpm))
+    Ok(set_scoped(measures, index, propagation, |m| m.tempo_bpm, new_bpm, |m| &mut m.tempo_bpm))
 }
 
-/// Applies `assign` to the measures in scope that `differs`, dropping their anchor, then refits the starts.
-fn set_scoped(measures: &mut [Measure], index: usize, propagation: Propagation, differs: impl Fn(&Measure) -> bool, assign: impl Fn(&mut Measure)) -> Range<usize> {
-    let end = if propagation == Propagation::Following { measures.len() } else { index + 1 };
-    for m in measures[index..end].iter_mut().filter(|m| differs(m)) {
-        assign(m);
-        m.anchored = false;
+/// Sets the field on the unlocked measures in scope that differ, dropping their anchor, then refits the starts.
+fn set_scoped<T: PartialEq + Copy>(
+    measures: &mut [Measure],
+    index: usize,
+    propagation: Propagation,
+    get: impl Fn(&Measure) -> T,
+    value: T,
+    field: impl Fn(&mut Measure) -> &mut T,
+) -> Range<usize> {
+    let range = match propagation {
+        Propagation::Following => index..measures.len(),
+        Propagation::Identical => contiguous_same(measures, index, |m| (get(m), m.locked)),
+        Propagation::Single => index..index + 1,
+    };
+    for m in measures[range.clone()].iter_mut().filter(|m| !m.locked) {
+        if get(m) != value {
+            *field(m) = value;
+            m.anchored = false;
+        }
     }
     recompute_starts(measures, index);
-    index..end
+    range
+}
+
+/// Sets a per-measure flag on `index` and, with `propagate`, on the run `contiguous_same` gives for `key`.
+pub(crate) fn set_flag<K: PartialEq>(
+    measures: &mut [Measure],
+    index: usize,
+    propagate: bool,
+    key: impl Fn(&Measure) -> K,
+    set: impl Fn(&mut Measure),
+) -> Result<Range<usize>, EditError> {
+    check_index(measures, index)?;
+    let range = if propagate { contiguous_same(measures, index, key) } else { index..index + 1 };
+    measures[range.clone()].iter_mut().for_each(set);
+    Ok(range)
 }
 
 /// Sets let ring on `index` and on every contiguous following measure that had the same old value as `index`
 /// (the run stops at the first measure that differs). Returns the edited range.
 pub fn set_let_ring(measures: &mut [Measure], index: usize, on: bool) -> Result<Range<usize>, EditError> {
-    check_index(measures, index)?;
-    let old = measures[index].let_ring;
-    let end = measures[index..].iter().position(|m| m.let_ring != old).map_or(measures.len(), |p| index + p);
-    measures[index..end].iter_mut().for_each(|m| m.let_ring = on);
-    Ok(index..end)
+    set_flag(measures, index, true, |m| m.let_ring, |m| m.let_ring = on)
 }
 
 /// Same propagation rule as `set_tempo`, applied to the time signature. A manual change of either drops the fit (anchor) of every measure it changes.
@@ -162,10 +203,11 @@ pub fn set_time_sig_scoped(
     propagation: Propagation,
 ) -> Result<Range<usize>, EditError> {
     check_index(measures, index)?;
+    check_unlocked(measures, index)?;
     if !new_sig.is_valid() {
         return Err(EditError::InvalidTimeSignature(new_sig));
     }
-    Ok(set_scoped(measures, index, propagation, |m| m.time_sig != new_sig, |m| m.time_sig = new_sig))
+    Ok(set_scoped(measures, index, propagation, |m| m.time_sig, new_sig, |m| &mut m.time_sig))
 }
 
 #[cfg(all(test, dev_tests))]

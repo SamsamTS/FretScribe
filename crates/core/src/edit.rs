@@ -93,11 +93,60 @@ impl ProjectEdit {
     }
 }
 
+/// Where the recording says a measure ends.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FittedMeasure {
-    pub start_sec: f64,
-    pub tempo_bpm: f64,
-    pub time_sig: TimeSignature,
+pub struct MeasureFit {
+    pub end_sec: f64,
+    pub confidence: f32,
+}
+
+fn scope(propagate: bool) -> Propagation {
+    if propagate {
+        Propagation::Identical
+    } else {
+        Propagation::Single
+    }
+}
+
+/// The tempo that makes `m` end at `end_sec`.
+fn tempo_spanning(m: &Measure, end_sec: f64) -> Result<f64, EditError> {
+    let span = end_sec - m.start_sec;
+    if span < MIN_MEASURE_SEC {
+        return Err(EditError::InvalidTime(end_sec));
+    }
+    let bpm = m.time_sig.beats() * 60.0 / span;
+    valid_tempo(bpm).then_some(bpm).ok_or(EditError::InvalidTempo(bpm))
+}
+
+/// Moves the ending barline of the measures in `range` to `end(index, measure)`, in order. Stored tempos
+/// and later barlines stay; a barline touching a locked measure and the grid's end do not move.
+/// Returns the measures whose barline was set.
+fn move_ends(measures: &mut [Measure], range: std::ops::Range<usize>, end: impl Fn(usize, &Measure) -> Option<f64>) -> Result<Vec<usize>, EditError> {
+    let mut moved = Vec::new();
+    for i in range {
+        if i + 1 >= measures.len() || measures[i].locked || measures[i + 1].locked {
+            continue;
+        }
+        let Some(sec) = end(i, &measures[i]) else { continue };
+        if !sec.is_finite() {
+            return Err(EditError::InvalidTime(sec));
+        }
+        measures[i + 1].start_sec = sec;
+        measures[i + 1].anchored = true;
+        moved.push(i);
+    }
+    for &i in &moved {
+        for j in i..=i + 1 {
+            if let Some(next_start) = measures.get(j + 1).map(|m| m.start_sec) {
+                tempo_spanning(&measures[j], next_start)?;
+            }
+        }
+        // A follower that no longer matches its predecessor's tempo must be pinned to stay put.
+        if let [_, prev, follower, ..] = &mut measures[i..] {
+            follower.anchored |= (follower.start_sec - prev.start_sec - prev.nominal_duration_sec()).abs() > EPS;
+        }
+    }
+    Ok(moved)
 }
 
 fn resolve(map: &TempoMap, pos: TimePos, old_sec: f64, policy: NotePolicy) -> TimePos {
@@ -205,14 +254,40 @@ impl Project {
     }
 
     /// Sets let ring on measure `index`; `propagate` extends it to the contiguous following measures that had
-    /// the same old value (`measures::set_let_ring`). Not a grid edit: no note moves.
+    /// the same old value. Not a grid edit: no note moves.
     pub fn set_let_ring(&mut self, index: usize, on: bool, propagate: bool) -> Result<ProjectEdit, EditError> {
         self.edit_notes("Let ring", |p| {
-            let range = measures::set_let_ring(&mut p.measures, index, on)?;
-            if !propagate {
-                (index + 1..range.end).for_each(|i| p.measures[i].let_ring = !on);
-            }
-            Ok(())
+            measures::set_flag(&mut p.measures, index, propagate, |m| m.let_ring, |m| m.let_ring = on).map(drop)
+        })
+    }
+
+    /// Not a grid edit: `anchored` is untouched (see `Measure::is_anchored`).
+    pub fn set_locked(&mut self, index: usize, on: bool, propagate: bool) -> Result<ProjectEdit, EditError> {
+        self.edit_notes("Lock measure", |p| {
+            measures::set_flag(&mut p.measures, index, propagate, |m| m.locked, |m| m.locked = on).map(drop)
+        })
+    }
+
+    /// Sets the auto-fit flag and moves the end of each measure in scope: on, to its entry in `fits`
+    /// (indexed by measure; none leaves the barline); off, to the length its stored tempo gives.
+    /// A barline shared with a locked measure stays.
+    pub fn set_auto_fit(
+        &mut self,
+        index: usize,
+        on: bool,
+        propagate: bool,
+        fits: &[Option<MeasureFit>],
+        policy: NotePolicy,
+    ) -> Result<ProjectEdit, EditError> {
+        self.grid_edit("Auto-fit", policy, |p| {
+            p.check_measure(index)?;
+            measures::check_unlocked(&p.measures, index)?;
+            let range = measures::set_flag(&mut p.measures, index, propagate, |m| (m.auto_fit, m.locked), |m| m.auto_fit = on)?;
+            move_ends(&mut p.measures, range, |i, m| match on {
+                true => fits.get(i).copied().flatten().map(|f| f.end_sec),
+                false => Some(m.start_sec + m.nominal_duration_sec()),
+            })
+            .map(drop)
         })
     }
 
@@ -250,6 +325,15 @@ impl Project {
         })
     }
 
+    /// `set_tempo_scoped` on this measure only, or on its identical followers too.
+    pub fn set_tempo_with(&mut self, index: usize, bpm: f64, policy: NotePolicy, propagate: bool) -> Result<ProjectEdit, EditError> {
+        self.set_tempo_scoped(index, bpm, scope(propagate), policy)
+    }
+
+    pub fn set_time_sig_with(&mut self, index: usize, sig: TimeSignature, policy: NotePolicy, propagate: bool) -> Result<ProjectEdit, EditError> {
+        self.set_time_sig_scoped(index, sig, scope(propagate), policy)
+    }
+
     /// Anchors measure `index` at `new_start_sec`. The previous measure is stretched to end there
     /// (its tempo is refitted); later un-anchored measures keep their lengths and follow.
     pub fn move_measure_start(
@@ -260,81 +344,45 @@ impl Project {
     ) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Move measure start", policy, |p| {
             p.check_measure(index)?;
+            measures::check_unlocked(&p.measures, index)?;
+            if index > 0 {
+                measures::check_unlocked(&p.measures, index - 1)?;
+            }
             if !new_start_sec.is_finite() {
                 return Err(EditError::InvalidTime(new_start_sec));
             }
             if index > 0 {
                 let prev = &p.measures[index - 1];
-                let span = new_start_sec - prev.start_sec;
-                if span < MIN_MEASURE_SEC {
-                    return Err(EditError::InvalidTime(new_start_sec));
-                }
-                let refit = prev.time_sig.beats() * 60.0 / span;
-                if !valid_tempo(refit) {
-                    return Err(EditError::InvalidTempo(refit));
-                }
-                p.measures[index - 1].tempo_bpm = refit;
+                p.measures[index - 1].tempo_bpm = tempo_spanning(prev, new_start_sec)?;
             }
             if let Some(next) = p.measures.get(index + 1) {
-                if next.anchored && new_start_sec > next.start_sec - MIN_MEASURE_SEC {
+                if next.is_anchored() && new_start_sec > next.start_sec - MIN_MEASURE_SEC {
                     return Err(EditError::InvalidTime(new_start_sec));
                 }
             }
             p.measures[index].start_sec = new_start_sec;
             p.measures[index].anchored = true;
+            p.measures[index].auto_fit = false;
             recompute_starts(&mut p.measures, index + 1);
             Ok(())
         })
     }
 
-    /// Replaces the grid with the fitted one (every measure anchored). Measures keep their id by
-    /// position; extra ones get fresh ids. Callers normally pass `KeepAudioPosition`.
-    pub fn auto_fit(
-        &mut self,
-        fitted: &[FittedMeasure],
-        policy: NotePolicy,
-    ) -> Result<ProjectEdit, EditError> {
+    /// Fits every measure's end (`fits` indexed by measure), whatever its auto-fit flag, and flags the
+    /// moved ones. Locked measures keep start, tempo and signature. Callers normally pass `KeepAudioPosition`.
+    pub fn auto_fit(&mut self, fits: &[Option<MeasureFit>], policy: NotePolicy) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Auto-fit grid", policy, |p| {
-            if fitted.is_empty() {
-                return Err(EditError::LastMeasure);
-            }
-            let mut previous_start = f64::NEG_INFINITY;
-            for f in fitted {
-                if !f.start_sec.is_finite() || f.start_sec <= previous_start {
-                    return Err(EditError::InvalidTime(f.start_sec));
-                }
-                if !valid_tempo(f.tempo_bpm) {
-                    return Err(EditError::InvalidTempo(f.tempo_bpm));
-                }
-                if !f.time_sig.is_valid() {
-                    return Err(EditError::InvalidTimeSignature(f.time_sig));
-                }
-                previous_start = f.start_sec;
-            }
-            let old_ids: Vec<u64> = p.measures.iter().map(|m| m.id).collect();
-            let mut measures = Vec::with_capacity(fitted.len());
-            for (k, f) in fitted.iter().enumerate() {
-                let id = match old_ids.get(k) {
-                    Some(&id) => id,
-                    None => p.fresh_measure_id(),
-                };
-                measures.push(Measure {
-                    id,
-                    start_sec: f.start_sec,
-                    tempo_bpm: f.tempo_bpm,
-                    time_sig: f.time_sig,
-                    anchored: true,
-                    let_ring: p.measures.get(k).is_some_and(|m| m.let_ring),
-                });
-            }
-            p.measures = measures;
+            let len = p.measures.len();
+            let moved = move_ends(&mut p.measures, 0..len, |i, _| fits.get(i).copied().flatten().map(|f| f.end_sec))?;
+            moved.into_iter().for_each(|i| p.measures[i].auto_fit = true);
             Ok(())
         })
     }
 
     /// Adds or removes measures at the end so the grid covers the audio; `None` when it already does.
     pub fn cover_audio(&mut self, audio_len_sec: f64) -> Option<ProjectEdit> {
-        let used: HashSet<u64> = self.notes.iter().flat_map(|n| [n.start.measure, n.end.measure]).collect();
+        let mut used: HashSet<u64> = self.notes.iter().flat_map(|n| [n.start.measure, n.end.measure]).collect();
+        used.extend(self.measures.iter().filter(|m| m.locked).map(|m| m.id));
         let (mut measures, mut next) = (self.measures.clone(), self.next_measure_id);
         if !measures::cover_audio(&mut measures, audio_len_sec, &mut next, |m| used.contains(&m.id)) {
             return None;
@@ -387,6 +435,7 @@ impl Project {
     ) -> Result<ProjectEdit, EditError> {
         self.edit_notes("Delete measure", |p| {
             p.check_measure(index)?;
+            measures::check_unlocked(&p.measures, index)?;
             if p.measures.len() == 1 {
                 return Err(EditError::LastMeasure);
             }
@@ -436,6 +485,7 @@ impl Project {
     pub fn split_measure(&mut self, index: usize, at_beat: f64) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Split measure", NotePolicy::KeepAudioPosition, |p| {
             p.check_measure(index)?;
+            measures::check_unlocked(&p.measures, index)?;
             let map = TempoMap::new(&p.measures);
             let sig = p.measures[index].time_sig;
             let units = at_beat * f64::from(sig.denominator) / 4.0;
@@ -467,7 +517,9 @@ impl Project {
                 tempo_bpm,
                 TimeSignature::new(sig.numerator - first_numerator, sig.denominator),
             );
-            p.measures.insert(index + 1, Measure { let_ring: p.measures[index].let_ring, ..second });
+            let first = &p.measures[index];
+            let second = Measure { let_ring: first.let_ring, auto_fit: first.auto_fit, ..second };
+            p.measures.insert(index + 1, second);
             Ok(())
         })
     }
@@ -477,6 +529,8 @@ impl Project {
     pub fn merge_measures(&mut self, index: usize) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Merge measures", NotePolicy::KeepAudioPosition, |p| {
             p.check_measure(index + 1)?;
+            measures::check_unlocked(&p.measures, index)?;
+            measures::check_unlocked(&p.measures, index + 1)?;
             let map = TempoMap::new(&p.measures);
             let (a, b) = (p.measures[index].time_sig, p.measures[index + 1].time_sig);
             if a.denominator != b.denominator {

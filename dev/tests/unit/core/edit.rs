@@ -223,83 +223,160 @@ fn move_measure_start_validation() {
     assert!(p.move_measure_start(1, 4.5, Follow).is_err());
 }
 
+/// Fit entries (indexed by measure) ending at the given times.
+fn fits(ends: &[Option<f64>]) -> Vec<Option<MeasureFit>> {
+    ends.iter().map(|e| e.map(|end_sec| MeasureFit { end_sec, confidence: 0.9 })).collect()
+}
+
+fn starts(p: &Project) -> Vec<f64> {
+    p.measures.iter().map(|m| m.start_sec).collect()
+}
+
+fn flags(p: &Project, get: impl Fn(&Measure) -> bool) -> Vec<bool> {
+    p.measures.iter().map(get).collect()
+}
+
 #[test]
-fn auto_fit_replaces_grid_and_keeps_notes_on_the_audio() {
-    let mut p = project(2);
+fn auto_fit_moves_only_ends_and_keeps_notes_on_the_audio() {
+    let mut p = project(3);
     let n = note(&mut p, 60, (2, 1.0), (2, 2.0));
     let (s0, e0) = secs(&p, n);
-    let fitted = [
-        FittedMeasure {
-            start_sec: 0.2,
-            tempo_bpm: 118.0,
-            time_sig: TimeSignature::COMMON,
-        },
-        FittedMeasure {
-            start_sec: 0.2 + 4.0 * 60.0 / 118.0,
-            tempo_bpm: 118.0,
-            time_sig: TimeSignature::COMMON,
-        },
-        FittedMeasure {
-            start_sec: 0.2 + 8.0 * 60.0 / 118.0,
-            tempo_bpm: 118.0,
-            time_sig: TimeSignature::COMMON,
-        },
-    ];
-    p.auto_fit(&fitted, Keep).unwrap();
-    assert_eq!(p.measures.len(), 3);
-    assert_eq!(&ids(&p)[..2], [1, 2]);
-    assert_eq!(p.measures[2].id, 3);
-    assert!(p.measures.iter().all(|m| m.anchored));
+    p.measures.iter_mut().for_each(|m| m.auto_fit = false);
+    p.auto_fit(&fits(&[Some(2.1), Some(4.05), Some(9.0)]), Keep).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.1, 4.05]);
+    assert!(p.measures.iter().all(|m| m.tempo_bpm == 120.0));
+    assert_eq!(flags(&p, |m| m.auto_fit), [true, true, false], "the last measure cannot move");
+    assert_eq!(ids(&p), [1, 2, 3]);
     let (s1, e1) = secs(&p, n);
     near(s0, s1);
     near(e0, e1);
-    assert_eq!(p.next_measure_id, 4);
 }
 
 #[test]
-fn auto_fit_dropping_measures_re_anchors_notes_by_seconds() {
+fn auto_fit_skips_locked_measures_and_their_barlines() {
     let mut p = project(4);
-    let n = note(&mut p, 60, (4, 1.0), (4, 2.0));
-    let (s0, _) = secs(&p, n);
-    let fitted = [FittedMeasure {
-        start_sec: 0.0,
-        tempo_bpm: 60.0,
-        time_sig: TimeSignature::COMMON,
-    }];
-    p.auto_fit(&fitted, Follow).unwrap();
-    assert_eq!(p.measures.len(), 1);
-    close(secs(&p, n).0, s0);
-    p.validate().unwrap();
+    p.set_locked(2, true, false).unwrap();
+    p.measures[2].auto_fit = false;
+    p.auto_fit(&fits(&[Some(2.1), Some(4.2), Some(6.2), None]), Keep).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.1, 4.0, 6.0]);
+    assert_eq!(flags(&p, |m| m.auto_fit), [true, true, false, true]);
 }
 
 #[test]
-fn auto_fit_validation() {
-    let mut p = project(2);
-    let ok = FittedMeasure {
-        start_sec: 0.0,
-        tempo_bpm: 120.0,
-        time_sig: TimeSignature::COMMON,
-    };
-    assert!(p.auto_fit(&[], Keep).is_err());
-    assert!(p.auto_fit(&[ok, ok], Keep).is_err());
-    assert!(p
-        .auto_fit(
-            &[FittedMeasure {
-                tempo_bpm: 1.0,
-                ..ok
-            }],
-            Keep
-        )
-        .is_err());
-    assert!(p
-        .auto_fit(
-            &[FittedMeasure {
-                time_sig: TimeSignature::new(4, 5),
-                ..ok
-            }],
-            Keep
-        )
-        .is_err());
+fn auto_fit_rejects_crossed_barlines() {
+    let mut p = project(3);
+    let before = p.clone();
+    assert!(p.auto_fit(&fits(&[Some(4.5), None, None]), Keep).is_err());
+    assert!(p.auto_fit(&fits(&[Some(f64::NAN), None, None]), Keep).is_err());
+    assert_eq!(p, before);
+}
+
+#[test]
+fn auto_fit_toggle_moves_the_end_only() {
+    let mut p = project(4);
+    p.measures.iter_mut().for_each(|m| m.auto_fit = false);
+    p.set_auto_fit(1, true, false, &fits(&[None, Some(4.2), None, None]), Follow).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.0, 4.2, 6.0]);
+    assert_eq!(flags(&p, |m| m.auto_fit), [false, true, false, false]);
+    // No entry: the flag only.
+    p.set_auto_fit(0, true, false, &[], Follow).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.0, 4.2, 6.0]);
+    assert!(p.measures[0].auto_fit);
+    // Off: the stored tempo gives the length.
+    let edit = p.set_auto_fit(1, false, false, &[], Follow).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.0, 4.0, 6.0]);
+    assert_eq!(p.measures[1].tempo_bpm, 120.0);
+    edit.undo(&mut p);
+    assert_eq!((p.measures[1].auto_fit, p.measures[2].start_sec), (true, 4.2));
+}
+
+#[test]
+fn auto_fit_toggle_propagates_measure_by_measure_and_stops_before_a_lock() {
+    let mut p = project(5);
+    p.measures.iter_mut().for_each(|m| m.auto_fit = false);
+    p.set_locked(3, true, false).unwrap();
+    p.set_auto_fit(0, true, true, &fits(&[Some(2.1), Some(4.2), Some(6.3), Some(8.4), None]), Follow).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.1, 4.2, 6.0, 8.0]);
+    assert_eq!(flags(&p, |m| m.auto_fit), [true, true, true, false, false]);
+    p.set_auto_fit(0, false, true, &[], Follow).unwrap();
+    assert_eq!(starts(&p), [0.0, 2.0, 4.0, 6.0, 8.0]);
+}
+
+#[test]
+fn locked_measures_reject_every_change() {
+    let mut p = project(4);
+    note(&mut p, 60, (2, 1.0), (2, 2.0));
+    p.set_locked(1, true, false).unwrap();
+    assert!(!p.measures[1].anchored && p.measures[1].is_anchored());
+    let before = p.clone();
+    let locked = Err(EditError::MeasureLocked(1));
+    let sig = TimeSignature::new(3, 4);
+    for propagate in [false, true] {
+        assert_eq!(p.set_tempo_with(1, 90.0, Follow, propagate).map(drop), locked);
+        assert_eq!(p.set_time_sig_with(1, sig, Follow, propagate).map(drop), locked);
+        assert_eq!(p.set_auto_fit(1, false, propagate, &[], Follow).map(drop), locked);
+    }
+    assert_eq!(p.move_measure_start(1, 2.1, Follow).map(drop), locked);
+    assert_eq!(p.move_measure_start(2, 4.1, Follow).map(drop), locked);
+    assert_eq!(p.split_measure(1, 2.0).map(drop), locked);
+    assert_eq!(p.merge_measures(0).map(drop), locked);
+    assert_eq!(p.merge_measures(1).map(drop), locked);
+    assert_eq!(p.delete_measure(1, Follow, true).map(drop), locked);
+    assert_eq!(p, before);
+    p.set_let_ring(0, true, true).unwrap();
+    assert!(p.measures.iter().all(|m| m.let_ring));
+    p.insert_measure(1, Follow).unwrap();
+}
+
+#[test]
+fn identical_propagation_stops_at_a_difference_or_a_lock() {
+    let mut p = project(5);
+    p.measures[3].tempo_bpm = 90.0;
+    p.set_tempo_with(0, 100.0, Follow, true).unwrap();
+    assert_eq!(p.measures.iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(), [100.0, 100.0, 100.0, 90.0, 120.0]);
+    p.set_locked(2, true, false).unwrap();
+    p.set_tempo_with(0, 110.0, Follow, true).unwrap();
+    assert_eq!(p.measures[..3].iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(), [110.0, 110.0, 100.0]);
+    p.set_time_sig_with(0, TimeSignature::new(3, 4), Follow, true).unwrap();
+    assert_eq!(flags(&p, |m| m.time_sig.numerator == 3), [true, true, false, false, false]);
+    p.set_time_sig_with(3, TimeSignature::new(2, 4), Follow, false).unwrap();
+    assert_eq!(flags(&p, |m| m.time_sig.numerator == 2), [false, false, false, true, false]);
+    // The whole-grid scope skips locked measures.
+    p.set_tempo_scoped(0, 80.0, Propagation::Following, Follow).unwrap();
+    assert_eq!(p.measures[2].tempo_bpm, 100.0);
+}
+
+#[test]
+fn lock_propagates_over_equal_flags() {
+    let mut p = project(4);
+    p.set_locked(2, true, false).unwrap();
+    p.set_locked(0, true, true).unwrap();
+    assert_eq!(flags(&p, |m| m.locked), [true, true, true, false]);
+    p.set_locked(0, false, true).unwrap();
+    assert_eq!(flags(&p, |m| m.locked), [false; 4]);
+}
+
+#[test]
+fn flags_through_split_merge_insert_and_manual_move() {
+    let mut p = project(3);
+    p.measures[0].auto_fit = false;
+    p.split_measure(0, 2.0).unwrap();
+    assert_eq!(flags(&p, |m| m.auto_fit), [false, false, true, true]);
+    p.merge_measures(1).unwrap();
+    assert!(!p.measures[1].auto_fit);
+    p.insert_measure(1, Follow).unwrap();
+    assert!(p.measures[1].auto_fit && !p.measures[1].locked);
+    let last = p.measures.len() - 1;
+    p.move_measure_start(last, p.measures[last].start_sec + 0.1, Follow).unwrap();
+    assert!(!p.measures[last].auto_fit);
+}
+
+#[test]
+fn locked_trailing_measures_survive_cover_audio() {
+    let mut p = project(3);
+    p.set_locked(2, true, false).unwrap();
+    p.cover_audio(1.0);
+    assert_eq!(p.measures.len(), 3);
 }
 
 #[test]

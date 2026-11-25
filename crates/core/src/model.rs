@@ -53,6 +53,16 @@ pub struct Measure {
     /// Let ring: the notes that start in this measure keep ringing (derived display, see `ring`).
     #[serde(default)]
     pub let_ring: bool,
+    /// Frozen: no tempo, signature, auto-fit, move or resize; acts as anchored while on.
+    #[serde(default)]
+    pub locked: bool,
+    /// The user wants this measure's end fitted to the recording.
+    #[serde(default = "default_true")]
+    pub auto_fit: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Measure {
@@ -64,7 +74,13 @@ impl Measure {
             time_sig,
             anchored: false,
             let_ring: false,
+            locked: false,
+            auto_fit: true,
         }
+    }
+
+    pub fn is_anchored(&self) -> bool {
+        self.anchored || self.locked
     }
 
     pub fn nominal_duration_sec(&self) -> f64 {

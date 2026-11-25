@@ -127,11 +127,13 @@ fn missing_optional_fields_take_defaults() {
     value["ui"] = serde_json::json!({ "loop_enabled": true });
     for m in value["project"]["measures"].as_array_mut().unwrap() {
         m.as_object_mut().unwrap().remove("anchored");
+        m.as_object_mut().unwrap().remove("locked");
+        m.as_object_mut().unwrap().remove("auto_fit");
     }
     let loaded = from_json(&value.to_string()).unwrap();
     assert!(loaded.ui.loop_enabled);
     assert_eq!(loaded.ui.snap_grid, SnapGrid::default());
-    assert!(loaded.project.measures.iter().all(|m| !m.anchored));
+    assert!(loaded.project.measures.iter().all(|m| !m.anchored && !m.locked && m.auto_fit));
 }
 
 #[test]

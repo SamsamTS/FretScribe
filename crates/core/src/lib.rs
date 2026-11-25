@@ -21,7 +21,7 @@ pub mod tracks;
 pub mod undo;
 
 pub use uuid::Uuid;
-pub use edit::{FittedMeasure, NotePolicy, ProjectEdit};
+pub use edit::{MeasureFit, NotePolicy, ProjectEdit};
 pub use error::{CoreError, EditError, UndoError};
 pub use grace::{
     default_grace_midi, grace_default_sec, grace_target_of, GraceError, LegatoError,
@@ -29,7 +29,7 @@ pub use grace::{
 };
 pub use links::{infer_link, same_string_fit, LinkError, LinkReport, LinkType, MAX_FRET};
 pub use measures::{
-    generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped, valid_tempo,
+    contiguous_same, generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped, valid_tempo,
     Propagation,
 };
 pub use model::{TICKS_PER_BEAT, 
