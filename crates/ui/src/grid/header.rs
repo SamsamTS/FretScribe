@@ -351,7 +351,10 @@ impl GridOverlay<'_> {
         let opened = button.clicked();
         if opened {
             ui.memory_mut(|mem| mem.toggle_popup(popup));
-            ui.data_mut(|d| d.insert_temp(popup, field.text(&measures[index])));
+            ui.data_mut(|d| {
+                d.insert_temp(popup, field.text(&measures[index]));
+                d.insert_temp(popup.with("focus"), true);
+            });
         }
         kit::popup(ui, popup, button, false, |ui| {
             ui.set_width(POPUP_W);
@@ -373,7 +376,11 @@ impl GridOverlay<'_> {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 let opts = kit::FieldOpts { width: POPUP_W - 2.0 * (APPLY + 6.0), height: APPLY, invalid: !valid, left: 10, right: 10, commit: &|_| None, tip: "" };
                 let edit = kit::text_field(ui, opts, |_| {}, &mut text, |_| {});
-                if opened {
+                // Repeated until it sticks: the popup's first (sizing) frame cannot take the focus.
+                if ui.data(|d| d.get_temp::<bool>(popup.with("focus"))).unwrap_or(false) {
+                    if edit.has_focus() {
+                        ui.data_mut(|d| d.remove::<bool>(popup.with("focus")));
+                    }
                     edit.request_focus();
                     let mut state = egui::TextEdit::load_state(ui.ctx(), edit.id).unwrap_or_default();
                     let end = egui::text::CCursor::new(text.chars().count());
@@ -391,7 +398,7 @@ impl GridOverlay<'_> {
                     }
                 });
             });
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if let (Field::Tempo, Some(fit)) = (field, fit) {
                     let shown = format_bpm(fit.tempo_bpm);
                     let link = egui::RichText::new(format!("Auto-fit: {shown}")).size(12.0).color(theme::accent());
