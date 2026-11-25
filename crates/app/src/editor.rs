@@ -69,6 +69,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let full_height = staff_style.height() + tab_style.height(strings, true);
     let height = if s.notation_collapsed { tab_view::TOOLBAR_HEIGHT } else { full_height };
     let frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG);
+    // A click on a part of the timeline that no widget claims.
+    let mut background_seek = None;
     let panel = egui::TopBottomPanel::bottom("notation").resizable(false).exact_height(height).frame(frame).show(ctx, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         let selected = s.editor.selection.ids.clone();
@@ -78,6 +80,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let row = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_view::TOOLBAR_HEIGHT));
         if collapsed {
             ui.allocate_rect(row, egui::Sense::hover());
+            background_seek = click_seek(ui, row.with_min_x(row.left() + LANE_HEADER_WIDTH), &view);
         } else {
             let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, grid: &note_grid, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
@@ -132,6 +135,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(seek_origin, area.max).union(notation_timeline), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
+        // Registered before the lanes, so their widgets are above it.
+        background_seek = background_seek.or(click_seek(ui, Rect::from_min_max(pos2(timeline_left, lanes.top()), area.max), &view));
         // Region edges snap to the current grid subdivisions (the measure starts when it has none).
         let tempo_map = fretscribe_core::TempoMap::new(&s.project.measures);
         let mut region_points: Vec<f64> = (0..tempo_map.len()).flat_map(|i| tempo_map.grid_lines(i, &s.ui.snap_grid).into_iter().map(|(sec, _)| sec).chain([tempo_map.measure_start_sec(i)])).collect();
@@ -180,7 +185,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         paint_grid_lines(ui, &note_grid, &view, notation_timeline);
     });
 
-    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y, seek_origin.x);
+    if let Some(sec) = background_seek {
+        s.seek(sec);
+    }
+    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y + MEASURE_HEADER_H, seek_origin.x);
     // Header column separator, down to the window bottom except beside the notation toolbar.
     let sep = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("header_separator")));
     let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
@@ -212,6 +220,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     requests
 }
 
+/// The time clicked in `rect`, whose left edge is the timeline's.
+fn click_seek(ui: &mut egui::Ui, rect: Rect, view: &TimelineView) -> Option<f64> {
+    let response = ui.interact(rect, ui.id().with("background_seek"), egui::Sense::click());
+    response.interact_pointer_pos().filter(|_| response.clicked()).map(|p| view.x_to_sec(p.x - rect.left()))
+}
+
 fn track_mut(p: &mut Project, id: u64) -> Option<&mut Track> {
     p.tracks.iter_mut().find(|t| t.id == id)
 }
@@ -241,9 +255,6 @@ fn click_note(s: &mut Session, id: u64, ctrl: bool, shift: bool) {
     } else {
         s.editor.selection.set(vec![id]);
         s.editor.selection.anchor = Some(id);
-    }
-    if let Some(t) = s.times.start_sec(id) {
-        s.seek(t);
     }
 }
 
@@ -294,6 +305,7 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
                 }
             });
         }
+        TrackEvent::SeekRequested(sec) => s.seek(sec),
         TrackEvent::NoteAction(a) => s.tool_actions.push(a),
         TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r)),
         TrackEvent::CollapseToggled(id) => {
@@ -357,6 +369,7 @@ fn handle_grid(s: &mut Session, e: GridEvent, audio_len: f64) {
             s.player_resync(false);
             return;
         }
+        GridEvent::SeekRequested(sec) => return s.seek(sec),
         GridEvent::AutoFitToggled { index, on, propagate, policy } => return s.toggle_auto_fit(index, on, propagate, policy),
         GridEvent::AutoFitRequested { index } => return s.start_auto_fit(index),
         _ => {}

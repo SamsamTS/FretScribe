@@ -136,14 +136,15 @@ fn a_dragged_barline_cannot_cross_its_neighbour() {
 }
 
 #[test]
-fn a_click_without_movement_changes_nothing() {
+fn a_click_without_movement_only_seeks() {
     let mut h = Harness::new();
     let at = h.line_pos(2.0);
     h.mouse(at, Modifiers::NONE);
     h.button(at, true, Modifiers::NONE);
     let mut events = h.button(at, false, Modifiers::NONE);
     events.extend(h.frame(Vec::new(), Modifiers::NONE));
-    assert!(events.is_empty(), "{events:?}");
+    let [GridEvent::SeekRequested(sec)] = events[..] else { panic!("{events:?}") };
+    assert!((sec - 2.0).abs() < 0.05, "{sec}");
 }
 
 #[test]

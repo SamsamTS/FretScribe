@@ -166,6 +166,9 @@ impl TrackLane<'_> {
         let move_notes = is_source && options.move_notes;
         let wave_response = ui.interact(wave_rect, ui.id().with(("wave", id)), Sense::click_and_drag());
         self.drive_drag(&ctx, &wave_response, move_notes, &mut events);
+        if let Some(p) = wave_response.interact_pointer_pos().filter(|_| wave_response.clicked()) {
+            events.push(TrackEvent::SeekRequested(view.x_to_sec(p.x - timeline_left)));
+        }
 
         let header = TrackHeader::show(
             ui,

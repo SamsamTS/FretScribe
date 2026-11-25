@@ -11,7 +11,7 @@ mod style;
 use egui::{pos2, vec2, Area, Button, Context, CursorIcon, Frame, Id, Order, Rect, Response, Sense, Ui};
 use fretscribe_core::{Measure, NotePolicy, SnapGrid, TempoMap, TimeSignature};
 
-use crate::view::TimelineView;
+use crate::view::{TimelineView, MEASURE_HEADER_H};
 
 pub use drag::{drag_limits, dragged_start};
 pub use draw::{line_rect, Dots, LineBatch};
@@ -114,6 +114,10 @@ impl<'a> GridOverlay<'a> {
                 }
                 if !frozen {
                     self.track_drag(ui, id, rect, &response, line.measure, &mut events);
+                }
+                // Under the header, a click on a barline moves the play head like anywhere else.
+                if let Some(p) = response.interact_pointer_pos().filter(|p| response.clicked() && p.y >= rect.top() + MEASURE_HEADER_H) {
+                    events.push(GridEvent::SeekRequested(self.view.x_to_sec(p.x - rect.left())));
                 }
                 response.context_menu(|ui| self.context_menu(ui, line.measure, &mut events));
             }

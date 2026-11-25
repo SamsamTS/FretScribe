@@ -338,7 +338,7 @@ impl<'a> SpectrogramView<'a> {
             self.draw_readout(&painter, &geo, h);
         }
 
-        let events = pointer::events(ui, &response, &geo, pitch_ruler, |pos| scene.hit(pos, None).is_none());
+        let events = pointer::events(ui, &response, &geo, pitch_ruler, |pos| scene.hit(pos, hovered_id).is_none());
         SpectroOutput { events, scene, hover, hovered_note, geometry: geo, pitch_ruler, response }
     }
 }

@@ -17,6 +17,8 @@ pub enum TrackEvent {
     RoleChanged { id: u64, role: TrackRole },
     UseForBeatsChanged { id: u64, on: bool },
     AddTrackRequested,
+    /// Left click on a waveform.
+    SeekRequested(f64),
     /// A command of the source track's tool grid, for the note editor.
     NoteAction(crate::note_editor::NoteAction),
     /// Right-drag on a lane created, moved or resized the region (`None`: cleared).

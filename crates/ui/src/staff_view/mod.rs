@@ -536,8 +536,8 @@ impl StaffView<'_> {
             let mods = ui.input(|i| i.modifiers);
             match pointer.and_then(|p| hit(p).map(|id| (p, Some(id))).or(Some((p, None)))) {
                 Some((_, Some(id))) => events.push(StaffViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
-                Some((p, None)) => events.push(StaffViewEvent::SeekRequested(view.x_to_sec(p.x - body.left()))),
-                None => {}
+                Some((p, None)) if body.contains(p) => events.push(StaffViewEvent::SeekRequested(view.x_to_sec(p.x - body.left()))),
+                _ => {}
             }
         }
         if response.secondary_clicked() {

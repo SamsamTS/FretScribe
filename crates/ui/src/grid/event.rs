@@ -8,6 +8,7 @@ pub enum GridEvent {
     /// From the header number: `extend` selects from the last clicked measure to this one.
     MeasureSelected { index: usize, extend: bool },
     MeasureLoopRequested(usize),
+    SeekRequested(f64),
     TempoApplied { index: usize, bpm: f64, propagate: bool, policy: NotePolicy },
     TimeSigApplied { index: usize, sig: TimeSignature, propagate: bool, policy: NotePolicy },
     /// Applied by the app, which owns the fit results (`Project::set_auto_fit`).
@@ -46,6 +47,7 @@ impl GridEvent {
             Self::MergeMeasures { index } => project.merge_measures(index),
             Self::MeasureSelected { .. }
             | Self::MeasureLoopRequested(_)
+            | Self::SeekRequested(_)
             | Self::AutoFitToggled { .. }
             | Self::AutoFitRequested { .. } => return None,
         })
