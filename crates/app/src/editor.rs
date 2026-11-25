@@ -18,7 +18,6 @@ use fretscribe_ui::{
 use crate::session::Session;
 use crate::{toolbar, Request};
 
-
 /// Draws the whole editor and returns what the shell itself must do (dialogs, screens).
 pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let mut requests = toolbar::show(ctx, s);
@@ -341,7 +340,7 @@ fn select_measures(s: &mut Session, index: usize, extend: bool, audio_len: f64) 
     }
     let anchor = anchor.unwrap_or(index);
     let (first, last) = (anchor.min(index), anchor.max(index));
-    let end = measures.get(last + 1).map_or(measures[last].start_sec + measures[last].nominal_duration_sec(), |next| next.start_sec);
+    let end = TempoMap::new(measures).grid_end_sec(last);
     let region = RegionSelection::normalised(measures[first].start_sec, end, audio_len);
     handle_overview(s, OverviewEvent::RegionChanged(region));
 }

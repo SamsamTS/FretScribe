@@ -29,7 +29,7 @@ pub use grace::{
 };
 pub use links::{infer_link, same_string_fit, LinkError, LinkReport, LinkType, MAX_FRET};
 pub use measures::{
-    contiguous_same, generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped, valid_tempo,
+    auto_fit_run, contiguous_same, generate_measures, set_tempo, set_tempo_scoped, set_time_sig, set_time_sig_scoped, valid_tempo,
     Propagation,
 };
 pub use model::{TICKS_PER_BEAT, 

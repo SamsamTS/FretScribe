@@ -16,7 +16,7 @@ use crate::view::TimelineView;
 pub use drag::{drag_limits, dragged_start};
 pub use draw::{line_rect, Dots, LineBatch};
 pub use event::GridEvent;
-pub use header::{confidence_color, fitted_suffix, number_event, toggle_event, visible_items, Field, FitInfo, HeaderData, Item};
+pub use header::{FitInfo, HeaderData};
 pub use lines::{is_triplet, visible_lines, GridLine, LineKind, MIN_MAIN_BEAT_PX, MIN_SUBDIVISION_PX};
 pub use style::GridStyle;
 
@@ -309,7 +309,7 @@ impl<'a> GridOverlay<'a> {
 }
 
 /// The barline starting measure `index` cannot move: it or the measure it ends is locked.
-pub fn barline_locked(measures: &[Measure], index: usize) -> bool {
+fn barline_locked(measures: &[Measure], index: usize) -> bool {
     measures[index.saturating_sub(1)..=index].iter().any(|m| m.locked)
 }
 

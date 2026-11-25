@@ -1,5 +1,6 @@
 use super::*;
 use crate::measures::tests::{close, near, secs};
+use crate::measures::Propagation;
 use crate::model::{GraceKind, GraceNote, Legato, LegatoLink, Note};
 use NotePolicy::{FollowGrid as Follow, KeepAudioPosition as Keep};
 
@@ -312,8 +313,8 @@ fn locked_measures_reject_every_change() {
     let locked = Err(EditError::MeasureLocked(1));
     let sig = TimeSignature::new(3, 4);
     for propagate in [false, true] {
-        assert_eq!(p.set_tempo_with(1, 90.0, Follow, propagate).map(drop), locked);
-        assert_eq!(p.set_time_sig_with(1, sig, Follow, propagate).map(drop), locked);
+        assert_eq!(p.set_tempo_scoped(1, 90.0, Propagation::identical_if(propagate), Follow).map(drop), locked);
+        assert_eq!(p.set_time_sig_scoped(1, sig, Propagation::identical_if(propagate), Follow).map(drop), locked);
         assert_eq!(p.set_auto_fit(1, false, propagate, &[], Follow).map(drop), locked);
     }
     assert_eq!(p.move_measure_start(1, 2.1, Follow).map(drop), locked);
@@ -332,14 +333,14 @@ fn locked_measures_reject_every_change() {
 fn identical_propagation_stops_at_a_difference_or_a_lock() {
     let mut p = project(5);
     p.measures[3].tempo_bpm = 90.0;
-    p.set_tempo_with(0, 100.0, Follow, true).unwrap();
+    p.set_tempo_scoped(0, 100.0, Propagation::identical_if(true), Follow).unwrap();
     assert_eq!(p.measures.iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(), [100.0, 100.0, 100.0, 90.0, 120.0]);
     p.set_locked(2, true, false).unwrap();
-    p.set_tempo_with(0, 110.0, Follow, true).unwrap();
+    p.set_tempo_scoped(0, 110.0, Propagation::identical_if(true), Follow).unwrap();
     assert_eq!(p.measures[..3].iter().map(|m| m.tempo_bpm).collect::<Vec<_>>(), [110.0, 110.0, 100.0]);
-    p.set_time_sig_with(0, TimeSignature::new(3, 4), Follow, true).unwrap();
+    p.set_time_sig_scoped(0, TimeSignature::new(3, 4), Propagation::identical_if(true), Follow).unwrap();
     assert_eq!(flags(&p, |m| m.time_sig.numerator == 3), [true, true, false, false, false]);
-    p.set_time_sig_with(3, TimeSignature::new(2, 4), Follow, false).unwrap();
+    p.set_time_sig_scoped(3, TimeSignature::new(2, 4), Propagation::identical_if(false), Follow).unwrap();
     assert_eq!(flags(&p, |m| m.time_sig.numerator == 2), [false, false, false, true, false]);
     // The whole-grid scope skips locked measures.
     p.set_tempo_scoped(0, 80.0, Propagation::Following, Follow).unwrap();

@@ -105,6 +105,25 @@ pub enum Propagation {
     Single,
 }
 
+impl Propagation {
+    pub fn identical_if(propagate: bool) -> Self {
+        if propagate {
+            Self::Identical
+        } else {
+            Self::Single
+        }
+    }
+}
+
+/// The measures an auto-fit toggle on `index` applies to.
+pub fn auto_fit_run(measures: &[Measure], index: usize, propagate: bool) -> Range<usize> {
+    if propagate {
+        contiguous_same(measures, index, |m| (m.auto_fit, m.locked))
+    } else {
+        index..index + 1
+    }
+}
+
 /// `index` and the contiguous following measures with the same `key` as `index`. Include `locked` in the
 /// key to stop before a locked measure.
 pub fn contiguous_same<K: PartialEq>(measures: &[Measure], index: usize, key: impl Fn(&Measure) -> K) -> Range<usize> {

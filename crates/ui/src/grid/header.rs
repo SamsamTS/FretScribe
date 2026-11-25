@@ -181,8 +181,10 @@ fn width_of(ui: &Ui, text: &str, font: FontId) -> f32 {
     ui.painter().layout_no_wrap(text.to_owned(), font, theme::TEXT).size().x
 }
 
-/// The texts of one measure's tempo button and the widths of all items.
-struct Content {
+/// One measure's header: its texts and the widths of all items.
+struct Content<'a> {
+    index: usize,
+    fit: Option<&'a FitInfo>,
     number: String,
     sig: String,
     tempo: String,
@@ -190,8 +192,8 @@ struct Content {
     widths: [f32; 7],
 }
 
-impl Content {
-    fn new(ui: &Ui, index: usize, m: &Measure, fit: Option<&FitInfo>) -> Self {
+impl<'a> Content<'a> {
+    fn new(ui: &Ui, index: usize, m: &Measure, fit: Option<&'a FitInfo>) -> Self {
         let number = (index + 1).to_string();
         let sig = Field::TimeSig.text(m);
         let tempo = format!("\u{2669} = {}", Field::Tempo.text(m));
@@ -201,7 +203,7 @@ impl Content {
             + if m.is_anchored() { PIN + GAP } else { 0.0 };
         // The number keeps a wider gap after it.
         let widths = [text(&number).max(CONTROL) + GAP, text(&sig).max(CONTROL), text(&tempo) + extra, CONTROL, CONTROL, CONTROL, CONTROL];
-        Self { number, sig, tempo, fitted, widths }
+        Self { index, fit, number, sig, tempo, fitted, widths }
     }
 }
 
@@ -214,7 +216,7 @@ impl GridOverlay<'_> {
         let pointer = ui.input(|i| i.pointer.hover_pos());
         let mut visible = Vec::new();
         for (index, m) in measures.iter().enumerate() {
-            let end = measures.get(index + 1).map_or(m.start_sec + m.nominal_duration_sec(), |n| n.start_sec);
+            let end = self.tempo.grid_end_sec(index);
             let (x0, x1) = (self.x_of(rect, m.start_sec).max(rect.left()), self.x_of(rect, end).min(rect.right()));
             if x1 <= x0 {
                 continue;
@@ -263,12 +265,12 @@ impl GridOverlay<'_> {
                 width -= GAP;
             }
             let r = Rect::from_min_size(pos2(x, area.center().y - CONTROL / 2.0), vec2(width, CONTROL));
-            self.header_item(ui, id.with(item as u8), r, item, index, &content, fit, events);
+            self.header_item(ui, id.with(item as u8), r, item, &content, events);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn header_item(&self, ui: &mut Ui, id: Id, rect: Rect, item: Item, index: usize, c: &Content, fit: Option<&FitInfo>, events: &mut Vec<GridEvent>) {
+    fn header_item(&self, ui: &mut Ui, id: Id, rect: Rect, item: Item, c: &Content, events: &mut Vec<GridEvent>) {
+        let (index, fit) = (c.index, c.fit);
         let m = &self.tempo.measures()[index];
         let enabled = item.enabled(m.locked);
         let mods = ui.input(|i| i.modifiers);
@@ -308,7 +310,7 @@ impl GridOverlay<'_> {
                         paint_icon(ui, "anchor", pos2(x + PIN / 2.0, y), PIN, true);
                     }
                 }
-                self.field_popup(ui, id, &r, field, index, fit, events);
+                self.field_popup(ui, &r, field, c, events);
             }
             Item::AutoFit | Item::LetRing | Item::Lock => {
                 let (icon, on, tip) = match item {
@@ -342,9 +344,8 @@ impl GridOverlay<'_> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn field_popup(&self, ui: &mut Ui, id: Id, button: &Response, field: Field, index: usize, fit: Option<&FitInfo>, events: &mut Vec<GridEvent>) {
-        let popup = id.with("popup");
+    fn field_popup(&self, ui: &mut Ui, button: &Response, field: Field, c: &Content, events: &mut Vec<GridEvent>) {
+        let (index, fit, popup) = (c.index, c.fit, button.id.with("popup"));
         let measures = self.tempo.measures();
         let opened = button.clicked();
         if opened {

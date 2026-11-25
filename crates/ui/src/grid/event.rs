@@ -1,4 +1,4 @@
-use fretscribe_core::{EditError, NotePolicy, Project, ProjectEdit, TimeSignature};
+use fretscribe_core::{EditError, NotePolicy, Project, ProjectEdit, Propagation, TimeSignature};
 
 /// What the user asked for. The widget never touches the project; the app applies the event with
 /// `apply` and pushes the returned edit on its `UndoStack`.
@@ -34,8 +34,8 @@ impl GridEvent {
             Self::MeasureMoved { index, new_start_sec, policy } => {
                 project.move_measure_start(index, new_start_sec, policy)
             }
-            Self::TempoApplied { index, bpm, propagate, policy } => project.set_tempo_with(index, bpm, policy, propagate),
-            Self::TimeSigApplied { index, sig, propagate, policy } => project.set_time_sig_with(index, sig, policy, propagate),
+            Self::TempoApplied { index, bpm, propagate, policy } => project.set_tempo_scoped(index, bpm, Propagation::identical_if(propagate), policy),
+            Self::TimeSigApplied { index, sig, propagate, policy } => project.set_time_sig_scoped(index, sig, Propagation::identical_if(propagate), policy),
             Self::LetRingToggled { index, on, propagate } => project.set_let_ring(index, on, propagate),
             Self::LockToggled { index, on, propagate } => project.set_locked(index, on, propagate),
             Self::InsertMeasure { index, policy } => project.insert_measure(index, policy),

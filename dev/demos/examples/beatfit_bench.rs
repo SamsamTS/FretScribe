@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use fretscribe_analysis::beatfit::synth::*;
-use fretscribe_analysis::beatfit::{estimate_tempo, end_fits, fit_measures, onset_envelope};
+use fretscribe_analysis::beatfit::{end_fits, estimate_tempo, fit_measures, onset_envelope};
 
 const BPM: f64 = 120.0;
 const LEN_SEC: f64 = 33.0;

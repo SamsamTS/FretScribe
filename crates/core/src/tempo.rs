@@ -116,6 +116,11 @@ impl TempoMap {
             .map_or(audio_len_sec, |next| next.start_sec)
     }
 
+    /// Where measure `i` ends on the grid: the last one keeps its nominal length, whatever the audio's.
+    pub fn grid_end_sec(&self, i: usize) -> f64 {
+        self.measure_end_sec(i, self.measures[i].start_sec + self.measures[i].nominal_duration_sec())
+    }
+
     /// Length of measure `i` in ticks.
     pub fn measure_ticks(&self, i: usize) -> i64 {
         self.ticks[i]

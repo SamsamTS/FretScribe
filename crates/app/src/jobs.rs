@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::thread;
 
 use fretscribe_analysis::beatfit::{
-    combine_envelopes, default_weight, estimate_tempo, end_fits, fit_measures, onset_envelope,
+    combine_envelopes, default_weight, end_fits, estimate_tempo, fit_measures, onset_envelope,
     EnvelopeInput,
 };
 use fretscribe_analysis::pitchref::{estimate_reference, PitchRefEstimate, PitchRefOptions};

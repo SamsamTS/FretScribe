@@ -100,12 +100,8 @@ pub struct MeasureFit {
     pub confidence: f32,
 }
 
-fn scope(propagate: bool) -> Propagation {
-    if propagate {
-        Propagation::Identical
-    } else {
-        Propagation::Single
-    }
+fn fitted_end(fits: &[Option<MeasureFit>], index: usize) -> Option<f64> {
+    fits.get(index).copied().flatten().map(|f| f.end_sec)
 }
 
 /// The tempo that makes `m` end at `end_sec`.
@@ -282,9 +278,10 @@ impl Project {
         self.grid_edit("Auto-fit", policy, |p| {
             p.check_measure(index)?;
             measures::check_unlocked(&p.measures, index)?;
-            let range = measures::set_flag(&mut p.measures, index, propagate, |m| (m.auto_fit, m.locked), |m| m.auto_fit = on)?;
+            let range = measures::auto_fit_run(&p.measures, index, propagate);
+            p.measures[range.clone()].iter_mut().for_each(|m| m.auto_fit = on);
             move_ends(&mut p.measures, range, |i, m| match on {
-                true => fits.get(i).copied().flatten().map(|f| f.end_sec),
+                true => fitted_end(fits, i),
                 false => Some(m.start_sec + m.nominal_duration_sec()),
             })
             .map(drop)
@@ -323,15 +320,6 @@ impl Project {
         self.grid_edit("Set time signature", policy, |p| {
             measures::set_time_sig_scoped(&mut p.measures, index, new_sig, propagation).map(drop)
         })
-    }
-
-    /// `set_tempo_scoped` on this measure only, or on its identical followers too.
-    pub fn set_tempo_with(&mut self, index: usize, bpm: f64, policy: NotePolicy, propagate: bool) -> Result<ProjectEdit, EditError> {
-        self.set_tempo_scoped(index, bpm, scope(propagate), policy)
-    }
-
-    pub fn set_time_sig_with(&mut self, index: usize, sig: TimeSignature, policy: NotePolicy, propagate: bool) -> Result<ProjectEdit, EditError> {
-        self.set_time_sig_scoped(index, sig, scope(propagate), policy)
     }
 
     /// Anchors measure `index` at `new_start_sec`. The previous measure is stretched to end there
@@ -373,7 +361,7 @@ impl Project {
     pub fn auto_fit(&mut self, fits: &[Option<MeasureFit>], policy: NotePolicy) -> Result<ProjectEdit, EditError> {
         self.grid_edit("Auto-fit grid", policy, |p| {
             let len = p.measures.len();
-            let moved = move_ends(&mut p.measures, 0..len, |i, _| fits.get(i).copied().flatten().map(|f| f.end_sec))?;
+            let moved = move_ends(&mut p.measures, 0..len, |i, _| fitted_end(fits, i))?;
             moved.into_iter().for_each(|i| p.measures[i].auto_fit = true);
             Ok(())
         })

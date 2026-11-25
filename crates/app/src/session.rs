@@ -7,8 +7,8 @@ use std::time::Instant;
 use fretscribe_analysis::sync::SyncCandidate;
 use fretscribe_analysis::Levels;
 use fretscribe_audio::{Player, SpeedMode};
-use fretscribe_core::{contiguous_same, MeasureFit, 
-    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
+use fretscribe_core::{
+    auto_fit_run, shift_track, MeasureFit, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
 };
 use fretscribe_notation::staff::{self, StaffLayout, StaffOptions};
 use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
@@ -432,10 +432,14 @@ impl Session {
     /// The header's auto-fit toggle; turning it on without a fit result computes one first.
     pub fn toggle_auto_fit(&mut self, index: usize, on: bool, propagate: bool, policy: NotePolicy) {
         let Some(measure_id) = self.project.measures.get(index).map(|m| m.id) else { return };
-        let scope = if propagate { contiguous_same(&self.project.measures, index, |m| (m.auto_fit, m.locked)) } else { index..index + 1 };
+        let scope = auto_fit_run(&self.project.measures, index, propagate);
         if on && self.project.measures[scope].iter().any(|m| !self.fits.info.contains_key(&m.id)) {
             return self.run_auto_fit(FitRequest::Toggle { measure_id, propagate, policy });
         }
+        self.set_auto_fit(index, on, propagate, policy);
+    }
+
+    fn set_auto_fit(&mut self, index: usize, on: bool, propagate: bool, policy: NotePolicy) {
         let ends = self.fits.end_fits(&self.project.measures);
         let edit = self.project.set_auto_fit(index, on, propagate, &ends, policy);
         self.push_fitted(edit);
@@ -463,9 +467,7 @@ impl Session {
             }
             FitRequest::Toggle { measure_id, propagate, policy } => {
                 if let Some(index) = self.project.measures.iter().position(|m| m.id == measure_id) {
-                    let ends = self.fits.end_fits(&self.project.measures);
-                    let edit = self.project.set_auto_fit(index, true, propagate, &ends, policy);
-                    self.push_fitted(edit);
+                    self.set_auto_fit(index, true, propagate, policy);
                 }
             }
         }
