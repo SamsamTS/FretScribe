@@ -178,6 +178,7 @@ fn the_other_button_or_escape_cancels_a_draw_and_swallows_the_release() {
         assert_eq!(cancel, [SpectroEvent::DrawCancelled]);
         assert!(h.frame(vec![Event::PointerMoved(h.at(7.0, 48.0))]).is_empty());
         assert!(h.button(end, PointerButton::Primary, false).is_empty(), "no DrawEnded after a cancel");
+        h.button(end, PointerButton::Secondary, false);
         assert!(h.click(h.at(8.0, 50.0)).iter().any(|e| matches!(e, SpectroEvent::SeekRequested(_))), "the next click works again");
     }
 }

@@ -89,6 +89,11 @@ impl UndoStack {
         self.enforce();
     }
 
+    /// Makes the edit just undone unrecoverable (a gesture that was called off).
+    pub fn forget_redo(&mut self) {
+        self.undone.pop();
+    }
+
     /// Like `push`, but folds the edit into the latest one so both undo as a single step.
     pub fn push_merged(&mut self, edit: ProjectEdit) {
         self.undone.clear();

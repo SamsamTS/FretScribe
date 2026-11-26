@@ -119,6 +119,11 @@ fn drag_key(track_id: u64) -> Id {
 impl TrackLane<'_> {
     fn drive_drag(&self, ctx: &Context, response: &Response, move_notes: bool, events: &mut Vec<TrackEvent>) {
         let (id, key, pps) = (self.track.id, drag_key(self.track.id), self.shared.view.pixels_per_sec);
+        if ctx.data(|d| d.get_temp::<OffsetDrag>(key)).is_some() && crate::kit::drag_cancelled(ctx, PointerButton::Primary) {
+            ctx.data_mut(|d| d.remove::<OffsetDrag>(key));
+            events.push(TrackEvent::OffsetDragCancelled);
+            return;
+        }
         if response.drag_started_by(PointerButton::Primary) {
             let o = self.track.offset_sec;
             ctx.data_mut(|d| d.insert_temp(key, OffsetDrag { start: o, raw: o, shown: o, snapped: false }));
@@ -135,7 +140,7 @@ impl TrackLane<'_> {
                 events.push(TrackEvent::OffsetChanged { id, offset_sec: drag.shown, move_notes });
             }
         }
-        if response.drag_stopped() {
+        if response.drag_stopped() && ctx.data(|d| d.get_temp::<OffsetDrag>(key)).is_some() {
             ctx.data_mut(|d| d.remove::<OffsetDrag>(key));
             events.push(TrackEvent::OffsetDragEnded(id));
         }
@@ -166,7 +171,7 @@ impl TrackLane<'_> {
         let move_notes = is_source && options.move_notes;
         let wave_response = ui.interact(wave_rect, ui.id().with(("wave", id)), Sense::click_and_drag());
         self.drive_drag(&ctx, &wave_response, move_notes, &mut events);
-        if let Some(p) = wave_response.interact_pointer_pos().filter(|_| wave_response.clicked()) {
+        if let Some(p) = wave_response.interact_pointer_pos().filter(|_| wave_response.clicked() && !crate::kit::clicks_swallowed(&ctx)) {
             events.push(TrackEvent::SeekRequested(view.x_to_sec(p.x - timeline_left)));
         }
 
@@ -237,12 +242,19 @@ impl TrackLane<'_> {
 
         if self.shown_rows > 0 && self.shown_rows == self.configured_rows {
             let key = Id::new(("resize-drag", id));
+            if let Some((start, _)) = ctx.data(|d| d.get_temp::<(u32, f32)>(key)).filter(|_| crate::kit::drag_cancelled(&ctx, PointerButton::Primary)) {
+                ctx.data_mut(|d| d.remove::<(u32, f32)>(key));
+                resized_rows = Some((start, false));
+            }
             // The bottom edge of the waveform and, in the header column, of the lane.
             for (tag, left, right, bottom) in [("resize", wave_rect.left(), wave_rect.right(), wave_rect.bottom()), ("resize-header", rect.left(), timeline_left, rect.bottom())] {
                 let handle = Rect::from_min_max(pos2(left, bottom - RESIZE_HANDLE_PT), pos2(right, bottom));
                 let response = ui.interact(handle, ui.id().with((tag, id)), Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeVertical);
                 if response.drag_started() {
                     ctx.data_mut(|d| d.insert_temp(key, (self.configured_rows, 0.0_f32)));
+                }
+                if response.drag_stopped() {
+                    ctx.data_mut(|d| d.remove::<(u32, f32)>(key));
                 }
                 if let (true, Some((start, acc))) = (response.dragged(), ctx.data(|d| d.get_temp::<(u32, f32)>(key))) {
                     let acc = acc + response.drag_delta().y;

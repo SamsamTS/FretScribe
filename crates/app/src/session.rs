@@ -130,6 +130,8 @@ pub struct Session {
     pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
     pub pending_delete: Option<fretscribe_ui::GridEvent>,
     pub fits: FitStore,
+    /// During an offset drag: whether it has recorded its undo step.
+    pub offset_drag: Option<bool>,
     /// The measure last clicked in the header, where a Shift+click range starts.
     pub measure_anchor: Option<u64>,
     pub tempo_choices: Vec<(f64, f64)>,
@@ -213,6 +215,7 @@ impl Session {
             exact: None,
             pending_delete: None,
             fits: FitStore::default(),
+            offset_drag: None,
             measure_anchor: None,
             tempo_choices: Vec::new(),
             pitch_result: None,
@@ -415,12 +418,23 @@ impl Session {
         }
     }
 
-    pub fn shift_track(&mut self, id: u64, offset_sec: f64, move_notes: bool, merge: bool) {
+    /// The changes of one drag make a single undo step.
+    pub fn shift_track(&mut self, id: u64, offset_sec: f64, move_notes: bool) {
         match shift_track(&mut self.project, id, offset_sec, move_notes) {
-            Ok(edit) => self.push(edit, merge),
+            Ok(edit) => {
+                self.push(edit, self.offset_drag == Some(true));
+                self.offset_drag = self.offset_drag.map(|_| true);
+            }
             Err(e) => self.toast(e.to_string(), true),
         }
         self.push_tracks_to_player();
+    }
+
+    pub fn cancel_offset_drag(&mut self) {
+        if self.offset_drag.take() == Some(true) {
+            self.undo_redo(false);
+            self.undo.forget_redo();
+        }
     }
 
     // ---- background jobs -----------------------------------------------------------------
@@ -557,7 +571,7 @@ impl Session {
             self.sync_dialog = Some(SyncDialog { track: id, candidates });
             return;
         }
-        self.shift_track(id, best.offset_sec, false, false);
+        self.shift_track(id, best.offset_sec, false);
         self.toast(format!("Track '{name}' aligned: {:+.1} ms (confidence {:.0}%)", best.offset_sec * 1000.0, best.confidence * 100.0), false);
     }
 

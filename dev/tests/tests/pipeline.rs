@@ -42,6 +42,25 @@ fn an_edit_is_undoable_and_marks_the_session_dirty() {
 }
 
 #[test]
+fn an_offset_drag_is_one_undo_step_and_can_be_called_off() {
+    let mut s = session();
+    s.set_reference_hz(442.0);
+    let (id, start) = (s.project.tracks[0].id, s.project.tracks[0].offset_sec);
+    for cancel in [true, false] {
+        s.offset_drag = Some(false);
+        s.shift_track(id, 0.2, true);
+        s.shift_track(id, 0.4, true);
+        if cancel {
+            s.cancel_offset_drag();
+            assert_eq!(s.project.tracks[0].offset_sec, start);
+        }
+        s.offset_drag = None;
+    }
+    s.undo_redo(false);
+    assert_eq!((s.project.tracks[0].offset_sec, s.project.reference_hz), (start, 442.0));
+}
+
+#[test]
 fn changing_the_tuning_reassigns_the_tab() {
     let mut s = session();
     s.infer_all();

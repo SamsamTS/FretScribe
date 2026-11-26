@@ -283,22 +283,33 @@ where
         let wave_top = rect.top() + RULER_HEIGHT;
         let sec_at = |p: egui::Pos2| map.x_to_sec(p.x - rect.left());
 
-        let mut state = ctx.data(|d| d.get_temp::<DragState>(drag_id));
+        let mut state = ctx.data(|d| d.get_temp::<(DragState, PointerButton)>(drag_id));
         if response.drag_started() {
             let origin = ui.input(|i| i.pointer.press_origin()).or_else(|| response.interact_pointer_pos());
             state = origin.and_then(|origin| {
                 let (x, in_wave) = (origin.x - rect.left(), origin.y >= wave_top);
-                let mode = if response.drag_started_by(PointerButton::Primary) {
-                    hit_test_primary(x, &map, *region, vp_x, in_wave)
+                let (mode, button) = if response.drag_started_by(PointerButton::Primary) {
+                    (hit_test_primary(x, &map, *region, vp_x, in_wave), PointerButton::Primary)
                 } else if response.drag_started_by(PointerButton::Secondary) {
-                    hit_test_secondary(x, &map, *region, in_wave, shift)
+                    (hit_test_secondary(x, &map, *region, in_wave, shift), PointerButton::Secondary)
                 } else {
                     return None;
                 };
-                Some(DragState { mode, origin_sec: sec_at(origin), region: *region, view: *self.view })
+                Some((DragState { mode, origin_sec: sec_at(origin), region: *region, view: *self.view }, button))
             });
         }
-        if let (Some(drag), true) = (state, response.dragged()) {
+        if let Some((drag, _)) = state.filter(|&(_, button)| crate::kit::drag_cancelled(&ctx, button)) {
+            if *region != drag.region {
+                *region = drag.region;
+                events.push(OverviewEvent::RegionChanged(drag.region));
+            }
+            if *self.view != drag.view {
+                events.push(OverviewEvent::ViewportChanged { scroll_sec: drag.view.scroll_sec, pixels_per_sec: drag.view.pixels_per_sec });
+            }
+            ctx.data_mut(|d| d.remove::<(DragState, PointerButton)>(drag_id));
+            state = None;
+        }
+        if let (Some((drag, _)), true) = (state, response.dragged()) {
             if let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) {
                 let context = DragContext {
                     audio_len_sec: self.audio_len_sec,
@@ -324,21 +335,22 @@ where
             }
         }
         match state {
-            Some(_) if response.drag_stopped() => ctx.data_mut(|d| d.remove::<DragState>(drag_id)),
+            Some(_) if response.drag_stopped() => ctx.data_mut(|d| d.remove::<(DragState, PointerButton)>(drag_id)),
             Some(drag) => ctx.data_mut(|d| d.insert_temp(drag_id, drag)),
             None => {}
         }
 
-        if response.clicked_by(PointerButton::Primary) {
+        let clicks = !crate::kit::clicks_swallowed(&ctx);
+        if clicks && response.clicked_by(PointerButton::Primary) {
             if let Some(pos) = response.interact_pointer_pos() {
                 events.push(OverviewEvent::SeekRequested(snap_to(sec_at(pos), snap)));
             }
         }
-        if response.clicked_by(PointerButton::Secondary) && region.take().is_some() {
+        if clicks && response.clicked_by(PointerButton::Secondary) && region.take().is_some() {
             events.push(OverviewEvent::RegionChanged(None));
         }
 
-        let hover_mode = state.map(|d| d.mode).or_else(|| {
+        let hover_mode = state.map(|(d, _)| d.mode).or_else(|| {
             let pos = response.hover_pos()?;
             let (x, in_wave) = (pos.x - rect.left(), pos.y >= wave_top);
             Some(match hit_test_secondary(x, &map, *region, in_wave, false) {

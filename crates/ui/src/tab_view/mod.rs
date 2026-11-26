@@ -269,6 +269,9 @@ impl TabView<'_> {
         if ui.input(|i| i.pointer.primary_pressed()) && response.contains_pointer() {
             state.drag = hover.and_then(|p| hit(p).map(|id| Drag { note: id, ids: acts_on(id), origin: p, moved: false, since: now, targets: placements(project, self.opts, id) }));
         }
+        if state.drag.as_ref().is_some_and(|d| d.moved) && crate::kit::drag_cancelled(ui.ctx(), egui::PointerButton::Primary) {
+            state.drag = None;
+        }
         if let Some(d) = state.drag.as_mut() {
             if let Some(pos) = pointer.or(hover) {
                 d.moved |= (pos - d.origin).length() > DRAG_PX;
@@ -295,7 +298,7 @@ impl TabView<'_> {
             state.drag = None;
         }
         // Left click: select like the note editor (Ctrl toggles, Shift ranges); Alt cycles the placement.
-        if response.clicked() {
+        if response.clicked() && !crate::kit::clicks_swallowed(ui.ctx()) {
             match pointer.map(|p| (p, hit(p))) {
                 Some((_, Some(id))) if mods.alt => events.push(TabViewEvent::Edit(TabEdit::Cycle { ids: vec![id], back: mods.shift })),
                 Some((_, Some(id))) => events.push(TabViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
@@ -304,29 +307,16 @@ impl TabView<'_> {
                 None => {}
             }
         }
-        // Right button: marquee by dragging, clear on empty space, menu on a number. Esc cancels.
-        if response.drag_started_by(egui::PointerButton::Secondary) {
-            state.marquee = pointer;
+        // Right button: marquee by dragging, clear on empty space, menu on a number. Esc closes the menu.
+        if let Some(r) = crate::note_grid::marquee(ui.ctx(), &response, &full, &mut state.marquee, st.selected) {
+            let ids = heads.iter().filter(|h| h.1.intersects(r)).map(|h| h.0).collect();
+            events.push(TabViewEvent::Marquee { ids, add: mods.command });
         }
         if ui.input(|i| i.key_pressed(Key::Escape)) {
-            state.marquee = None;
             state.close_menu();
         }
-        if let Some(origin) = state.marquee {
-            if let Some(pos) = pointer.or(hover) {
-                let r = Rect::from_two_pos(origin, pos);
-                full.rect_filled(r, 0.0, st.selected.gamma_multiply(0.15));
-                full.rect_stroke(r, 0.0, Stroke::new(1.0_f32, st.selected), egui::StrokeKind::Inside);
-            }
-        }
-        if response.drag_stopped_by(egui::PointerButton::Secondary) {
-            if let (Some(origin), Some(pos)) = (state.marquee.take(), pointer) {
-                let r = Rect::from_two_pos(origin, pos);
-                let ids = heads.iter().filter(|h| h.1.intersects(r)).map(|h| h.0).collect();
-                events.push(TabViewEvent::Marquee { ids, add: mods.command });
-            }
-        }
-        if response.secondary_clicked() {
+        let clicks = !crate::kit::clicks_swallowed(ui.ctx());
+        if clicks && response.secondary_clicked() {
             match pointer.and_then(hit) {
                 // The menu opens beside the number so it does not cover it.
                 Some(id) => {

@@ -106,6 +106,40 @@ pub fn typing(ctx: &egui::Context) -> bool {
 
 pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
+    ctx.on_begin_pass(
+        "drag_cancel",
+        std::sync::Arc::new(|ctx: &egui::Context| {
+            if !ctx.input(|i| i.pointer.any_down() || i.pointer.any_released()) {
+                ctx.data_mut(|d| d.remove::<bool>(Id::new(DRAG_CANCELLED)));
+            }
+        }),
+    );
+}
+
+const DRAG_CANCELLED: &str = "drag_cancelled";
+
+/// Whether the running drag made with `button` is called off: Esc, or a press of the other button. egui
+/// reports the end of such a drag as an ordinary drop, so ask this (only while dragging) before applying one.
+pub fn drag_cancelled(ctx: &egui::Context, button: egui::PointerButton) -> bool {
+    use egui::PointerButton::{Primary, Secondary};
+    let other = if button == Primary { Secondary } else { Primary };
+    let cancelled = ctx.input_mut(|i| {
+        let escape = i.key_pressed(egui::Key::Escape);
+        if escape {
+            i.consume_key(i.modifiers, egui::Key::Escape);
+        }
+        escape || i.pointer.button_pressed(other)
+    });
+    if cancelled {
+        ctx.stop_dragging();
+        ctx.data_mut(|d| d.insert_temp(Id::new(DRAG_CANCELLED), true));
+    }
+    cancelled
+}
+
+/// True until every button is up after a cancelled drag: their releases must not act as clicks.
+pub fn clicks_swallowed(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(Id::new(DRAG_CANCELLED))).unwrap_or(false)
 }
 
 fn text_width(ui: &Ui, text: &str) -> f32 {

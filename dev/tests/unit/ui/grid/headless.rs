@@ -148,6 +148,30 @@ fn a_click_without_movement_only_seeks() {
 }
 
 #[test]
+fn escape_or_the_other_button_cancels_a_barline_drag() {
+    let button = |pos, button, pressed| Event::PointerButton { pos, button, pressed, modifiers: Modifiers::NONE };
+    let escape = Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+    for escaping in [true, false] {
+        let mut h = Harness::new();
+        let (from, to) = (h.line_pos(2.0), h.line_pos(2.6));
+        h.mouse(from, Modifiers::NONE);
+        h.button(from, true, Modifiers::NONE);
+        let mut events = h.mouse(to, Modifiers::NONE);
+        if escaping {
+            events.extend(h.frame(vec![escape.clone()], Modifiers::NONE));
+        } else {
+            events.extend(h.frame(vec![button(to, PointerButton::Secondary, true)], Modifiers::NONE));
+            events.extend(h.frame(vec![button(to, PointerButton::Secondary, false)], Modifiers::NONE));
+        }
+        events.extend(h.button(to, false, Modifiers::NONE));
+        events.extend(h.frame(Vec::new(), Modifiers::NONE));
+        assert!(events.is_empty(), "{escaping} {events:?}");
+        assert!(!crate::kit::clicks_swallowed(&h.ctx));
+        assert_eq!(h.drag(from, 60.0, Modifiers::NONE).len(), 1, "the next drag works");
+    }
+}
+
+#[test]
 fn a_locked_barline_cannot_be_dragged() {
     let mut h = Harness::new();
     h.project.measures[1].locked = true;

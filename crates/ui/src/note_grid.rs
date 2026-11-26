@@ -60,6 +60,28 @@ impl NoteGrid {
     }
 }
 
+/// The right-drag selection box of the sheet and tab; `origin` lives in the view's state. Draws it, and
+/// returns it when it is dropped.
+pub(crate) fn marquee(ctx: &egui::Context, response: &egui::Response, painter: &egui::Painter, origin: &mut Option<egui::Pos2>, color: egui::Color32) -> Option<egui::Rect> {
+    use egui::PointerButton::Secondary;
+    if response.drag_started_by(Secondary) {
+        *origin = ctx.input(|i| i.pointer.press_origin()).or_else(|| response.interact_pointer_pos());
+    }
+    let from = (*origin)?;
+    if crate::kit::drag_cancelled(ctx, Secondary) {
+        *origin = None;
+        return None;
+    }
+    let rect = egui::Rect::from_two_pos(from, response.interact_pointer_pos().or_else(|| response.hover_pos())?);
+    if response.drag_stopped_by(Secondary) {
+        *origin = None;
+        return Some(rect);
+    }
+    painter.rect_filled(rect, 0.0, color.gamma_multiply(0.15));
+    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0_f32, color), egui::StrokeKind::Inside);
+    None
+}
+
 #[cfg(all(test, dev_tests))]
 #[path = "../../../dev/tests/unit/ui/note_grid.rs"]
 mod tests;

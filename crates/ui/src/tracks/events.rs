@@ -26,4 +26,6 @@ pub enum TrackEvent {
     /// Bracket the `OffsetChanged` events of one drag so the app can make it a single undo step.
     OffsetDragBegan(u64),
     OffsetDragEnded(u64),
+    /// The drag was called off: its changes are to be reverted.
+    OffsetDragCancelled,
 }

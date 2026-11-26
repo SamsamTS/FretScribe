@@ -37,7 +37,8 @@ pub(crate) fn events(ui: &Ui, response: &Response, geo: &SpectroGeometry, ruler:
     let mut out = Vec::new();
 
     if let (true, None, Some(pos)) = (pressed, state, latest) {
-        if response.contains_pointer() && !ruler.contains(pos) && empty_at(pos) {
+        let cancelling = ui.input(|i| i.pointer.secondary_down()) || crate::kit::clicks_swallowed(ui.ctx());
+        if !cancelling && response.contains_pointer() && !ruler.contains(pos) && empty_at(pos) {
             state = Some(Press { pos, began: false, swallowed: false });
         }
     }

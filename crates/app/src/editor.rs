@@ -223,7 +223,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
 /// The time clicked in `rect`, whose left edge is the timeline's.
 fn click_seek(ui: &mut egui::Ui, rect: Rect, view: &TimelineView) -> Option<f64> {
     let response = ui.interact(rect, ui.id().with("background_seek"), egui::Sense::click());
-    response.interact_pointer_pos().filter(|_| response.clicked()).map(|p| view.x_to_sec(p.x - rect.left()))
+    response.interact_pointer_pos().filter(|_| response.clicked() && !fretscribe_ui::kit::clicks_swallowed(ui.ctx())).map(|p| view.x_to_sec(p.x - rect.left()))
 }
 
 fn track_mut(p: &mut Project, id: u64) -> Option<&mut Track> {
@@ -314,8 +314,10 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
             }
             s.dirty = true;
         }
-        TrackEvent::OffsetChanged { id, offset_sec, move_notes } => s.shift_track(id, offset_sec, move_notes, true),
-        TrackEvent::OffsetDragBegan(_) | TrackEvent::OffsetDragEnded(_) => {}
+        TrackEvent::OffsetChanged { id, offset_sec, move_notes } => s.shift_track(id, offset_sec, move_notes),
+        TrackEvent::OffsetDragBegan(_) => s.offset_drag = Some(false),
+        TrackEvent::OffsetDragEnded(_) => s.offset_drag = None,
+        TrackEvent::OffsetDragCancelled => s.cancel_offset_drag(),
         TrackEvent::RenameRequested { id, name } => {
             s.edit("Rename track", |p| track_mut(p, id).map(|t| t.name = name).ok_or(EditError::UnknownTrack(id)));
         }
@@ -541,7 +543,7 @@ fn sync_window(ctx: &Context, s: &mut Session) {
         close = ui.button("Keep offset 0").clicked();
     });
     if let Some(offset) = apply {
-        s.shift_track(d.track, offset, false, false);
+        s.shift_track(d.track, offset, false);
     } else if !close {
         s.sync_dialog = Some(d);
     }

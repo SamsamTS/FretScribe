@@ -8,7 +8,8 @@ mod header;
 mod lines;
 mod style;
 
-use egui::{pos2, vec2, Area, Button, Context, CursorIcon, Frame, Id, Order, Rect, Response, Sense, Ui};
+use egui::{pos2, vec2, Area, Button, Context, CursorIcon, Frame, Id, Order, PointerButton, Rect, Response, Sense, Ui};
+use crate::kit;
 use fretscribe_core::{Measure, NotePolicy, SnapGrid, TempoMap, TimeSignature};
 
 use crate::view::{TimelineView, MEASURE_HEADER_H};
@@ -116,10 +117,12 @@ impl<'a> GridOverlay<'a> {
                     self.track_drag(ui, id, rect, &response, line.measure, &mut events);
                 }
                 // Under the header, a click on a barline moves the play head like anywhere else.
-                if let Some(p) = response.interact_pointer_pos().filter(|p| response.clicked() && p.y >= rect.top() + MEASURE_HEADER_H) {
-                    events.push(GridEvent::SeekRequested(self.view.x_to_sec(p.x - rect.left())));
+                if !kit::clicks_swallowed(&ctx) {
+                    if let Some(p) = response.interact_pointer_pos().filter(|p| response.clicked() && p.y >= rect.top() + MEASURE_HEADER_H) {
+                        events.push(GridEvent::SeekRequested(self.view.x_to_sec(p.x - rect.left())));
+                    }
+                    response.context_menu(|ui| self.context_menu(ui, line.measure, &mut events));
                 }
-                response.context_menu(|ui| self.context_menu(ui, line.measure, &mut events));
             }
         }
         let drag = ctx.data(|d| d.get_temp::<DragState>(id.with("drag")));
@@ -234,6 +237,10 @@ impl<'a> GridOverlay<'a> {
         }
         let Some(mut state) = ctx.data(|d| d.get_temp::<DragState>(drag_id)) else { return };
         if state.measure_id != measure.id {
+            return;
+        }
+        if kit::drag_cancelled(ctx, PointerButton::Primary) {
+            ctx.data_mut(|d| d.remove::<DragState>(drag_id));
             return;
         }
 
