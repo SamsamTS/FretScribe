@@ -83,6 +83,7 @@ impl SynthPreset {
 }
 
 struct Amp {
+    rate: f32,
     preset: SynthPreset,
     smooth: f32,
     drive: f32,
@@ -93,21 +94,28 @@ struct Amp {
 }
 
 impl Amp {
+    fn new(rate: f32) -> Self {
+        let smooth = 1.0 - (-1.0 / (AMP_SMOOTH_SEC * rate)).exp();
+        let mut amp = Self { rate, preset: SynthPreset::default(), smooth, drive: 0.0, wet: 0.0, tone: 1.0, level: 1.0, z: [0.0; 2] };
+        amp.snap();
+        amp
+    }
+
     /// `(wet, tone coefficient, level)`.
-    fn targets(&self, rate: f32) -> (f32, f32, f32) {
+    fn targets(&self) -> (f32, f32, f32) {
         let p = self.preset.params();
-        let tone = if p.cutoff_hz < rate / 2.0 { 1.0 - (-TAU * p.cutoff_hz / rate).exp() } else { 1.0 };
+        let tone = if p.cutoff_hz < self.rate / 2.0 { 1.0 - (-TAU * p.cutoff_hz / self.rate).exp() } else { 1.0 };
         (if p.drive > 0.0 { 1.0 } else { 0.0 }, tone, p.level)
     }
 
-    fn snap(&mut self, rate: f32) {
-        (self.wet, self.tone, self.level) = self.targets(rate);
+    fn snap(&mut self) {
+        (self.wet, self.tone, self.level) = self.targets();
         self.drive = self.preset.params().drive;
         self.z = [0.0; 2];
     }
 
-    fn process(&mut self, rate: f32, out: &mut [f32]) {
-        let (wet, tone, level) = self.targets(rate);
+    fn process(&mut self, out: &mut [f32]) {
+        let (wet, tone, level) = self.targets();
         let drive = self.preset.params().drive;
         for sample in out {
             let k = self.smooth;
@@ -138,19 +146,14 @@ impl Amp {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct StringLoop {
-    damping: f32,
-    loss: f32,
-}
-
 struct Voice {
     note: Option<Arc<PlayedNote>>,
     delay: Vec<f32>,
     write: usize,
     /// Interpolated part of the loop delay, in samples.
     length: f32,
-    string: StringLoop,
+    damping: f32,
+    loss: f32,
     prev: f32,
     /// A dead hit: decaying low-passed noise instead of a string.
     burst: Option<(u32, f32)>,
@@ -170,6 +173,11 @@ fn next_noise(state: &mut u32) -> f32 {
     x as f32 / u32::MAX as f32 * 2.0 - 1.0
 }
 
+/// Gain per step that reaches -60 dB after `steps` steps.
+fn decay_per_step(steps: f32) -> f32 {
+    10f32.powf(-3.0 / steps)
+}
+
 fn delay_length(rate: f32, pitch: &PitchRef, midi: f32, damping: f32) -> f32 {
     let freq = midi_to_freq(midi, pitch).clamp(MIN_FREQ_HZ, rate / 6.0);
     let w = TAU * freq / rate;
@@ -183,7 +191,8 @@ impl Voice {
             delay: vec![0.0; capacity],
             write: 0,
             length: 2.0,
-            string: StringLoop::default(),
+            damping: 0.0,
+            loss: 0.0,
             prev: 0.0,
             burst: None,
             gain: 0.0,
@@ -201,8 +210,7 @@ impl Voice {
         let at = |k: usize| self.delay[(self.write + self.delay.len() - whole - k) & mask];
         let (a, b, c) = (f - 1.0, f - 2.0, f - 3.0);
         let x = at(0) * (-a * b * c / 6.0) + at(1) * (f * b * c / 2.0) - at(2) * (f * a * c / 2.0) + at(3) * (f * a * b / 6.0);
-        let s = self.string;
-        let y = s.loss * ((1.0 - s.damping) * x + s.damping * self.prev);
+        let y = self.loss * ((1.0 - self.damping) * x + self.damping * self.prev);
         self.prev = x;
         self.delay[self.write] = y;
         self.write = (self.write + 1) & mask;
@@ -219,7 +227,7 @@ impl Voice {
             if self.burst.is_none() && !note.pitch_curve.is_empty() && (k - wait).is_multiple_of(CONTROL_SAMPLES) {
                 let ahead = (k + CONTROL_SAMPLES).min(out.len());
                 let semis = value_at(&note.pitch_curve, time_at(ahead));
-                let target = delay_length(rate, pitch, f32::from(note.midi) + semis, self.string.damping);
+                let target = delay_length(rate, pitch, f32::from(note.midi) + semis, self.damping);
                 slope = (target - self.length) / (ahead - k) as f32;
             }
             if k >= release_at {
@@ -261,23 +269,13 @@ impl NoteSynth {
     pub fn new(sample_rate: u32) -> Self {
         let rate = sample_rate as f32;
         let capacity = ((rate / MIN_FREQ_HZ) as usize + 8).next_power_of_two();
-        let mut amp = Amp {
-            preset: SynthPreset::default(),
-            smooth: 1.0 - (-1.0 / (AMP_SMOOTH_SEC * rate)).exp(),
-            drive: 0.0,
-            wet: 0.0,
-            tone: 1.0,
-            level: 1.0,
-            z: [0.0; 2],
-        };
-        amp.snap(rate);
         Self {
             rate,
             pitch: PitchRef::default(),
             notes: Vec::new(),
             next: 0,
             voices: (0..MAX_VOICES).map(|_| Voice::new(capacity)).collect(),
-            amp,
+            amp: Amp::new(rate),
             noise: NOISE_SEED,
             clock: 0,
         }
@@ -316,7 +314,7 @@ impl NoteSynth {
         for voice in &mut self.voices {
             voice.note = None;
         }
-        self.amp.snap(self.rate);
+        self.amp.snap();
     }
 
     /// Notes starting before `time_sec` are considered already played.
@@ -362,7 +360,7 @@ impl NoteSynth {
             let time_at = |k: usize| from + span * k as f64 / n as f64;
             voice.render(out, self.rate, &self.pitch, time_at, release_at);
         }
-        self.amp.process(self.rate, out);
+        self.amp.process(out);
     }
 
     fn trigger(&mut self, note: Arc<PlayedNote>, wait: usize) {
@@ -401,7 +399,8 @@ impl NoteSynth {
         let freq = midi_to_freq(midi, &self.pitch).clamp(MIN_FREQ_HZ, self.rate / 6.0);
         let voice = &mut self.voices[slot];
         voice.length = delay_length(self.rate, &self.pitch, midi, damping);
-        voice.string = StringLoop { damping, loss: 10f32.powf(-3.0 / (freq * t60)).min(0.9999) };
+        voice.damping = damping;
+        voice.loss = decay_per_step(freq * t60).min(0.9999);
 
         // One period of excitation, repeated over the whole ring so a downward bend always has history.
         let period = ((self.rate / freq).round() as usize).clamp(2, voice.delay.len());
@@ -423,7 +422,7 @@ impl NoteSynth {
         voice.prev = 0.0;
         voice.burst = (note.kind == Articulation::Dead).then(|| {
             gain *= DEAD_GAIN;
-            (self.noise ^ NOISE_SEED.rotate_left(7), 10f32.powf(-3.0 / (self.rate * DEAD_T60)))
+            (self.noise, decay_per_step(self.rate * DEAD_T60))
         });
         voice.gain = gain;
         voice.env = 1.0;

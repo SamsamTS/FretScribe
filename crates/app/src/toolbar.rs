@@ -430,8 +430,7 @@ fn listening(ui: &mut Ui, s: &mut Session) {
             let presets = SynthPreset::all();
             let names = presets.map(|p| p.name().to_owned());
             let current = SynthPreset::from_name(&s.ui.synth_preset);
-            let selected = presets.iter().position(|p| *p == current);
-            if let (_, Some(i)) = Field::new(current.name(), "Sound of the synth").dropdown(ui, "synth_sound", &names, selected) {
+            if let (_, Some(i)) = Field::new(current.name(), "Sound of the synth").dropdown(ui, "synth_sound", &names, Some(current as usize)) {
                 s.ui.synth_preset = names[i].clone();
                 s.dirty = true;
                 changed = true;

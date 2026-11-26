@@ -1,27 +1,8 @@
 use super::*;
-
-const RATE: u32 = 48_000;
-
-fn pitch_by_autocorrelation(x: &[f32], rate: u32, low: f64, high: f64) -> f64 {
-    let lag_min = (f64::from(rate) / high) as usize;
-    let lag_max = (f64::from(rate) / low) as usize;
-    let corr = |lag: usize| -> f64 {
-        x.iter().zip(&x[lag..]).map(|(a, b)| f64::from(*a) * f64::from(*b)).sum()
-    };
-    let best = (lag_min..=lag_max)
-        .max_by(|&a, &b| corr(a).total_cmp(&corr(b)))
-        .unwrap();
-    let (y0, y1, y2) = (corr(best - 1), corr(best), corr(best + 1));
-    let shift = 0.5 * (y0 - y2) / (y0 - 2.0 * y1 + y2);
-    f64::from(rate) / (best as f64 + shift)
-}
-
-fn cents(measured: f64, expected: f64) -> f64 {
-    1200.0 * (measured / expected).log2()
-}
+use crate::testutil::{amplitude, cents, max_step, pitch_by_autocorrelation, played, rms, RATE};
 
 fn note(midi: u8, start_sec: f64, end_sec: f64) -> PlayedNote {
-    PlayedNote { id: 0, midi, start_sec, end_sec, velocity: 100, kind: Articulation::Normal, attack: Attack::Pick, pitch_curve: Vec::new() }
+    played(&[(midi, start_sec, end_sec)]).remove(0)
 }
 
 fn render(notes: &[PlayedNote], preset: SynthPreset, seconds: f64) -> Vec<f32> {
@@ -32,30 +13,14 @@ fn window(x: &[f32], from: f64, to: f64) -> &[f32] {
     &x[(from * f64::from(RATE)) as usize..(to * f64::from(RATE)) as usize]
 }
 
-fn rms(x: &[f32]) -> f64 {
-    (x.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / x.len() as f64).sqrt()
-}
-
 fn peak(x: &[f32]) -> f32 {
     x.iter().fold(0.0, |m, s| m.max(s.abs()))
 }
 
-fn max_step(x: &[f32]) -> f32 {
-    x.windows(2).fold(0.0, |m, w| m.max((w[1] - w[0]).abs()))
-}
-
 /// Energy of the sample-to-sample difference relative to the signal: grows with brightness.
-fn brightness(x: &[f32]) -> f64 {
+fn brightness(x: &[f32]) -> f32 {
     let diff: Vec<f32> = x.windows(2).map(|w| w[1] - w[0]).collect();
     rms(&diff) / rms(x)
-}
-
-fn amplitude(x: &[f32], freq: f64) -> f64 {
-    let (re, im) = x.iter().enumerate().fold((0.0, 0.0), |(re, im), (i, s)| {
-        let w = std::f64::consts::TAU * freq * i as f64 / f64::from(RATE);
-        (re + f64::from(*s) * w.cos(), im + f64::from(*s) * w.sin())
-    });
-    2.0 * f64::hypot(re, im) / x.len() as f64
 }
 
 fn freq_in(x: &[f32], expected: f64) -> f64 {
@@ -79,8 +44,8 @@ fn every_preset_is_in_tune_and_comparably_loud() {
         let chord = render(&[note(40, 0.0, 1.0), note(52, 0.0, 1.0), note(64, 0.0, 1.0)], preset, 0.5);
         assert!(peak(&chord) < 1.0, "{preset:?} {}", peak(&chord));
     }
-    let levels: Vec<f64> = SynthPreset::all().iter().map(|&p| rms(window(&render(&[note(52, 0.0, 1.0)], p, 0.5), 0.0, 0.3))).collect();
-    let (lo, hi) = levels.iter().fold((f64::MAX, 0.0f64), |m, &l| (m.0.min(l), m.1.max(l)));
+    let levels: Vec<f32> = SynthPreset::all().iter().map(|&p| rms(window(&render(&[note(52, 0.0, 1.0)], p, 0.5), 0.0, 0.3))).collect();
+    let (lo, hi) = levels.iter().fold((f32::MAX, 0.0f32), |m, &l| (m.0.min(l), m.1.max(l)));
     assert!(hi < 2.0 * lo, "{levels:?}");
     assert_eq!(SynthPreset::from_name("?"), SynthPreset::Acoustic);
 }
@@ -121,7 +86,7 @@ fn drive_adds_harmonics_and_zero_drive_does_not_clip() {
         synth.set_preset(preset);
         synth.reset();
         let mut out = sine.clone();
-        synth.amp.process(RATE as f32, &mut out);
+        synth.amp.process(&mut out);
         out
     };
     let ratio = |x: &[f32]| amplitude(window(x, 0.02, 0.1), 900.0) / amplitude(window(x, 0.02, 0.1), 300.0);
@@ -206,7 +171,7 @@ fn kinds_and_attacks_change_the_sound() {
     let x = window(&dead, 0.0, 0.04);
     let lag = (f64::from(RATE) / hz(57.0)).round() as usize;
     let corr: f64 = x.iter().zip(&x[lag..]).map(|(a, b)| f64::from(*a) * f64::from(*b)).sum();
-    assert!(corr.abs() / (rms(x).powi(2) * x.len() as f64) < 0.25);
+    assert!(corr.abs() / (f64::from(rms(x)).powi(2) * x.len() as f64) < 0.25);
 }
 
 #[test]

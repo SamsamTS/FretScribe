@@ -75,6 +75,8 @@ impl PerformTuning {
     };
 }
 
+const T: &PerformTuning = &PerformTuning::DEFAULT;
+
 #[derive(Clone, Copy)]
 struct Span<'a> {
     note: &'a Note,
@@ -83,7 +85,6 @@ struct Span<'a> {
 }
 
 pub fn performance(project: &Project) -> Vec<PlayedNote> {
-    let t = &PerformTuning::DEFAULT;
     let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
     let ring = ring_end_secs(project);
     let spans: HashMap<u64, Span> = project
@@ -113,7 +114,7 @@ pub fn performance(project: &Project) -> Vec<PlayedNote> {
                 chain.push(*span);
                 next = span.note.link_to;
             }
-            event(&chain, &spans, &ring, &cuts, t)
+            event(&chain, &spans, &ring, &cuts)
         })
         .collect();
     played.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec).then(a.id.cmp(&b.id)));
@@ -125,7 +126,6 @@ fn event(
     spans: &HashMap<u64, Span>,
     ring: &HashMap<u64, f64>,
     cuts: &HashMap<u64, f64>,
-    t: &PerformTuning,
 ) -> Option<PlayedNote> {
     let (head, last) = (chain.first()?, chain.last()?);
     let kind = match head.note.technique {
@@ -137,7 +137,7 @@ fn event(
     let (mut start, mut end) = (head.start, ring.get(&last.note.id).copied().unwrap_or(last.end));
     let muted = last.note.technique == Some(Technique::PalmMute);
     if muted {
-        end = last.start + ((last.end - last.start) * t.palm_mute_length).min(t.palm_mute_max_sec);
+        end = last.start + ((last.end - last.start) * T.palm_mute_length).min(T.palm_mute_max_sec);
     }
     if let Some(&cut) = cuts.get(&last.note.id).filter(|&&cut| cut > last.start) {
         end = if muted { end.min(cut) } else { cut };
@@ -152,18 +152,18 @@ fn event(
         end = end.min(main.start);
     }
     if kind == Articulation::Dead {
-        end = start + t.dead_sec.min((end - start).max(t.min_note_sec));
+        end = start + T.dead_sec.min((end - start).max(T.min_note_sec));
     }
-    let end = end.max(start + t.min_note_sec);
+    let end = end.max(start + T.min_note_sec);
     let soft = head.note.legato.is_some();
     let velocity = if kind == Articulation::Dead {
-        t.dead_velocity
+        T.dead_velocity
     } else if head.note.grace_of.is_some() {
-        t.grace_velocity
+        T.grace_velocity
     } else if soft {
-        t.soft_velocity
+        T.soft_velocity
     } else {
-        t.velocity
+        T.velocity
     };
     Some(PlayedNote {
         id: head.note.id,
@@ -173,16 +173,16 @@ fn event(
         velocity,
         kind,
         attack: if soft { Attack::Soft } else { Attack::Pick },
-        pitch_curve: pitch_curve(chain, end, t),
+        pitch_curve: pitch_curve(chain, end),
     })
 }
 
 /// The moves between the chain's pitches, with each note's vibrato added over its own span.
-fn pitch_curve(chain: &[Span], end: f64, t: &PerformTuning) -> Vec<(f64, f32)> {
+fn pitch_curve(chain: &[Span], end: f64) -> Vec<(f64, f32)> {
     let base_midi = chain.first().map_or(0, |s| s.note.midi);
     let semis = |s: &Span| f32::from(s.note.midi) - f32::from(base_midi);
     let steps = |from: f64, to: f64| {
-        let n = ((to - from) / t.curve_step_sec).ceil().max(1.0) as usize;
+        let n = ((to - from) / T.curve_step_sec).ceil().max(1.0) as usize;
         (0..=n).map(move |k| (k as f64 / n as f64, from + (to - from) * k as f64 / n as f64))
     };
     let mut base = Vec::new();
@@ -193,7 +193,7 @@ fn pitch_curve(chain: &[Span], end: f64, t: &PerformTuning) -> Vec<(f64, f32)> {
             continue;
         }
         let to = dst.start;
-        let from = src.end.min(to - t.min_ramp_sec).max(to - t.max_ramp_sec).max(src.start);
+        let from = src.end.min(to - T.min_ramp_sec).max(to - T.max_ramp_sec).max(src.start);
         if src.note.technique == Some(Technique::Bend) {
             base.extend(steps(from, to).map(|(u, sec)| (sec, a + (b - a) * ((1.0 - (PI * u).cos()) / 2.0) as f32)));
         } else {
@@ -206,7 +206,7 @@ fn pitch_curve(chain: &[Span], end: f64, t: &PerformTuning) -> Vec<(f64, f32)> {
         .filter(|(_, s)| s.note.vibrato)
         .map(|(i, s)| {
             let stop = chain.get(i + 1).map_or(end, |next| s.end.min(next.start));
-            (s.start + t.vibrato_delay_sec, stop)
+            (s.start + T.vibrato_delay_sec, stop)
         })
         .filter(|(from, to)| to > from)
         .collect();
@@ -223,7 +223,7 @@ fn pitch_curve(chain: &[Span], end: f64, t: &PerformTuning) -> Vec<(f64, f32)> {
             let wave: f64 = waves
                 .iter()
                 .filter(|&&(from, to)| sec > from && sec < to - 1e-6)
-                .map(|&(from, _)| t.vibrato_cents / 100.0 * (TAU * t.vibrato_hz * (sec - from)).sin())
+                .map(|&(from, _)| T.vibrato_cents / 100.0 * (TAU * T.vibrato_hz * (sec - from)).sin())
                 .sum();
             (sec, value_at(&base, sec) + wave as f32)
         })

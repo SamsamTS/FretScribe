@@ -14,19 +14,6 @@ fn index(sec: f64) -> usize {
     (sec * f64::from(RATE)).round() as usize
 }
 
-/// Amplitude of one tone over a whole number of its periods, so there is no leakage.
-fn amplitude(x: &[f32], freq: f64) -> f64 {
-    let periods = (x.len() as f64 * freq / f64::from(RATE)).floor().max(1.0);
-    let n = ((periods * f64::from(RATE) / freq).round() as usize).min(x.len());
-    let (mut re, mut im) = (0.0, 0.0);
-    for (i, &s) in x[..n].iter().enumerate() {
-        let phase = TAU * freq * i as f64 / f64::from(RATE);
-        re += f64::from(s) * phase.cos();
-        im += f64::from(s) * phase.sin();
-    }
-    2.0 * re.hypot(im) / n as f64
-}
-
 fn db(ratio: f64) -> f64 {
     20.0 * ratio.log10()
 }
