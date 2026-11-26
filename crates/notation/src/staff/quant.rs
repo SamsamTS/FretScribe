@@ -20,6 +20,7 @@ pub(crate) struct QNote {
     pub e: i64,
     pub actual_sec: f64,
     pub technique: Option<fretscribe_core::Technique>,
+    pub vibrato: bool,
 }
 
 pub(crate) struct Quantised {
@@ -120,7 +121,7 @@ pub(crate) fn quantise(notes: &[Note], tempo: &TempoMap) -> Quantised {
         .iter()
         .filter_map(|r| {
             let (s, e) = (merged[&r.s], merged[&r.e]);
-            (s < total).then(|| QNote { id: r.note.id, midi: r.note.midi, s, e: e.max(s + MIN_TICKS).min(total), actual_sec: times.start_sec(r.note.id).unwrap_or(0.0), technique: r.note.technique })
+            (s < total).then(|| QNote { id: r.note.id, midi: r.note.midi, s, e: e.max(s + MIN_TICKS).min(total), actual_sec: times.start_sec(r.note.id).unwrap_or(0.0), technique: r.note.technique, vibrato: r.note.vibrato })
         })
         .collect();
     out.sort_by_key(|n| (n.s, n.midi, n.id));

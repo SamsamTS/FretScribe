@@ -145,7 +145,6 @@ pub enum Technique {
     /// A muted percussive hit: the pitch only selects the string.
     Dead,
     PinchHarmonic,
-    Vibrato,
 }
 
 impl Technique {
@@ -194,6 +193,9 @@ pub struct Note {
     pub string_fret: Option<(u8, u8)>,
     pub locked_fret: bool,
     pub technique: Option<Technique>,
+    /// Independent of `technique`; never set on a dead note.
+    #[serde(default)]
+    pub vibrato: bool,
     pub link_to: Option<u64>,
     pub legato: Option<LegatoLink>,
     pub grace_of: Option<GraceNote>,
@@ -209,6 +211,7 @@ impl Note {
             string_fret: None,
             locked_fret: false,
             technique: None,
+            vibrato: false,
             link_to: None,
             legato: None,
             grace_of: None,

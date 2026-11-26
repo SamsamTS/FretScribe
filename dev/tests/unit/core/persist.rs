@@ -363,7 +363,7 @@ fn view_layout_round_trips_and_older_files_load_with_defaults() {
 #[test]
 fn every_technique_round_trips_and_old_harmonic_files_still_load() {
     use crate::model::Technique;
-    let all = [Technique::Slide, Technique::Bend, Technique::Harmonic, Technique::PalmMute, Technique::Tie, Technique::Dead, Technique::PinchHarmonic, Technique::Vibrato];
+    let all = [Technique::Slide, Technique::Bend, Technique::Harmonic, Technique::PalmMute, Technique::Tie, Technique::Dead, Technique::PinchHarmonic];
     for t in all {
         let mut f = file(0.0);
         f.project.notes[0].technique = Some(t);
@@ -373,4 +373,8 @@ fn every_technique_round_trips_and_old_harmonic_files_still_load() {
     value["project"]["notes"][0]["technique"] = serde_json::json!("Harmonic");
     let loaded = from_json(&value.to_string()).unwrap();
     assert_eq!(loaded.project.notes[0].technique, Some(Technique::Harmonic));
+    value["project"]["notes"][0]["technique"] = serde_json::json!("Vibrato");
+    value["project"]["notes"][0].as_object_mut().unwrap().remove("vibrato");
+    let note = &from_json(&value.to_string()).unwrap().project.notes[0];
+    assert_eq!((note.technique, note.vibrato), (None, true));
 }

@@ -57,11 +57,12 @@ fn changing_the_tuning_reassigns_the_tab() {
 
 #[test]
 fn techniques_and_let_ring_go_through_tab_and_staff_without_changing_the_rests() {
-    use fretscribe_core::Technique::{Dead, Harmonic, PalmMute, PinchHarmonic, Vibrato};
+    use fretscribe_core::Technique::{Dead, Harmonic, PalmMute, PinchHarmonic};
     let mut s = session();
-    for (n, t) in s.project.notes.iter_mut().zip([Dead, Harmonic, PinchHarmonic, PalmMute, Vibrato]) {
+    for (n, t) in s.project.notes.iter_mut().zip([Dead, Harmonic, PinchHarmonic, PalmMute]) {
         n.technique = Some(t);
     }
+    s.project.notes[4].vibrato = true;
     s.project.notes[1].midi = 52;
     s.project.notes[2].midi = 64;
     s.infer_all();

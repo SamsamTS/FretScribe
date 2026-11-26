@@ -359,7 +359,7 @@ impl Paint<'_> {
         if let Some(a) = g.accidental {
             self.glyph(accidental_char(a), pos2(x - 0.8 * self.s, y), GRACE_SCALE, color, Align2::LEFT_CENTER);
         }
-        self.glyph("\u{E0A4}", pos2(x, y), GRACE_SCALE, color, Align2::LEFT_CENTER);
+        self.glyph(head_char(Base::Quarter, g.dead.then_some(Technique::Dead)), pos2(x, y), GRACE_SCALE, color, Align2::LEFT_CENTER);
         let (sx, tip) = (x + w - 0.05 * self.s, y - 2.6 * self.s);
         self.line(pos2(sx, y), pos2(sx, tip), 0.1, color);
         self.glyph(&flag_char(1, true).to_string(), pos2(sx - 0.05 * self.s, tip), GRACE_SCALE, color, Align2::LEFT_CENTER);

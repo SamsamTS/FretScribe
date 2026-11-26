@@ -254,27 +254,45 @@ fn cycle_harmonic_follows_the_first_eligible_note_is_one_step_and_skips_linked_n
 }
 
 #[test]
-fn palm_mute_and_vibrato_toggle_exclude_each_other_and_skip_notes_with_their_own_technique() {
+fn palm_mute_skips_notes_with_their_own_technique_and_only_dead_notes_refuse_vibrato() {
     let mut p = project();
     let (a, b, c, d) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 64, 3.0, 4.0), add(&mut p, 67, 5.0, 6.0));
     p.link_notes(a, b, LinkType::Bend).unwrap();
     p.notes[3].technique = Some(Technique::Dead);
     let all = [a, b, c, d];
-    let tech = |p: &Project| all.map(|i| note(p, i).technique);
     let applied = run(&mut p, &all, NoteAction::TogglePalmMute).unwrap();
-    assert_eq!(tech(&p), [Some(Technique::Bend), Some(Technique::PalmMute), Some(Technique::PalmMute), Some(Technique::Dead)]);
+    assert_eq!(all.map(|i| note(&p, i).technique), [Some(Technique::Bend), Some(Technique::PalmMute), Some(Technique::PalmMute), Some(Technique::Dead)]);
     assert_eq!((applied.message.as_deref(), applied.affected.is_empty()), (Some("2 note(s) skipped"), true));
+    let applied = run(&mut p, &all, NoteAction::ToggleVibrato).unwrap();
+    assert_eq!(all.map(|i| note(&p, i).vibrato), [true, true, true, false]);
+    assert_eq!(applied.message.as_deref(), Some("1 note(s) skipped"));
     run(&mut p, &all, NoteAction::ToggleVibrato).unwrap();
-    assert_eq!(tech(&p)[1..3], [Some(Technique::Vibrato); 2]);
-    run(&mut p, &all, NoteAction::ToggleVibrato).unwrap();
-    assert_eq!(tech(&p)[1..3], [None; 2]);
+    assert!(p.notes.iter().all(|n| !n.vibrato));
 }
 
 #[test]
-fn linking_replaces_palm_mute_or_vibrato_on_the_source() {
+fn linking_keeps_vibrato_and_a_dead_note_drops_it() {
     let mut p = project();
     let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0));
     run(&mut p, &[a], NoteAction::ToggleVibrato).unwrap();
     p.link_notes(a, b, LinkType::Slide).unwrap();
-    assert_eq!(note(&p, a).technique, Some(Technique::Slide));
+    assert_eq!((note(&p, a).technique, note(&p, a).vibrato), (Some(Technique::Slide), true));
+    p.unlink(a);
+    run(&mut p, &[a], NoteAction::ToggleDead).unwrap();
+    assert!(!note(&p, a).vibrato);
+}
+
+#[test]
+fn a_grace_note_or_its_main_note_can_be_dead_and_gets_its_link_back() {
+    let mut p = project();
+    let main = add(&mut p, 62, 2.0, 3.0);
+    let grace = p.add_grace_note(main, Some(60), fretscribe_core::GraceKind::Acciaccatura).unwrap();
+    let link = p.grace_link(grace);
+    assert_ne!(link, LinkType::Dashed);
+    for id in [grace, main] {
+        run(&mut p, &[id], NoteAction::ToggleDead).unwrap();
+        assert_eq!((note(&p, id).technique, p.grace_link(grace)), (Some(Technique::Dead), LinkType::Dashed));
+        run(&mut p, &[id], NoteAction::ToggleDead).unwrap();
+        assert_eq!((note(&p, id).technique, p.grace_link(grace)), (None, link));
+    }
 }

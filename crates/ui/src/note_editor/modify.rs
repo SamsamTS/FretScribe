@@ -135,6 +135,7 @@ pub fn ghost_of_changes(project: &Project, tempo: &fretscribe_core::TempoMap, ch
                 legato_from: project.note(c.id).and_then(|n| n.legato).and_then(|l| index(l.from)),
                 grace: project.note(c.id).is_some_and(|n| n.grace_of.is_some()),
                 technique: project.note(c.id).and_then(|n| n.technique),
+                vibrato: project.note(c.id).is_some_and(|n| n.vibrato),
             }
         })
         .collect();

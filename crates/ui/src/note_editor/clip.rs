@@ -83,6 +83,7 @@ impl Clipboard {
                 legato_from: n.legato.and_then(|l| index.get(&l.from).copied()),
                 grace: n.grace_of.is_some(),
                 technique: n.technique,
+                vibrato: n.vibrato,
             })
             .collect();
         GhostShape { glyphs }

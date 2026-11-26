@@ -187,3 +187,8 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 - ui: `GridOverlay::with_header(HeaderData)` replaces the grid's tempo labels and settings popup (`MeasureSettings`, `policy_label`, `measure_label` and the popup's notes-policy dropdown are gone: edits use the toolbar policy, Alt inverts it). `GridEvent`: `TempoChanged`, `TimeSignatureChanged`, `NotePolicyChanged` replaced by `TempoApplied`, `TimeSigApplied`, `MeasureSelected`, `MeasureLoopRequested`, `AutoFitToggled`, `LetRingToggled`, `LockToggled`. `FitInfo`, `view::MEASURE_HEADER_H`, `kit::filled_button`. The time ruler above the lanes (`show_time_ruler`, `ruler_step`, `spectro::format_time`) is removed.
 - Click to seek: `GridEvent::SeekRequested` (barline below the header), `TrackEvent::SeekRequested` (waveform); the app seeks on unclaimed timeline clicks. Clicking a note never seeks. The playhead starts below the header.
 - app: `fits::FitStore` (session only); `jobs::auto_fit` returns `Vec<MeasureFit>`.
+
+## 2026-11-26 - vibrato flag, dead grace notes
+
+- `Technique::Vibrato` is gone: `Note::vibrato: bool` (old files and undo histories convert on load). Only dead notes refuse it; `technique_runs` takes a predicate.
+- Grace notes and their main notes can be dead; the grace connector then becomes dashed. `EntryKey::ToggleDead` (X) in grace entry.

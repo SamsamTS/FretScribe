@@ -118,3 +118,16 @@ fn the_default_legato_is_made_in_the_same_step() {
     edit.undo(&mut p);
     assert_eq!(p.notes.len(), 1);
 }
+
+#[test]
+fn x_makes_a_dead_grace_note_with_a_dashed_connector() {
+    let mut p = project();
+    let main = add(&mut p, 64, 1.0, 2.0);
+    let mut dead = entry(&p, main);
+    dead.key(&p, EntryKey::ToggleDead);
+    dead.commit(&mut p).unwrap();
+    let grace = p.notes.iter().find(|n| n.grace_of.is_some()).unwrap();
+    assert_eq!(grace.technique, Some(fretscribe_core::Technique::Dead));
+    assert_eq!(p.grace_link(grace.id), LinkType::Dashed);
+    assert!(p.note(main).unwrap().legato.is_none());
+}
