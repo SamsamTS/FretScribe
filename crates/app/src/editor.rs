@@ -211,6 +211,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
             StaffViewEvent::NoteClicked { id, ctrl, shift } => click_note(s, id, ctrl, shift),
             StaffViewEvent::NoteContext(id) => s.editor.selection.set(vec![id]),
             StaffViewEvent::SeekRequested(sec) => s.seek(sec),
+            StaffViewEvent::Marquee { ids, add } => s.editor.selection.marquee(&ids, add),
+            StaffViewEvent::ClearSelection => s.editor.selection.clear(),
         }
     }
     for e in tab_events {

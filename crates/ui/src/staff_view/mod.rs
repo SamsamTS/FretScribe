@@ -83,6 +83,10 @@ pub enum StaffViewEvent {
     NoteContext(u64),
     /// Click on empty space.
     SeekRequested(f64),
+    /// Right-drag box.
+    Marquee { ids: Vec<u64>, add: bool },
+    /// Right click on empty space.
+    ClearSelection,
 }
 
 pub struct StaffOutput {
@@ -494,7 +498,7 @@ impl Paint<'_> {
 impl StaffView<'_> {
     pub fn show(self, ui: &mut Ui, view: &TimelineView) -> StaffOutput {
         let s = self.style.space;
-        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.style.height()), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.style.height()), Sense::click_and_drag());
         let full = ui.painter_at(rect);
         full.rect_filled(rect, 0.0, self.style.background);
         let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
@@ -532,7 +536,18 @@ impl StaffView<'_> {
         let hovered = response.hover_pos().and_then(hit);
         let mut events = Vec::new();
         let pointer = response.interact_pointer_pos();
-        if response.clicked() {
+        let key = response.id.with("marquee");
+        let mut origin = ui.data(|d| d.get_temp::<Pos2>(key));
+        if let Some(r) = crate::note_grid::marquee(ui.ctx(), &response, &full, &mut origin, self.style.selected) {
+            let ids = heads.iter().filter(|h| h.rect.intersects(r)).map(|h| h.id).collect();
+            events.push(StaffViewEvent::Marquee { ids, add: ui.input(|i| i.modifiers.command) });
+        }
+        ui.data_mut(|d| match origin {
+            Some(p) => d.insert_temp(key, p),
+            None => d.remove::<Pos2>(key),
+        });
+        let clicks = !crate::kit::clicks_swallowed(ui.ctx());
+        if clicks && response.clicked() {
             let mods = ui.input(|i| i.modifiers);
             match pointer.and_then(|p| hit(p).map(|id| (p, Some(id))).or(Some((p, None)))) {
                 Some((_, Some(id))) => events.push(StaffViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
@@ -540,8 +555,8 @@ impl StaffView<'_> {
                 _ => {}
             }
         }
-        if response.secondary_clicked() {
-            events.extend(pointer.and_then(hit).map(StaffViewEvent::NoteContext));
+        if clicks && response.secondary_clicked() {
+            events.push(pointer.and_then(hit).map_or(StaffViewEvent::ClearSelection, StaffViewEvent::NoteContext));
         }
         StaffOutput { events, hovered, response }
     }
