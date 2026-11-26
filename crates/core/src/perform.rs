@@ -89,7 +89,7 @@ struct Span<'a> {
     end: f64,
 }
 
-/// `auto_vibrato` adds a swelling vibrato to held notes that have none and are not in a chord.
+/// `auto_vibrato` adds a swelling vibrato to held notes that have none and are heard alone.
 pub fn performance(project: &Project, auto_vibrato: bool) -> Vec<PlayedNote> {
     let map = TempoMap::new(&project.measures);
     let times = NoteTimes::build(&project.notes, &map);
@@ -112,7 +112,8 @@ pub fn performance(project: &Project, auto_vibrato: bool) -> Vec<PlayedNote> {
     let auto = auto_vibrato.then(|| {
         let mut starts: Vec<f64> = spans.values().filter(|s| s.note.grace_of.is_none()).map(|s| s.start).collect();
         starts.sort_by(f64::total_cmp);
-        AutoVibrato { map: &map, starts }
+        let rings = ring.iter().filter_map(|(id, &until)| spans.get(id).filter(|s| until > s.end + 1e-6).map(|s| (s.start, until))).collect();
+        AutoVibrato { map: &map, starts, rings }
     });
     let mut seen = HashSet::new();
     let mut played: Vec<PlayedNote> = project
@@ -196,14 +197,18 @@ struct AutoVibrato<'a> {
     map: &'a TempoMap,
     /// Sorted starts of the notes that are not grace notes.
     starts: Vec<f64>,
+    /// `(start, ring end)` of the notes that let ring lengthens.
+    rings: Vec<(f64, f64)>,
 }
 
 impl AutoVibrato<'_> {
-    /// One held pitch (ties included), long enough, without vibrato and struck alone.
+    /// One held pitch (ties included), long enough, without vibrato, struck alone and with no
+    /// earlier note left ringing.
     fn applies(&self, chain: &[Span], start: f64, end: f64) -> bool {
         let beats = |sec| self.map.pos_to_beats(self.map.sec_to_pos(sec)).unwrap_or(0.0);
         let alone = |at: f64| self.starts.partition_point(|&s| s < at + 1e-6) - self.starts.partition_point(|&s| s < at - 1e-6) == 1;
-        chain.iter().all(|s| {
+        let ringing = self.rings.iter().any(|&(from, until)| from < start - 1e-6 && until > start + 1e-6);
+        !ringing && chain.iter().all(|s| {
             s.note.grace_of.is_none() && !s.note.vibrato && s.note.midi == chain[0].note.midi && alone(s.start)
         }) && beats(end) - beats(start) >= T.auto_vibrato_min_beats - 1e-6
     }

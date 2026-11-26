@@ -247,3 +247,18 @@ fn auto_vibrato_needs_a_long_enough_plain_single_note() {
     let slide = performance(&p, true).remove(1).pitch_curve;
     assert_eq!(slide, performance(&p, false)[1].pitch_curve);
 }
+
+#[test]
+fn no_auto_vibrato_while_an_earlier_note_rings_on() {
+    let mut p = project(8.0);
+    let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 64, 2.0, 3.0));
+    // After the barline, where the ringing stops.
+    add(&mut p, 67, 4.0, 5.0);
+    for (id, string) in [(a, 1), (b, 2)] {
+        note(&mut p, id).string_fret = Some((string, 3));
+    }
+    let swells = |p: &Project| performance(p, true).iter().map(|n| !n.pitch_curve.is_empty()).collect::<Vec<_>>();
+    assert_eq!(swells(&p), [true, true, true]);
+    p.set_let_ring(0, true, false).unwrap();
+    assert_eq!(swells(&p), [true, false, true]);
+}
