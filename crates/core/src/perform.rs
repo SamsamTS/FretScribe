@@ -135,11 +135,12 @@ fn event(
         _ => Articulation::Normal,
     };
     let (mut start, mut end) = (head.start, ring.get(&last.note.id).copied().unwrap_or(last.end));
-    if last.note.technique == Some(Technique::PalmMute) {
+    let muted = last.note.technique == Some(Technique::PalmMute);
+    if muted {
         end = last.start + ((last.end - last.start) * t.palm_mute_length).min(t.palm_mute_max_sec);
     }
     if let Some(&cut) = cuts.get(&last.note.id).filter(|&&cut| cut > last.start) {
-        end = cut;
+        end = if muted { end.min(cut) } else { cut };
     }
     // A grace note is over when its main note starts; one stored on the beat is played just before.
     let main = last.note.grace_of.and_then(|g| spans.get(&g.main));

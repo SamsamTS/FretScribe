@@ -184,6 +184,9 @@ fn let_ring_extends_only_where_ring_ends_says() {
     close(played[1].end_sec, 5.0 * B);
     note(&mut p, a).technique = Some(Technique::PalmMute);
     assert!(performance(&p)[0].end_sec < B);
+    // A legato from a palm-muted note does not lengthen it.
+    note(&mut p, b).legato = Some(LegatoLink { kind: Legato::HammerOn, from: a });
+    assert!(performance(&p)[0].end_sec < B);
 }
 
 #[test]

@@ -7,7 +7,7 @@ Only what other crates or the app rely on. Newest entries last; superseded text 
 ## 2026-11-01 - audio
 
 - Workspace deps: `signalsmith-stretch` (needs a C++ toolchain and libclang; used only via `audio/src/stretch.rs`); `rodio` with `default-features = false`; `serde_json` with `float_roundtrip` (saved projects must reload equal); `[profile.dev.package."*"] opt-level = 3`.
-- API (project time): `decode_file`, `DecodedAudio`, `AudioError`; `PreparedAudio::new(&DecodedAudio, Player::output_rate())`, `PreparedTrack` (a track with its prepared audio, offset, volume, mute, solo), `Player::set_prepared_tracks` (the only way to install tracks) (`AudioError::RateMismatch` on a wrong rate); `Player`: `play`, `pause`, `stop`, `seek`, `is_playing`, `position_sec`, `duration_sec`, `set_volume`, `set_region`, `set_loop`, `set_playback_speed`, `set_speed_mode`, `set_track_{volume,mute,solo,offset}`, `set_note_overlay`, `set_reference_pitch`.
+- API (project time): `decode_file`, `DecodedAudio`, `AudioError`; `PreparedAudio::new(&DecodedAudio, Player::output_rate())`, `PreparedTrack` (a track with its prepared audio, offset, volume, mute, solo), `Player::set_prepared_tracks` (the only way to install tracks) (`AudioError::RateMismatch` on a wrong rate); `Player`: `play`, `pause`, `stop`, `seek`, `is_playing`, `position_sec`, `duration_sec`, `set_volume`, `set_region`, `set_loop`, `set_playback_speed`, `set_speed_mode`, `set_track_{volume,mute,solo,offset}`, `set_performance`, `set_synth_preset`, `set_reference_pitch`.
 - Audibility follows `core::audible_tracks`; volume is clamped like `Track::set_volume`.
 - Guitar focus filter (listening aid only, never applied to analysis or spectrograms; default off; acts on the track sum, before the note overlay): `Player::set_guitar_focus`, `set_guitar_focus_strength` (0..1), `set_focus_context(&Tuning, capo)` (call on open and on every tuning/capo change, undo included); `focus_band`; `apply_focus_offline`.
 
@@ -195,3 +195,8 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 - Drag cancel: `kit::{drag_cancelled, clicks_swallowed, click_pos}`, `TrackEvent::OffsetDragCancelled`, `UndoStack::forget_redo`. `Session::shift_track` lost its `merge` argument (`offset_drag` makes one undo step per drag).
 - `StaffViewEvent::{Marquee, ClearSelection}`; the right-drag box is shared with the tab (`note_grid::marquee`).
 - `LanePointer::visible`, `SourcePointer::visible`: the unclipped part of the source spectrogram.
+
+## 2026-11-26 - playback sounds, expressive note playback
+- core: `perform::{performance, PlayedNote, Articulation, Attack, PerformTuning, value_at}` (what must be played, in project time, reference pitch not applied). Exports are unchanged: `export_midi` should consume `perform::performance`. `UiState::synth_preset` (serde default "Acoustic", not undoable; an unknown name plays as Acoustic and is kept).
+- audio: `Player::set_performance(Vec<PlayedNote>, mix)` replaces `set_note_overlay`; `Player::set_synth_preset`; `SynthPreset::{all, name, from_name}` replaces `SynthNote`; `NoteSynth::{set_performance, set_preset, reset}`, `render` writes into a zeroed buffer, `render_offline(notes, preset, rate, pitch, seconds)`.
+- app: `player_sync::full_sync` takes the cached performance; `PlayerCall::{SynthPreset, Performance}` replace `NoteOverlay`; `Session::{performance, poll_performance}`, `PERFORMANCE_DEBOUNCE`. "Sound" dropdown in the Listening group.
