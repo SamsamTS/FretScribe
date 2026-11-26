@@ -24,6 +24,7 @@ icons!(
     "harmonic",
     "palm-mute",
     "vibrato",
+    "auto-vibrato",
     "let-ring",
     "home",
     "add-track",

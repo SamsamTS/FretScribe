@@ -13,7 +13,7 @@ fn project() -> Project {
 }
 
 fn sync(p: &Project, mix: f32) -> Vec<PlayerCall> {
-    full_sync(p, &UiState::default(), 1.0, true, mix, &fretscribe_core::perform::performance(p).into())
+    full_sync(p, &UiState::default(), 1.0, true, mix, &fretscribe_core::perform::performance(p, false).into())
 }
 
 #[test]
@@ -41,7 +41,7 @@ fn project_state_becomes_preset_reference_and_performance_calls() {
     let mut p = project();
     p.reference_hz = 432.0;
     let mut ui = UiState { synth_preset: "Distortion".into(), ..UiState::default() };
-    let played = fretscribe_core::perform::performance(&p).into();
+    let played = fretscribe_core::perform::performance(&p, false).into();
     let calls = full_sync(&p, &ui, 1.0, true, 0.5, &played);
     assert!(calls.contains(&PlayerCall::SynthPreset(SynthPreset::Distortion)));
     assert!(calls.contains(&PlayerCall::ReferencePitch(p.pitch_ref())));

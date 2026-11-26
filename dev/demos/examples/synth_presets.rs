@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         project.notes.push(note);
     }
-    let played = performance(&project);
+    let played = performance(&project, false);
     for preset in SynthPreset::all() {
         let audio = NoteSynth::render_offline(&played, preset, RATE, PitchRef::default(), SECONDS);
         let rms = (audio.iter().map(|s| s * s).sum::<f32>() / audio.len() as f32).sqrt();

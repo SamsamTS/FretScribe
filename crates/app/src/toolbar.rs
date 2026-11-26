@@ -1,5 +1,7 @@
 //! The top toolbar of the editor screen (two wrapped rows).
 
+use std::time::Instant;
+
 use eframe::egui::{self, Context, Ui};
 use fretscribe_analysis::{clamp_gamma, Levels, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
 use fretscribe_core::{division_name, NotePolicy, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
@@ -433,6 +435,11 @@ fn listening(ui: &mut Ui, s: &mut Session) {
             if let (_, Some(i)) = Field::new(current.name(), "Sound of the synth").dropdown(ui, "synth_sound", &names, Some(current as usize)) {
                 s.ui.synth_preset = names[i].clone();
                 s.dirty = true;
+                changed = true;
+            }
+            if toggle(ui, "auto-vibrato", "Auto vibrato: the synth adds vibrato to held single notes", &mut s.ui.auto_vibrato) {
+                s.dirty = true;
+                s.performance_due = Some(Instant::now());
                 changed = true;
             }
         });

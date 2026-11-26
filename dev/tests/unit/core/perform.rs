@@ -26,7 +26,7 @@ fn chain(notes: &[(u8, f64, f64)], links: &[Technique]) -> PlayedNote {
     for (pair, &technique) in ids.windows(2).zip(links) {
         link(&mut p, pair[0], pair[1], technique);
     }
-    let mut played = performance(&p);
+    let mut played = performance(&p, false);
     assert_eq!(played.len(), 1);
     played.remove(0)
 }
@@ -99,7 +99,7 @@ fn legato_is_a_soft_new_event_that_cuts_its_source() {
     let (a, b, c) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 2.0), add(&mut p, 64, 2.5, 3.0));
     link(&mut p, a, b, Technique::Slide);
     note(&mut p, c).legato = Some(LegatoLink { kind: Legato::HammerOn, from: b });
-    let played = performance(&p);
+    let played = performance(&p, false);
     assert_eq!(played.len(), 2);
     close(played[0].end_sec, 2.5 * B);
     assert_eq!((played[1].attack, played[1].velocity), (Attack::Soft, T.soft_velocity));
@@ -115,7 +115,7 @@ fn grace_notes_end_before_their_main_note_which_keeps_its_start() {
         let grace = add(&mut p, 62, s, e);
         note(&mut p, grace).grace_of = Some(GraceNote { main, kind });
         note(&mut p, main).legato = Some(LegatoLink { kind: Legato::HammerOn, from: grace });
-        let played = performance(&p);
+        let played = performance(&p, false);
         let g = played.iter().find(|n| n.id == grace).unwrap();
         let m = played.iter().find(|n| n.id == main).unwrap();
         close(m.start_sec, 2.0 * B);
@@ -138,7 +138,7 @@ fn articulations_set_kind_velocity_and_length() {
         let id = add(&mut p, 60, i as f64, i as f64 + 1.0);
         note(&mut p, id).technique = Some(*technique);
     }
-    let played = performance(&p);
+    let played = performance(&p, false);
     assert_eq!(played.iter().map(|n| n.kind).collect::<Vec<_>>(), kinds.map(|k| k.1));
     close(played[0].end_sec - played[0].start_sec, T.dead_sec);
     assert_eq!(played[0].velocity, T.dead_velocity);
@@ -151,7 +151,7 @@ fn vibrato_waits_then_oscillates_over_its_own_note() {
     let mut p = project(8.0);
     let id = add(&mut p, 60, 0.0, 2.0);
     note(&mut p, id).vibrato = true;
-    let curve = performance(&p).remove(0).pitch_curve;
+    let curve = performance(&p, false).remove(0).pitch_curve;
     close(curve[0].0, T.vibrato_delay_sec);
     let depth = (T.vibrato_cents / 100.0) as f32;
     let peak = curve.iter().map(|c| c.1.abs()).fold(0.0, f32::max);
@@ -163,7 +163,7 @@ fn vibrato_waits_then_oscillates_over_its_own_note() {
     let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 62, 1.0, 4.0));
     link(&mut p, a, b, Technique::Bend);
     note(&mut p, b).vibrato = true;
-    let curve = performance(&p).remove(0).pitch_curve;
+    let curve = performance(&p, false).remove(0).pitch_curve;
     let around = |from: f64, to: f64| curve.iter().filter(move |c| c.0 > from && c.0 < to).map(|c| c.1);
     assert!(around(0.0, B - 1e-6).all(|v| (0.0..=2.0).contains(&v)), "none on the source");
     let held = around(B + T.vibrato_delay_sec, 4.0 * B);
@@ -179,25 +179,71 @@ fn let_ring_extends_only_where_ring_ends_says() {
         note(&mut p, id).string_fret = Some((1, 3));
     }
     p.set_let_ring(0, true, false).unwrap();
-    let played = performance(&p);
+    let played = performance(&p, false);
     close(played[0].end_sec, 4.0 * B);
     close(played[1].end_sec, 5.0 * B);
     note(&mut p, a).technique = Some(Technique::PalmMute);
-    assert!(performance(&p)[0].end_sec < B);
+    assert!(performance(&p, false)[0].end_sec < B);
     // A legato from a palm-muted note does not lengthen it.
     note(&mut p, b).legato = Some(LegatoLink { kind: Legato::HammerOn, from: a });
-    assert!(performance(&p)[0].end_sec < B);
+    assert!(performance(&p, false)[0].end_sec < B);
 }
 
 #[test]
 fn a_chord_stays_separate_and_an_empty_project_is_silent() {
     let mut p = project(8.0);
-    assert!(performance(&p).is_empty());
+    assert!(performance(&p, false).is_empty());
     for midi in [60, 64, 67] {
         add(&mut p, midi, 1.0, 2.0);
     }
-    let played = performance(&p);
+    let played = performance(&p, false);
     assert_eq!(played.iter().map(|n| n.midi).collect::<Vec<_>>(), [60, 64, 67]);
     assert!(played.iter().all(|n| n.start_sec == B && n.end_sec == 2.0 * B));
     assert_eq!(p.notes[0].start, TimePos::at(1, 1.0));
+}
+
+#[test]
+fn auto_vibrato_swells_then_fades_over_a_held_single_note() {
+    let mut p = project(8.0);
+    add(&mut p, 60, 0.0, 4.0);
+    let curve = performance(&p, true).remove(0).pitch_curve;
+    let (len, depth) = (4.0 * B, (T.vibrato_cents / 100.0) as f32);
+    let widest = |from: f64, to: f64| curve.iter().filter(|c| c.0 >= from * len && c.0 < to * len).map(|c| c.1.abs()).fold(0.0, f32::max);
+    assert!(widest(0.28, 0.38) > 0.85 * depth);
+    assert!(widest(0.0, 0.08) < 0.3 * depth && widest(0.92, 1.0) < 0.2 * depth);
+    assert!(widest(0.55, 0.75) < widest(0.33, 0.5));
+    assert!(curve.iter().all(|c| c.1.abs() <= depth));
+    assert_eq!((curve[0].1, curve[curve.len() - 1].1), (0.0, 0.0));
+    assert!(performance(&p, false)[0].pitch_curve.is_empty());
+}
+
+#[test]
+fn auto_vibrato_needs_a_long_enough_plain_single_note() {
+    let swells = |p: &Project| performance(p, true).iter().map(|n| !n.pitch_curve.is_empty()).collect::<Vec<_>>();
+    let mut p = project(8.0);
+    add(&mut p, 60, 0.0, 1.0);
+    add(&mut p, 60, 1.0, 1.9375);
+    add(&mut p, 60, 2.0, 3.0);
+    add(&mut p, 64, 2.0, 3.0);
+    assert_eq!(swells(&p), [true, false, false, false]);
+
+    let mut p = project(8.0);
+    for (i, technique) in [Technique::Dead, Technique::PalmMute].into_iter().enumerate() {
+        let id = add(&mut p, 60, i as f64, i as f64 + 1.0);
+        note(&mut p, id).technique = Some(technique);
+    }
+    let main = add(&mut p, 64, 3.0, 4.0);
+    let grace = add(&mut p, 62, 2.5, 3.0);
+    note(&mut p, grace).grace_of = Some(GraceNote { main, kind: GraceKind::Acciaccatura });
+    assert_eq!(swells(&p), [false, false, false, true]);
+
+    // A tie is one held note, too short here without its second half; a slide is not.
+    let mut p = project(8.0);
+    let (a, b) = (add(&mut p, 60, 0.0, 0.5), add(&mut p, 60, 0.5, 1.0));
+    link(&mut p, a, b, Technique::Tie);
+    assert_eq!(swells(&p), [true]);
+    let (c, d) = (add(&mut p, 62, 2.0, 3.0), add(&mut p, 65, 3.0, 4.0));
+    link(&mut p, c, d, Technique::Slide);
+    let slide = performance(&p, true).remove(1).pitch_curve;
+    assert_eq!(slide, performance(&p, false)[1].pitch_curve);
 }

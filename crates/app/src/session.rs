@@ -198,7 +198,7 @@ impl Session {
             speed: 1.0,
             keep_pitch: settings.keep_pitch,
             overlay_mix: 0.0,
-            performance: performance(&project).into(),
+            performance: performance(&project, ui.auto_vibrato).into(),
             performance_due: None,
             follow: settings.follow_playhead,
             overview_snap: true,
@@ -365,7 +365,7 @@ impl Session {
 
     fn flush_performance(&mut self) {
         if self.performance_due.take().is_some() {
-            self.performance = performance(&self.project).into();
+            self.performance = performance(&self.project, self.ui.auto_vibrato).into();
             self.player_resync(false);
         }
     }

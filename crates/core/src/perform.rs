@@ -49,6 +49,9 @@ pub struct PerformTuning {
     pub vibrato_hz: f64,
     pub vibrato_cents: f64,
     pub vibrato_delay_sec: f64,
+    /// Auto vibrato: the shortest note that gets it, and where along the note it is widest.
+    pub auto_vibrato_min_beats: f64,
+    pub auto_vibrato_peak: f64,
     pub dead_sec: f64,
     /// A palm-muted note keeps this fraction of its length, at most `palm_mute_max_sec`.
     pub palm_mute_length: f64,
@@ -68,6 +71,8 @@ impl PerformTuning {
         vibrato_hz: 5.5,
         vibrato_cents: 35.0,
         vibrato_delay_sec: 0.15,
+        auto_vibrato_min_beats: 1.0,
+        auto_vibrato_peak: 0.33,
         dead_sec: 0.05,
         palm_mute_length: 0.7,
         palm_mute_max_sec: 0.25,
@@ -84,8 +89,10 @@ struct Span<'a> {
     end: f64,
 }
 
-pub fn performance(project: &Project) -> Vec<PlayedNote> {
-    let times = NoteTimes::build(&project.notes, &TempoMap::new(&project.measures));
+/// `auto_vibrato` adds a swelling vibrato to held notes that have none and are not in a chord.
+pub fn performance(project: &Project, auto_vibrato: bool) -> Vec<PlayedNote> {
+    let map = TempoMap::new(&project.measures);
+    let times = NoteTimes::build(&project.notes, &map);
     let ring = ring_end_secs(project);
     let spans: HashMap<u64, Span> = project
         .notes
@@ -102,6 +109,11 @@ pub fn performance(project: &Project) -> Vec<PlayedNote> {
         .iter()
         .filter_map(|n| Some((n.legato?.from, spans.get(&n.id)?.start)))
         .collect();
+    let auto = auto_vibrato.then(|| {
+        let mut starts: Vec<f64> = spans.values().filter(|s| s.note.grace_of.is_none()).map(|s| s.start).collect();
+        starts.sort_by(f64::total_cmp);
+        AutoVibrato { map: &map, starts }
+    });
     let mut seen = HashSet::new();
     let mut played: Vec<PlayedNote> = project
         .notes
@@ -114,7 +126,7 @@ pub fn performance(project: &Project) -> Vec<PlayedNote> {
                 chain.push(*span);
                 next = span.note.link_to;
             }
-            event(&chain, &spans, &ring, &cuts)
+            event(&chain, &spans, &ring, &cuts, auto.as_ref())
         })
         .collect();
     played.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec).then(a.id.cmp(&b.id)));
@@ -126,6 +138,7 @@ fn event(
     spans: &HashMap<u64, Span>,
     ring: &HashMap<u64, f64>,
     cuts: &HashMap<u64, f64>,
+    auto: Option<&AutoVibrato>,
 ) -> Option<PlayedNote> {
     let (head, last) = (chain.first()?, chain.last()?);
     let kind = match head.note.technique {
@@ -165,6 +178,8 @@ fn event(
     } else {
         T.velocity
     };
+    let plain = !muted && matches!(kind, Articulation::Normal | Articulation::Harmonic);
+    let swell = auto.filter(|a| plain && a.applies(chain, start, end)).map(|_| Wave { from: start, to: end, swell: true });
     Some(PlayedNote {
         id: head.note.id,
         midi: head.note.midi,
@@ -173,12 +188,50 @@ fn event(
         velocity,
         kind,
         attack: if soft { Attack::Soft } else { Attack::Pick },
-        pitch_curve: pitch_curve(chain, end),
+        pitch_curve: pitch_curve(chain, end, swell),
     })
 }
 
+struct AutoVibrato<'a> {
+    map: &'a TempoMap,
+    /// Sorted starts of the notes that are not grace notes.
+    starts: Vec<f64>,
+}
+
+impl AutoVibrato<'_> {
+    /// One held pitch (ties included), long enough, without vibrato and struck alone.
+    fn applies(&self, chain: &[Span], start: f64, end: f64) -> bool {
+        let beats = |sec| self.map.pos_to_beats(self.map.sec_to_pos(sec)).unwrap_or(0.0);
+        let alone = |at: f64| self.starts.partition_point(|&s| s < at + 1e-6) - self.starts.partition_point(|&s| s < at - 1e-6) == 1;
+        chain.iter().all(|s| {
+            s.note.grace_of.is_none() && !s.note.vibrato && s.note.midi == chain[0].note.midi && alone(s.start)
+        }) && beats(end) - beats(start) >= T.auto_vibrato_min_beats - 1e-6
+    }
+}
+
+/// A vibrato over `[from, to]`, either steady or swelling to its peak and fading out again.
+#[derive(Clone, Copy)]
+struct Wave {
+    from: f64,
+    to: f64,
+    swell: bool,
+}
+
+impl Wave {
+    fn semitones(self, sec: f64) -> f64 {
+        // Zero at both ends of the span, so the curve never steps.
+        if sec <= self.from || sec >= self.to - 1e-6 {
+            return 0.0;
+        }
+        let along = (sec - self.from) / (self.to - self.from);
+        let peak = T.auto_vibrato_peak;
+        let depth = if !self.swell { 1.0 } else if along < peak { along / peak } else { (1.0 - along) / (1.0 - peak) };
+        depth * T.vibrato_cents / 100.0 * (TAU * T.vibrato_hz * (sec - self.from)).sin()
+    }
+}
+
 /// The moves between the chain's pitches, with each note's vibrato added over its own span.
-fn pitch_curve(chain: &[Span], end: f64) -> Vec<(f64, f32)> {
+fn pitch_curve(chain: &[Span], end: f64, swell: Option<Wave>) -> Vec<(f64, f32)> {
     let base_midi = chain.first().map_or(0, |s| s.note.midi);
     let semis = |s: &Span| f32::from(s.note.midi) - f32::from(base_midi);
     let steps = |from: f64, to: f64| {
@@ -200,31 +253,27 @@ fn pitch_curve(chain: &[Span], end: f64) -> Vec<(f64, f32)> {
             base.extend([(from, a), (to, b)]);
         }
     }
-    let waves: Vec<(f64, f64)> = chain
+    let waves: Vec<Wave> = chain
         .iter()
         .enumerate()
         .filter(|(_, s)| s.note.vibrato)
         .map(|(i, s)| {
             let stop = chain.get(i + 1).map_or(end, |next| s.end.min(next.start));
-            (s.start + T.vibrato_delay_sec, stop)
+            Wave { from: s.start + T.vibrato_delay_sec, to: stop, swell: false }
         })
-        .filter(|(from, to)| to > from)
+        .chain(swell)
+        .filter(|w| w.to > w.from)
         .collect();
     if waves.is_empty() {
         return base;
     }
     let mut secs: Vec<f64> = base.iter().map(|p| p.0).collect();
-    secs.extend(waves.iter().flat_map(|&(from, to)| steps(from, to).map(|s| s.1)));
+    secs.extend(waves.iter().flat_map(|w| steps(w.from, w.to).map(|s| s.1)));
     secs.sort_by(f64::total_cmp);
     secs.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
     secs.into_iter()
         .map(|sec| {
-            // The wave is zero at both ends of its span, so the curve never steps.
-            let wave: f64 = waves
-                .iter()
-                .filter(|&&(from, to)| sec > from && sec < to - 1e-6)
-                .map(|&(from, _)| T.vibrato_cents / 100.0 * (TAU * T.vibrato_hz * (sec - from)).sin())
-                .sum();
+            let wave: f64 = waves.iter().map(|w| w.semitones(sec)).sum();
             (sec, value_at(&base, sec) + wave as f32)
         })
         .collect()
