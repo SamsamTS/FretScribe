@@ -145,7 +145,6 @@ pub struct TabViewState {
     flashes: Vec<(u64, f64)>,
     menu: Option<MenuModel>,
     menu_pos: Option<egui::Pos2>,
-    marquee: Option<egui::Pos2>,
     preview: Option<(u8, u8)>,
     drag: Option<Drag>,
 }
@@ -308,7 +307,7 @@ impl TabView<'_> {
             }
         }
         // Right button: marquee by dragging, clear on empty space, menu on a number. Esc closes the menu.
-        if let Some(r) = crate::note_grid::marquee(ui.ctx(), &response, &full, &mut state.marquee, st.selected) {
+        if let Some(r) = crate::note_grid::marquee(&response, &full, st.selected) {
             let ids = heads.iter().filter(|h| h.1.intersects(r)).map(|h| h.0).collect();
             events.push(TabViewEvent::Marquee { ids, add: mods.command });
         }

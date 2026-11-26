@@ -60,21 +60,24 @@ impl NoteGrid {
     }
 }
 
-/// The right-drag selection box of the sheet and tab; `origin` lives in the view's state. Draws it, and
-/// returns it when it is dropped.
-pub(crate) fn marquee(ctx: &egui::Context, response: &egui::Response, painter: &egui::Painter, origin: &mut Option<egui::Pos2>, color: egui::Color32) -> Option<egui::Rect> {
+/// The right-drag selection box of the sheet and tab. Draws it, and returns it when it is dropped.
+pub(crate) fn marquee(response: &egui::Response, painter: &egui::Painter, color: egui::Color32) -> Option<egui::Rect> {
     use egui::PointerButton::Secondary;
+    let (ctx, key) = (&response.ctx, response.id.with("marquee"));
     if response.drag_started_by(Secondary) {
-        *origin = ctx.input(|i| i.pointer.press_origin()).or_else(|| response.interact_pointer_pos());
+        if let Some(origin) = ctx.input(|i| i.pointer.press_origin()) {
+            ctx.data_mut(|d| d.insert_temp(key, origin));
+        }
     }
-    let from = (*origin)?;
+    let from = ctx.data(|d| d.get_temp::<egui::Pos2>(key))?;
+    let forget = || ctx.data_mut(|d| d.remove::<egui::Pos2>(key));
     if crate::kit::drag_cancelled(ctx, Secondary) {
-        *origin = None;
+        forget();
         return None;
     }
     let rect = egui::Rect::from_two_pos(from, response.interact_pointer_pos().or_else(|| response.hover_pos())?);
     if response.drag_stopped_by(Secondary) {
-        *origin = None;
+        forget();
         return Some(rect);
     }
     painter.rect_filled(rect, 0.0, color.gamma_multiply(0.15));

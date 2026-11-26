@@ -225,7 +225,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
 /// The time clicked in `rect`, whose left edge is the timeline's.
 fn click_seek(ui: &mut egui::Ui, rect: Rect, view: &TimelineView) -> Option<f64> {
     let response = ui.interact(rect, ui.id().with("background_seek"), egui::Sense::click());
-    response.interact_pointer_pos().filter(|_| response.clicked() && !fretscribe_ui::kit::clicks_swallowed(ui.ctx())).map(|p| view.x_to_sec(p.x - rect.left()))
+    fretscribe_ui::kit::click_pos(&response).map(|p| view.x_to_sec(p.x - rect.left()))
 }
 
 fn track_mut(p: &mut Project, id: u64) -> Option<&mut Track> {

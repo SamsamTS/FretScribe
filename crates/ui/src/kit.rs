@@ -142,6 +142,11 @@ pub fn clicks_swallowed(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp(Id::new(DRAG_CANCELLED))).unwrap_or(false)
 }
 
+/// Where `response` was left-clicked, unless that click only ended a cancelled drag.
+pub fn click_pos(response: &egui::Response) -> Option<egui::Pos2> {
+    response.interact_pointer_pos().filter(|_| response.clicked() && !clicks_swallowed(&response.ctx))
+}
+
 fn text_width(ui: &Ui, text: &str) -> f32 {
     ui.painter().layout_no_wrap(text.to_owned(), FontId::new(13.0, theme::medium()), theme::TEXT).size().x
 }

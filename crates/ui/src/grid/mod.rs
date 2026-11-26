@@ -9,9 +9,9 @@ mod lines;
 mod style;
 
 use egui::{pos2, vec2, Area, Button, Context, CursorIcon, Frame, Id, Order, PointerButton, Rect, Response, Sense, Ui};
-use crate::kit;
 use fretscribe_core::{Measure, NotePolicy, SnapGrid, TempoMap, TimeSignature};
 
+use crate::kit;
 use crate::view::{TimelineView, MEASURE_HEADER_H};
 
 pub use drag::{drag_limits, dragged_start};

@@ -150,7 +150,7 @@ fn set_technique(project: &mut Project, notes: &[Note], technique: Option<Techni
         }
         Ok(())
     })?;
-    let message = (skipped > 0).then(|| format!("{skipped} note(s) skipped"));
+    let message = skipped_message(skipped);
     Ok(Applied { edit: Some(edit), message, affected: if retab { changed } else { Vec::new() }, ..Applied::default() })
 }
 
@@ -167,18 +167,20 @@ fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, 
 /// Every note but a dead one can have vibrato.
 fn toggle_vibrato(project: &mut Project, ids: Vec<u64>) -> Result<Applied, ActionError> {
     let set: HashSet<u64> = ids.iter().copied().collect();
-    let eligible = |n: &Note| n.technique != Some(Technique::Dead);
-    let count = selected(&project.notes, &set).filter(|n| eligible(n)).count();
-    if count == 0 {
+    let eligible: HashSet<u64> = selected(&project.notes, &set).filter(|n| n.technique != Some(Technique::Dead)).map(|n| n.id).collect();
+    if eligible.is_empty() {
         return Ok(Applied { message: Some("Vibrato: no eligible note".to_owned()), ..Applied::default() });
     }
-    let on = !selected(&project.notes, &set).filter(|n| eligible(n)).all(|n| n.vibrato);
+    let on = !selected(&project.notes, &eligible).all(|n| n.vibrato);
     let edit = project.edit_notes("Vibrato", |p| {
-        selected_mut(&mut p.notes, &set).filter(|n| eligible(n)).for_each(|n| n.vibrato = on);
+        selected_mut(&mut p.notes, &eligible).for_each(|n| n.vibrato = on);
         Ok(())
     })?;
-    let skipped = ids.len() - count;
-    Ok(Applied { edit: Some(edit), message: (skipped > 0).then(|| format!("{skipped} note(s) skipped")), ..Applied::default() })
+    Ok(Applied { edit: Some(edit), message: skipped_message(ids.len() - eligible.len()), ..Applied::default() })
+}
+
+fn skipped_message(skipped: usize) -> Option<String> {
+    (skipped > 0).then(|| format!("{skipped} note(s) skipped"))
 }
 
 fn has_placement(p: &Project, n: &Note, t: Technique) -> bool {

@@ -536,26 +536,19 @@ impl StaffView<'_> {
         let hovered = response.hover_pos().and_then(hit);
         let mut events = Vec::new();
         let pointer = response.interact_pointer_pos();
-        let key = response.id.with("marquee");
-        let mut origin = ui.data(|d| d.get_temp::<Pos2>(key));
-        if let Some(r) = crate::note_grid::marquee(ui.ctx(), &response, &full, &mut origin, self.style.selected) {
+        if let Some(r) = crate::note_grid::marquee(&response, &full, self.style.selected) {
             let ids = heads.iter().filter(|h| h.rect.intersects(r)).map(|h| h.id).collect();
             events.push(StaffViewEvent::Marquee { ids, add: ui.input(|i| i.modifiers.command) });
         }
-        ui.data_mut(|d| match origin {
-            Some(p) => d.insert_temp(key, p),
-            None => d.remove::<Pos2>(key),
-        });
-        let clicks = !crate::kit::clicks_swallowed(ui.ctx());
-        if clicks && response.clicked() {
+        if let Some(p) = crate::kit::click_pos(&response) {
             let mods = ui.input(|i| i.modifiers);
-            match pointer.and_then(|p| hit(p).map(|id| (p, Some(id))).or(Some((p, None)))) {
-                Some((_, Some(id))) => events.push(StaffViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
-                Some((p, None)) if body.contains(p) => events.push(StaffViewEvent::SeekRequested(view.x_to_sec(p.x - body.left()))),
-                _ => {}
+            match hit(p) {
+                Some(id) => events.push(StaffViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
+                None if body.contains(p) => events.push(StaffViewEvent::SeekRequested(view.x_to_sec(p.x - body.left()))),
+                None => {}
             }
         }
-        if clicks && response.secondary_clicked() {
+        if response.secondary_clicked() && !crate::kit::clicks_swallowed(ui.ctx()) {
             events.push(pointer.and_then(hit).map_or(StaffViewEvent::ClearSelection, StaffViewEvent::NoteContext));
         }
         StaffOutput { events, hovered, response }
