@@ -1,4 +1,4 @@
-use egui::{CentralPanel, Context, RawInput};
+use egui::{CentralPanel, Context, Event, PointerButton, RawInput};
 use fretscribe_core::{generate_measures, Note, TempoMap, TimeSignature};
 use fretscribe_notation::staff::{layout, StaffOptions};
 
@@ -48,4 +48,40 @@ fn draws_a_layout_without_panicking() {
             });
         });
     }
+}
+
+#[test]
+fn a_right_drag_selects_with_a_box_and_a_right_click_clears() {
+    let mut next = 1;
+    let measures = generate_measures(0.0, 8.0, 120.0, TimeSignature::COMMON, &mut next);
+    let map = TempoMap::new(&measures);
+    let notes: Vec<Note> = (0..4).map(|i| Note::new(i + 1, 64, map.sec_to_pos(i as f64 * 0.5), map.sec_to_pos(i as f64 * 0.5 + 0.5))).collect();
+    let staff = layout(&notes, &measures, &StaffOptions::default());
+    let ctx = Context::default();
+    install_fonts(&ctx);
+    let style = StaffStyle::default();
+    let frame = |events: Vec<Event>| {
+        let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 300.0))), events, ..Default::default() };
+        let mut out = Vec::new();
+        let _ = ctx.run(input, |ctx| {
+            CentralPanel::default().show(ctx, |ui| {
+                out = StaffView { layout: &staff, selected: &[], playhead: None, style: &style, grid: &NoteGrid::default(), timeline_offset: 60.0 }.show(ui, &TimelineView::new(0.0, 200.0)).events;
+            });
+        });
+        out
+    };
+    let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Secondary, pressed, modifiers: Default::default() };
+    let drag = |from: Pos2, to: Pos2| {
+        let mut all = frame(vec![Event::PointerMoved(from)]);
+        all.extend(frame(vec![button(from, true)]));
+        all.extend(frame(vec![Event::PointerMoved(to)]));
+        all.extend(frame(vec![button(to, false)]));
+        all
+    };
+    frame(Vec::new());
+    let (corner, far) = (pos2(10.0, 9.0), pos2(790.0, style.height()));
+    assert_eq!(drag(corner, far), [StaffViewEvent::Marquee { ids: vec![1, 2, 3, 4], add: false }]);
+    let mut click = frame(vec![button(corner, true)]);
+    click.extend(frame(vec![button(corner, false)]));
+    assert_eq!(click, [StaffViewEvent::ClearSelection]);
 }

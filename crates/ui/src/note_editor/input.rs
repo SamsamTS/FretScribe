@@ -9,6 +9,8 @@ use crate::spectro::{HitZone, NoteScene, SpectroEvent, SpectroGeometry};
 
 pub struct SourcePointer<'a> {
     pub geometry: SpectroGeometry,
+    /// See `LanePointer::visible`.
+    pub visible: Rect,
     pub scene: &'a NoteScene,
     pub hovered_note: Option<(u64, HitZone)>,
     pub pitch_ruler: Rect,
@@ -40,7 +42,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
     let key = Id::new("note-editor-pressed");
     let mut pressed: [bool; 2] = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
     let pos = ctx.input(|i| i.pointer.latest_pos());
-    let inside = |p: Pos2| geo.rect.contains(p) && !src.pitch_ruler.contains(p);
+    let inside = |p: Pos2| src.visible.contains(p) && !src.pitch_ruler.contains(p);
     let buttons = [(PointerButton::Primary, Button::Left), (PointerButton::Secondary, Button::Right)];
     let mut inputs = Vec::new();
 
@@ -85,7 +87,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
                 inputs.push(Input::Escape);
             }
             let tone = i.modifiers.shift;
-            let keys = [(Key::ArrowUp, EntryKey::Pitch { up: true, tone }), (Key::ArrowDown, EntryKey::Pitch { up: false, tone }), (Key::ArrowLeft, EntryKey::String { up: false }), (Key::ArrowRight, EntryKey::String { up: true }), (Key::G, EntryKey::ToggleKind), (Key::H, EntryKey::CycleLink), (Key::Enter, EntryKey::Confirm)];
+            let keys = [(Key::ArrowUp, EntryKey::Pitch { up: true, tone }), (Key::ArrowDown, EntryKey::Pitch { up: false, tone }), (Key::ArrowLeft, EntryKey::String { up: false }), (Key::ArrowRight, EntryKey::String { up: true }), (Key::G, EntryKey::ToggleKind), (Key::H, EntryKey::CycleLink), (Key::X, EntryKey::ToggleDead), (Key::Enter, EntryKey::Confirm)];
             let digits = [Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
             inputs.extend(keys.iter().filter(|(k, _)| i.key_pressed(*k)).map(|(_, e)| Input::Entry(*e)));
             inputs.extend(digits.iter().enumerate().filter(|(_, k)| i.key_pressed(**k)).map(|(d, _)| Input::Entry(EntryKey::Digit(d as u8))));
@@ -107,6 +109,6 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
         });
     }
     let double = ctx.input(|i| i.pointer.button_double_clicked(PointerButton::Primary));
-    let open_exact = double.then(|| pos.and_then(|p| sample(p, false).hit)).flatten().and_then(|(id, zone)| matches!(zone, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge).then_some(id));
+    let open_exact = double.then(|| pos.filter(|p| inside(*p)).and_then(|p| sample(p, false).hit)).flatten().and_then(|(id, zone)| matches!(zone, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge).then_some(id));
     Collected { inputs, open_exact }
 }

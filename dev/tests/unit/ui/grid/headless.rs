@@ -4,6 +4,7 @@ use egui::{CentralPanel, Event, Modifiers, PointerButton, Pos2, RawInput};
 use fretscribe_core::{Project, TimeSignature, Track, TrackRole};
 
 use super::*;
+use crate::view::MEASURE_HEADER_H;
 
 struct Harness {
     ctx: Context,
@@ -13,7 +14,7 @@ struct Harness {
     policy: NotePolicy,
     time: f64,
     rect: Rect,
-    grid_id: Id,
+    header: bool,
 }
 
 impl Harness {
@@ -32,8 +33,11 @@ impl Harness {
             policy: NotePolicy::FollowGrid,
             time: 0.0,
             rect: Rect::NOTHING,
-            grid_id: Id::NULL,
+            header: false,
         };
+        crate::theme::install_fonts(&h.ctx);
+        crate::kit::install(&h.ctx);
+        h.ctx.style_mut(|s| s.interaction.tooltip_delay = f32::INFINITY);
         h.frame(Vec::new(), Modifiers::NONE);
         h.frame(Vec::new(), Modifiers::NONE);
         h
@@ -42,7 +46,7 @@ impl Harness {
     fn frame(&mut self, events: Vec<Event>, modifiers: Modifiers) -> Vec<GridEvent> {
         self.time += 0.05;
         let raw = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 300.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 600.0))),
             time: Some(self.time),
             events,
             modifiers,
@@ -51,18 +55,18 @@ impl Harness {
         let tempo = TempoMap::new(&self.project.measures);
         let (view, snap, policy) = (self.view, self.snap.clone(), self.policy);
         let mut out = Vec::new();
-        let (mut rect, mut grid_id) = (self.rect, self.grid_id);
+        let (mut rect, header, fits) = (self.rect, self.header, Default::default());
         let _ = self.ctx.run(raw, |ctx| {
             CentralPanel::default().show(ctx, |ui| {
                 rect = ui.max_rect();
-                grid_id = ui.id().with("measure_grid");
-                out = GridOverlay::new(&tempo, &view, &snap)
-                    .note_policy(policy)
-                    .show(ui, rect);
+                let mut grid = GridOverlay::new(&tempo, &view, &snap).note_policy(policy);
+                if header {
+                    grid = grid.with_header(HeaderData { fits: &fits, region: None, audio_len_sec: 8.0 });
+                }
+                out = grid.show(ui, rect);
             });
         });
         self.rect = rect;
-        self.grid_id = grid_id;
         out
     }
 
@@ -132,28 +136,84 @@ fn a_dragged_barline_cannot_cross_its_neighbour() {
 }
 
 #[test]
-fn a_click_without_movement_changes_nothing() {
+fn a_click_without_movement_only_seeks() {
     let mut h = Harness::new();
     let at = h.line_pos(2.0);
     h.mouse(at, Modifiers::NONE);
     h.button(at, true, Modifiers::NONE);
     let mut events = h.button(at, false, Modifiers::NONE);
     events.extend(h.frame(Vec::new(), Modifiers::NONE));
-    assert!(events.is_empty(), "{events:?}");
+    let [GridEvent::SeekRequested(sec)] = events[..] else { panic!("{events:?}") };
+    assert!((sec - 2.0).abs() < 0.05, "{sec}");
 }
 
 #[test]
-fn clicking_a_label_opens_the_settings_popup() {
+fn escape_or_the_other_button_cancels_a_barline_drag() {
+    let button = |pos, button, pressed| Event::PointerButton { pos, button, pressed, modifiers: Modifiers::NONE };
+    let escape = Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+    for escaping in [true, false] {
+        let mut h = Harness::new();
+        let (from, to) = (h.line_pos(2.0), h.line_pos(2.6));
+        h.mouse(from, Modifiers::NONE);
+        h.button(from, true, Modifiers::NONE);
+        let mut events = h.mouse(to, Modifiers::NONE);
+        if escaping {
+            events.extend(h.frame(vec![escape.clone()], Modifiers::NONE));
+        } else {
+            events.extend(h.frame(vec![button(to, PointerButton::Secondary, true)], Modifiers::NONE));
+            events.extend(h.frame(vec![button(to, PointerButton::Secondary, false)], Modifiers::NONE));
+        }
+        events.extend(h.button(to, false, Modifiers::NONE));
+        events.extend(h.frame(Vec::new(), Modifiers::NONE));
+        assert!(events.is_empty(), "{escaping} {events:?}");
+        assert!(!crate::kit::clicks_swallowed(&h.ctx));
+        assert_eq!(h.drag(from, 60.0, Modifiers::NONE).len(), 1, "the next drag works");
+    }
+}
+
+#[test]
+fn a_locked_barline_cannot_be_dragged() {
     let mut h = Harness::new();
-    let at = pos2(h.line_pos(2.0).x + 20.0, h.rect.top() + 9.0);
-    h.mouse(at, Modifiers::NONE);
-    h.button(at, true, Modifiers::NONE);
-    h.button(at, false, Modifiers::NONE);
+    h.project.measures[1].locked = true;
+    assert!(h.drag(h.line_pos(2.0), 60.0, Modifiers::NONE).is_empty());
+    assert!(h.drag(h.line_pos(4.0), 60.0, Modifiers::NONE).is_empty());
+}
+
+fn click(h: &mut Harness, at: Pos2, modifiers: Modifiers) -> Vec<GridEvent> {
+    let mut events = h.mouse(at, modifiers);
+    events.extend(h.button(at, true, modifiers));
+    events.extend(h.button(at, false, modifiers));
+    h.time += 1.0; // never a double click with the next one
+    events
+}
+
+/// A point of the header band, `x` px right of the barline at `sec`.
+fn header_pos(h: &Harness, sec: f64, x: f32) -> Pos2 {
+    pos2(h.line_pos(sec).x + x, h.rect.top() + MEASURE_HEADER_H / 2.0)
+}
+
+#[test]
+fn the_number_selects_extends_and_loops() {
+    let mut h = Harness::new();
+    h.header = true;
+    let at = header_pos(&h, 2.0, 18.0);
+    assert_eq!(click(&mut h, at, Modifiers::NONE), [GridEvent::MeasureSelected { index: 1, extend: false }]);
+    assert_eq!(click(&mut h, at, Modifiers::SHIFT), [GridEvent::MeasureSelected { index: 1, extend: true }]);
+    click(&mut h, at, Modifiers::NONE);
+    h.time -= 1.0;
+    assert_eq!(click(&mut h, at, Modifiers::NONE), [GridEvent::MeasureLoopRequested(1)]);
+}
+
+#[test]
+fn a_toggle_click_reports_the_new_value_and_ctrl_propagates() {
+    let mut h = Harness::new();
+    h.header = true;
+    h.view = TimelineView::new(0.0, 200.0);
     h.frame(Vec::new(), Modifiers::NONE);
-    let popup = h.ctx.data(|d| d.get_temp::<SettingsPopup>(h.grid_id.with("popup")));
-    let popup = popup.expect("popup should be open");
-    assert_eq!((popup.settings.index, popup.settings.bpm), (1, 120.0));
-    assert!(popup.settings.apply_to_following);
+    // The lock sits left of the overflow button, which hugs the right edge of the 400 px measure.
+    let lock = header_pos(&h, 0.0, 400.0 - 8.0 - 26.0 - 4.0 - 13.0);
+    assert_eq!(click(&mut h, lock, Modifiers::NONE), [GridEvent::LockToggled { index: 0, on: true, propagate: false }]);
+    assert_eq!(click(&mut h, lock, Modifiers::COMMAND), [GridEvent::LockToggled { index: 0, on: true, propagate: true }]);
 }
 
 #[test]

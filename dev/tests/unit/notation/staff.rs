@@ -315,12 +315,13 @@ fn lattice_case(mut seed: u64, beat_rule: bool) {
 fn technique_runs_group_consecutive_events_and_a_plain_note_ends_them() {
     use fretscribe_core::Technique;
     let ms = measures(2, TimeSignature::COMMON);
-    let techniques = [Some(Technique::PalmMute), Some(Technique::PalmMute), None, Some(Technique::PalmMute), Some(Technique::Vibrato)];
-    let notes: Vec<Note> = techniques.iter().enumerate().map(|(i, &t)| Note { technique: t, ..note(&ms, i as u64 + 1, 60 + i as u8, i as f64, i as f64 + 1.0) }).collect();
+    let techniques = [Some(Technique::PalmMute), Some(Technique::PalmMute), None, Some(Technique::PalmMute), None];
+    let notes: Vec<Note> = techniques.iter().enumerate().map(|(i, &t)| Note { technique: t, vibrato: i == 4, ..note(&ms, i as u64 + 1, 60 + i as u8, i as f64, i as f64 + 1.0) }).collect();
     let l = run(&notes, 2);
-    let runs = technique_runs(&l, Technique::PalmMute);
+    let held = |t| move |n: &crate::staff::StaffNote| n.technique == Some(t);
+    let runs = technique_runs(&l, held(Technique::PalmMute));
     assert_eq!(runs.len(), 2);
     assert!(runs[0].first_sec < runs[0].last_sec && runs[1].first_sec == runs[1].last_sec);
-    assert_eq!(technique_runs(&l, Technique::Vibrato).len(), 1);
-    assert!(technique_runs(&l, Technique::Dead).is_empty());
+    assert_eq!(technique_runs(&l, |n| n.vibrato).len(), 1);
+    assert!(technique_runs(&l, held(Technique::Dead)).is_empty());
 }

@@ -183,6 +183,7 @@ pub fn from_json(text: &str) -> Result<ProjectFile, CoreError> {
         });
     }
     migrate(&mut value, version, CURRENT_VERSION, MIGRATIONS)?;
+    upgrade_vibrato(&mut value);
     let history = value.as_object_mut().and_then(|o| o.remove("history"));
     let mut file: ProjectFile = serde_json::from_value(value)?;
     file.history = history.and_then(|h| match serde_json::from_value(h) {
@@ -197,6 +198,21 @@ pub fn from_json(text: &str) -> Result<ProjectFile, CoreError> {
     file.project.notes.sort_by_key(|n| n.id);
     file.project.validate()?;
     Ok(file)
+}
+
+/// Vibrato used to be a `technique`; this also reaches the notes inside the undo history.
+fn upgrade_vibrato(value: &mut Value) {
+    match value {
+        Value::Object(o) => {
+            if o.get("technique").is_some_and(|t| t == "Vibrato") {
+                o.insert("technique".into(), Value::Null);
+                o.insert("vibrato".into(), true.into());
+            }
+            o.values_mut().for_each(upgrade_vibrato);
+        }
+        Value::Array(a) => a.iter_mut().for_each(upgrade_vibrato),
+        _ => {}
+    }
 }
 
 fn migrate(value: &mut Value, from: u32, to: u32, steps: &[Migration]) -> Result<(), CoreError> {

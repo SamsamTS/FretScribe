@@ -32,11 +32,12 @@ pub struct GhostGlyph {
     pub legato_from: Option<usize>,
     pub grace: bool,
     pub technique: Option<Technique>,
+    pub vibrato: bool,
 }
 
 impl GhostShape {
     pub fn note(midi: u8, start_sec: f64, end_sec: f64) -> Self {
-        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false, technique: None }] }
+        Self { glyphs: vec![GhostGlyph { midi, start_sec, end_sec, link_to: None, legato_from: None, grace: false, technique: None, vibrato: false }] }
     }
 
     fn items(&self) -> Vec<GlyphItem> {
@@ -52,6 +53,7 @@ impl GhostShape {
                 legato_from: g.legato_from.map(|from| from as u64),
                 grace: g.grace,
                 technique: g.technique,
+                vibrato: g.vibrato,
             })
             .collect()
     }
@@ -171,16 +173,14 @@ fn draw_scene(painter: &Painter, scene: &Scene, items: &[GlyphItem], m: &NoteMet
         } else {
             painter.rect_stroke(*r, radius, Stroke::new(1.5_f32, faded(color, 0.95)), egui::StrokeKind::Inside);
         }
-        match items.iter().find(|it| it.id == *id).and_then(|it| it.technique) {
-            Some(Technique::PalmMute) if r.width() >= 14.0 => {
-                painter.text(r.left_top() + egui::vec2(2.0, 1.0), Align2::LEFT_TOP, "PM", FontId::monospace(m.font_px() * 0.8), faded(color, 1.0));
-            }
-            Some(Technique::Vibrato) if r.width() >= 12.0 => {
-                super::super::note_grid::paint_wave(painter, r.left() + 2.0, r.right() - 2.0, r.center().y, r.height() * 0.25, faded(color, 0.5));
-            }
-            _ => {}
+        let item = items.iter().find(|it| it.id == *id);
+        if item.is_some_and(|it| it.technique == Some(Technique::PalmMute)) && r.width() >= 14.0 {
+            painter.text(r.left_top() + egui::vec2(2.0, 1.0), Align2::LEFT_TOP, "PM", FontId::monospace(m.font_px() * 0.8), faded(color, 1.0));
         }
-        let harmonic = items.iter().find(|it| it.id == *id).and_then(|it| it.technique).filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
+        if item.is_some_and(|it| it.vibrato) && r.width() >= 12.0 {
+            super::super::note_grid::paint_wave(painter, r.left() + 2.0, r.right() - 2.0, r.center().y, r.height() * 0.25, faded(color, 0.5));
+        }
+        let harmonic = item.and_then(|it| it.technique).filter(|t| matches!(t, Technique::Harmonic | Technique::PinchHarmonic));
         let d = (m.dot_radius() * 1.4).min(r.height() / 2.2);
         if let Some(t) = harmonic.filter(|_| r.width() >= 4.0 * d) {
             let c = r.left_center() + egui::vec2(1.5 * d, 0.0);

@@ -42,6 +42,25 @@ fn an_edit_is_undoable_and_marks_the_session_dirty() {
 }
 
 #[test]
+fn an_offset_drag_is_one_undo_step_and_can_be_called_off() {
+    let mut s = session();
+    s.set_reference_hz(442.0);
+    let (id, start) = (s.project.tracks[0].id, s.project.tracks[0].offset_sec);
+    for cancel in [true, false] {
+        s.offset_drag = Some(false);
+        s.shift_track(id, 0.2, true);
+        s.shift_track(id, 0.4, true);
+        if cancel {
+            s.cancel_offset_drag();
+            assert_eq!(s.project.tracks[0].offset_sec, start);
+        }
+        s.offset_drag = None;
+    }
+    s.undo_redo(false);
+    assert_eq!((s.project.tracks[0].offset_sec, s.project.reference_hz), (start, 442.0));
+}
+
+#[test]
 fn changing_the_tuning_reassigns_the_tab() {
     let mut s = session();
     s.infer_all();
@@ -57,11 +76,12 @@ fn changing_the_tuning_reassigns_the_tab() {
 
 #[test]
 fn techniques_and_let_ring_go_through_tab_and_staff_without_changing_the_rests() {
-    use fretscribe_core::Technique::{Dead, Harmonic, PalmMute, PinchHarmonic, Vibrato};
+    use fretscribe_core::Technique::{Dead, Harmonic, PalmMute, PinchHarmonic};
     let mut s = session();
-    for (n, t) in s.project.notes.iter_mut().zip([Dead, Harmonic, PinchHarmonic, PalmMute, Vibrato]) {
+    for (n, t) in s.project.notes.iter_mut().zip([Dead, Harmonic, PinchHarmonic, PalmMute]) {
         n.technique = Some(t);
     }
+    s.project.notes[4].vibrato = true;
     s.project.notes[1].midi = 52;
     s.project.notes[2].midi = 64;
     s.infer_all();

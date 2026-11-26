@@ -17,6 +17,8 @@ pub enum TrackEvent {
     RoleChanged { id: u64, role: TrackRole },
     UseForBeatsChanged { id: u64, on: bool },
     AddTrackRequested,
+    /// Left click on a waveform.
+    SeekRequested(f64),
     /// A command of the source track's tool grid, for the note editor.
     NoteAction(crate::note_editor::NoteAction),
     /// Right-drag on a lane created, moved or resized the region (`None`: cleared).
@@ -24,4 +26,6 @@ pub enum TrackEvent {
     /// Bracket the `OffsetChanged` events of one drag so the app can make it a single undo step.
     OffsetDragBegan(u64),
     OffsetDragEnded(u64),
+    /// The drag was called off: its changes are to be reverted.
+    OffsetDragCancelled,
 }

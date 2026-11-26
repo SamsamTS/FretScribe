@@ -60,6 +60,31 @@ impl NoteGrid {
     }
 }
 
+/// The right-drag selection box of the sheet and tab. Draws it, and returns it when it is dropped.
+pub(crate) fn marquee(response: &egui::Response, painter: &egui::Painter, color: egui::Color32) -> Option<egui::Rect> {
+    use egui::PointerButton::Secondary;
+    let (ctx, key) = (&response.ctx, response.id.with("marquee"));
+    if response.drag_started_by(Secondary) {
+        if let Some(origin) = ctx.input(|i| i.pointer.press_origin()) {
+            ctx.data_mut(|d| d.insert_temp(key, origin));
+        }
+    }
+    let from = ctx.data(|d| d.get_temp::<egui::Pos2>(key))?;
+    let forget = || ctx.data_mut(|d| d.remove::<egui::Pos2>(key));
+    if crate::kit::drag_cancelled(ctx, Secondary) {
+        forget();
+        return None;
+    }
+    let rect = egui::Rect::from_two_pos(from, response.interact_pointer_pos().or_else(|| response.hover_pos())?);
+    if response.drag_stopped_by(Secondary) {
+        forget();
+        return Some(rect);
+    }
+    painter.rect_filled(rect, 0.0, color.gamma_multiply(0.15));
+    painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0_f32, color), egui::StrokeKind::Inside);
+    None
+}
+
 #[cfg(all(test, dev_tests))]
 #[path = "../../../dev/tests/unit/ui/note_grid.rs"]
 mod tests;
@@ -78,7 +103,7 @@ pub fn harmonic_tag(technique: Option<fretscribe_core::Technique>) -> Option<&'s
 pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::staff::StaffLayout, x_of: impl Fn(f64) -> f32, y: f32, unit: f32, color: egui::Color32) {
     use fretscribe_core::Technique;
     let (clip, stroke) = (p.clip_rect(), egui::Stroke::new(1.0_f32, color));
-    for run in fretscribe_notation::staff::technique_runs(layout, Technique::PalmMute) {
+    for run in fretscribe_notation::staff::technique_runs(layout, |n| n.technique == Some(Technique::PalmMute)) {
         let (x0, x1) = (x_of(run.first_sec), x_of(run.last_sec));
         if x1 < clip.left() || x0 > clip.right() {
             continue;
@@ -88,7 +113,7 @@ pub fn paint_technique_marks(p: &egui::Painter, layout: &fretscribe_notation::st
         p.extend(egui::Shape::dashed_line(&[egui::pos2(x0, y), end], stroke, 3.0, 2.0));
         p.line_segment([end, end + egui::vec2(0.0, unit * 0.5)], stroke);
     }
-    for run in fretscribe_notation::staff::technique_runs(layout, Technique::Vibrato) {
+    for run in fretscribe_notation::staff::technique_runs(layout, |n| n.vibrato) {
         let (x0, end) = (x_of(run.first_sec), x_of(run.end_sec).max(x_of(run.last_sec) + unit));
         let period = unit * 0.6 * WAVE_PERIOD;
         let x1 = x0 + ((end - x0) / period).floor().max(1.0) * period;

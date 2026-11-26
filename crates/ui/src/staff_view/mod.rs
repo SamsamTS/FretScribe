@@ -83,6 +83,10 @@ pub enum StaffViewEvent {
     NoteContext(u64),
     /// Click on empty space.
     SeekRequested(f64),
+    /// Right-drag box.
+    Marquee { ids: Vec<u64>, add: bool },
+    /// Right click on empty space.
+    ClearSelection,
 }
 
 pub struct StaffOutput {
@@ -359,7 +363,7 @@ impl Paint<'_> {
         if let Some(a) = g.accidental {
             self.glyph(accidental_char(a), pos2(x - 0.8 * self.s, y), GRACE_SCALE, color, Align2::LEFT_CENTER);
         }
-        self.glyph("\u{E0A4}", pos2(x, y), GRACE_SCALE, color, Align2::LEFT_CENTER);
+        self.glyph(head_char(Base::Quarter, g.dead.then_some(Technique::Dead)), pos2(x, y), GRACE_SCALE, color, Align2::LEFT_CENTER);
         let (sx, tip) = (x + w - 0.05 * self.s, y - 2.6 * self.s);
         self.line(pos2(sx, y), pos2(sx, tip), 0.1, color);
         self.glyph(&flag_char(1, true).to_string(), pos2(sx - 0.05 * self.s, tip), GRACE_SCALE, color, Align2::LEFT_CENTER);
@@ -494,7 +498,7 @@ impl Paint<'_> {
 impl StaffView<'_> {
     pub fn show(self, ui: &mut Ui, view: &TimelineView) -> StaffOutput {
         let s = self.style.space;
-        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.style.height()), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), self.style.height()), Sense::click_and_drag());
         let full = ui.painter_at(rect);
         full.rect_filled(rect, 0.0, self.style.background);
         let body = Rect::from_min_max(pos2(rect.left() + self.timeline_offset, rect.top()), rect.max);
@@ -532,16 +536,20 @@ impl StaffView<'_> {
         let hovered = response.hover_pos().and_then(hit);
         let mut events = Vec::new();
         let pointer = response.interact_pointer_pos();
-        if response.clicked() {
+        if let Some(r) = crate::note_grid::marquee(&response, &full, self.style.selected) {
+            let ids = heads.iter().filter(|h| h.rect.intersects(r)).map(|h| h.id).collect();
+            events.push(StaffViewEvent::Marquee { ids, add: ui.input(|i| i.modifiers.command) });
+        }
+        if let Some(p) = crate::kit::click_pos(&response) {
             let mods = ui.input(|i| i.modifiers);
-            match pointer.and_then(|p| hit(p).map(|id| (p, Some(id))).or(Some((p, None)))) {
-                Some((_, Some(id))) => events.push(StaffViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
-                Some((p, None)) => events.push(StaffViewEvent::SeekRequested(view.x_to_sec(p.x - body.left()))),
+            match hit(p) {
+                Some(id) => events.push(StaffViewEvent::NoteClicked { id, ctrl: mods.command, shift: mods.shift }),
+                None if body.contains(p) => events.push(StaffViewEvent::SeekRequested(view.x_to_sec(p.x - body.left()))),
                 None => {}
             }
         }
-        if response.secondary_clicked() {
-            events.extend(pointer.and_then(hit).map(StaffViewEvent::NoteContext));
+        if response.secondary_clicked() && !crate::kit::clicks_swallowed(ui.ctx()) {
+            events.push(pointer.and_then(hit).map_or(StaffViewEvent::ClearSelection, StaffViewEvent::NoteContext));
         }
         StaffOutput { events, hovered, response }
     }

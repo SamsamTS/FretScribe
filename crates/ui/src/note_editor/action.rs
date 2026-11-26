@@ -107,13 +107,14 @@ fn link_edit(project: &mut Project, ids: Vec<u64>, label: &str, run: fn(&mut Pro
     Ok(Applied { edit: linked.then_some(edit), message: Some(message), affected: if linked { ids } else { Vec::new() }, ..Applied::default() })
 }
 
-/// Whether `n` can take `technique`: dead and harmonic notes need to be link-free; the others only exclude
-/// a technique of their own (a link source or a dead / harmonic note).
+/// Whether `n` can take `technique`: dead and harmonic notes need to be link-free (a dead note drops its
+/// grace connectors itself); palm mute only excludes another technique.
 fn can_take(p: &Project, n: &Note, technique: Technique) -> bool {
-    if technique.blocks_links() {
-        n.grace_of.is_none() && p.outgoing(n.id).is_none() && p.incoming(n.id).is_none()
-    } else {
-        n.technique.is_none_or(|t| t == technique || matches!(t, Technique::PalmMute | Technique::Vibrato))
+    let is_grace = |id| p.note(id).is_some_and(|n| n.grace_of.is_some());
+    match technique {
+        Technique::Dead => (n.grace_of.is_some() || p.outgoing(n.id).is_none()) && p.incoming(n.id).is_none_or(|(from, _)| is_grace(from)),
+        t if t.blocks_links() => n.grace_of.is_none() && p.outgoing(n.id).is_none() && p.incoming(n.id).is_none(),
+        t => n.technique.is_none_or(|own| own == t),
     }
 }
 
@@ -126,14 +127,30 @@ fn eligible(project: &Project, ids: &[u64], technique: Technique) -> Vec<Note> {
 /// Sets `technique` (or `None`) on `notes` in one undo step; the message mentions the `ids` that were skipped.
 fn set_technique(project: &mut Project, notes: &[Note], technique: Option<Technique>, label: &str, skipped: usize, retab: bool) -> Result<Applied, ActionError> {
     let changed: Vec<u64> = notes.iter().map(|n| n.id).collect();
+    // The grace notes whose connector a change of the dead state affects.
+    let dead = technique == Some(Technique::Dead) || notes.iter().any(|n| n.technique == Some(Technique::Dead));
+    let graces: Vec<u64> = project.notes.iter().filter(|n| dead && n.grace_of.is_some_and(|g| changed.contains(&n.id) || changed.contains(&g.main))).map(|n| n.id).collect();
     let edit = project.edit_notes(label, |p| {
+        // Before the technique is set: unlinking clears it.
+        if technique == Some(Technique::Dead) {
+            graces.iter().for_each(|&id| {
+                p.unlink(id);
+            });
+        }
         for n in p.notes.iter_mut().filter(|n| changed.contains(&n.id)) {
             n.technique = technique;
+            n.vibrato &= technique != Some(Technique::Dead);
             n.string_fret = n.string_fret.filter(|_| n.locked_fret || !retab);
+        }
+        if technique != Some(Technique::Dead) {
+            for &id in &graces {
+                // Stays dashed when no other link fits.
+                let _ = p.set_grace_link(id, p.default_grace_link(id));
+            }
         }
         Ok(())
     })?;
-    let message = (skipped > 0).then(|| format!("{skipped} note(s) skipped"));
+    let message = skipped_message(skipped);
     Ok(Applied { edit: Some(edit), message, affected: if retab { changed } else { Vec::new() }, ..Applied::default() })
 }
 
@@ -145,6 +162,25 @@ fn toggle_technique(project: &mut Project, ids: Vec<u64>, technique: Technique, 
     }
     let on = (!notes.iter().all(|n| n.technique == Some(technique))).then_some(technique);
     set_technique(project, &notes, on, label, ids.len() - notes.len(), retab)
+}
+
+/// Every note but a dead one can have vibrato.
+fn toggle_vibrato(project: &mut Project, ids: Vec<u64>) -> Result<Applied, ActionError> {
+    let set: HashSet<u64> = ids.iter().copied().collect();
+    let eligible: HashSet<u64> = selected(&project.notes, &set).filter(|n| n.technique != Some(Technique::Dead)).map(|n| n.id).collect();
+    if eligible.is_empty() {
+        return Ok(Applied { message: Some("Vibrato: no eligible note".to_owned()), ..Applied::default() });
+    }
+    let on = !selected(&project.notes, &eligible).all(|n| n.vibrato);
+    let edit = project.edit_notes("Vibrato", |p| {
+        selected_mut(&mut p.notes, &eligible).for_each(|n| n.vibrato = on);
+        Ok(())
+    })?;
+    Ok(Applied { edit: Some(edit), message: skipped_message(ids.len() - eligible.len()), ..Applied::default() })
+}
+
+fn skipped_message(skipped: usize) -> Option<String> {
+    (skipped > 0).then(|| format!("{skipped} note(s) skipped"))
 }
 
 fn has_placement(p: &Project, n: &Note, t: Technique) -> bool {
@@ -276,7 +312,7 @@ pub fn apply(project: &mut Project, sel: &Selection, action: NoteAction, grid: &
             Ok(edited(edit, ids))
         }
         NoteAction::TogglePalmMute => toggle_technique(project, ids, Technique::PalmMute, "Palm mute", false),
-        NoteAction::ToggleVibrato => toggle_technique(project, ids, Technique::Vibrato, "Vibrato", false),
+        NoteAction::ToggleVibrato => toggle_vibrato(project, ids),
         NoteAction::CycleHarmonic => cycle_harmonic(project, ids),
         NoteAction::ToggleDead => toggle_technique(project, ids, Technique::Dead, "Dead note", true),
         NoteAction::LinkSelection => link_edit(project, ids, "Link notes", Project::link_selection),

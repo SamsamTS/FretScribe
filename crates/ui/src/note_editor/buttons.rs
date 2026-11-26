@@ -44,7 +44,7 @@ pub fn action_buttons(project: &Project, selection: &Selection, keymap: &Keymap,
         ..button(NoteAction::ToggleLetRing { propagate: false }, "Ring", "let-ring", "Toggle let ring on the measures of the selection, the hovered measure or the playhead's; Ctrl also changes the following measures", true)
     };
     let palm = technique(NoteAction::TogglePalmMute, "P.M.", "palm-mute", "Toggle palm mute", |t| t == Technique::PalmMute);
-    let vibrato = technique(NoteAction::ToggleVibrato, "Vib", "vibrato", "Toggle vibrato", |t| t == Technique::Vibrato);
+    let vibrato = ActionButton { active: selected(&|id| project.note(id).is_some_and(|n| n.vibrato)), ..button(NoteAction::ToggleVibrato, "Vib", "vibrato", "Toggle vibrato", some) };
     vec![
         button(NoteAction::LinkSelection, "Link", "link", "Link the selected notes", selection.ids.len() >= 2),
         button(NoteAction::UnlinkSelection, "Unlink", "unlink", "Remove the links that start at the selected notes", has_link),

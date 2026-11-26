@@ -50,10 +50,12 @@ pub struct StaffNote {
     /// Notehead on the other side of the stem (second in a chord).
     pub displaced: bool,
     pub technique: Option<fretscribe_core::Technique>,
+    pub vibrato: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GraceMark {
+    pub dead: bool,
     pub id: u64,
     pub midi: u8,
     pub step: i32,
@@ -160,12 +162,12 @@ pub struct TechniqueRun {
     pub end_sec: f64,
 }
 
-/// Runs of consecutive events that hold `technique` on any note; a rest or an event without it ends a run.
-pub fn technique_runs(layout: &StaffLayout, technique: fretscribe_core::Technique) -> Vec<TechniqueRun> {
+/// Runs of consecutive events with a note that `holds` the mark; a rest or an event without one ends a run.
+pub fn technique_runs(layout: &StaffLayout, holds: impl Fn(&StaffNote) -> bool) -> Vec<TechniqueRun> {
     let mut runs: Vec<TechniqueRun> = Vec::new();
     let mut open = false;
     for e in &layout.events {
-        if e.rest || !e.notes.iter().any(|n| n.technique == Some(technique)) {
+        if e.rest || !e.notes.iter().any(&holds) {
             open = false;
             continue;
         }
@@ -243,6 +245,7 @@ pub fn layout(notes: &[Note], measures: &[Measure], opts: &StaffOptions) -> Staf
                     tie_next: k + 1 < count || n.e > b,
                     displaced: false,
                     technique: n.technique,
+                    vibrato: n.vibrato,
                 })
                 .collect();
             carried.push(notes.iter().map(|n| tied.contains(&n.id)).collect());
@@ -322,7 +325,7 @@ fn spell_pass(out: &mut StaffLayout, carried: &[Vec<bool>], notes: &[Note], temp
                 for g in list {
                     let (step, accidental) = mark(&mut state, g.midi, false);
                     let slashed = g.grace_of.is_some_and(|g| g.kind == GraceKind::Acciaccatura);
-                    e.graces.push(GraceMark { id: g.id, midi: g.midi, step, accidental, slashed });
+                    e.graces.push(GraceMark { id: g.id, midi: g.midi, step, accidental, slashed, dead: g.technique == Some(fretscribe_core::Technique::Dead) });
                 }
             }
         }

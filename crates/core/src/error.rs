@@ -30,6 +30,8 @@ pub enum EditError {
     InvalidTimeSignature(TimeSignature),
     #[error("time {0} is not valid here")]
     InvalidTime(f64),
+    #[error("measure {} is locked", .0 + 1)]
+    MeasureLocked(usize),
     #[error("track {0} does not exist")]
     UnknownTrack(u64),
     #[error("track position {index} is out of range (project has {len})")]

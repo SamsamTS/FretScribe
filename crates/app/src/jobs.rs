@@ -7,13 +7,13 @@ use std::sync::Arc;
 use std::thread;
 
 use fretscribe_analysis::beatfit::{
-    combine_envelopes, default_weight, estimate_tempo, fit_measures, fitted_grid, onset_envelope,
+    combine_envelopes, default_weight, end_fits, estimate_tempo, fit_measures, onset_envelope,
     EnvelopeInput,
 };
 use fretscribe_analysis::pitchref::{estimate_reference, PitchRefEstimate, PitchRefOptions};
 use fretscribe_analysis::sync::{assume_synced, estimate_offset, SyncCandidate, SyncOptions, DEFAULT_TOLERANCE_MS};
 use fretscribe_audio::decode_file;
-use fretscribe_core::{FittedMeasure, Measure, TrackRole};
+use fretscribe_core::{Measure, MeasureFit, TrackRole};
 
 const MAX_SHIFT_BEATS: f64 = 0.25;
 const TEMPO_RANGE: (f64, f64) = (40.0, 240.0);
@@ -52,20 +52,24 @@ impl<T: Send + 'static> Job<T> {
     }
 }
 
-/// Fits the measures from index `from` on; the earlier ones keep their start.
-pub fn auto_fit(inputs: Vec<EnvelopeInput>, measures: Vec<Measure>, from: usize) -> Job<Vec<FittedMeasure>> {
+/// One fit per measure; the barlines before index `from` and those of locked measures stay.
+pub fn auto_fit(inputs: Vec<EnvelopeInput>, measures: Vec<Measure>, from: usize) -> Job<Vec<MeasureFit>> {
     Job::spawn(move || {
         let env = combine_envelopes(&inputs);
         // The fit starts from the grid the defined tempos give, not from an earlier fit's effective tempos, so repeated fits cannot drift away from them.
         let mut nominal = measures.clone();
         for j in from.max(1)..nominal.len() {
-            nominal[j].start_sec = nominal[j - 1].start_sec + nominal[j - 1].nominal_duration_sec();
+            if !nominal[j].locked {
+                nominal[j].start_sec = nominal[j - 1].start_sec + nominal[j - 1].nominal_duration_sec();
+            }
         }
         let mut fits = fit_measures(&env, &nominal, MAX_SHIFT_BEATS);
-        for (fit, m) in fits.iter_mut().zip(&measures).take(from) {
-            fit.new_start_sec = m.start_sec;
+        for (i, (fit, m)) in fits.iter_mut().zip(&measures).enumerate() {
+            if i <= from || m.locked {
+                fit.new_start_sec = m.start_sec;
+            }
         }
-        fitted_grid(&measures, &fits)
+        end_fits(&measures, &fits)
     })
 }
 

@@ -89,6 +89,9 @@ icons!(
     "role-other",
     "grip",
     "more",
+    "anchor",
+    "close",
+    "check",
 );
 
 pub const BUTTON: f32 = 36.0;
@@ -103,6 +106,45 @@ pub fn typing(ctx: &egui::Context) -> bool {
 
 pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
+    ctx.on_begin_pass(
+        "drag_cancel",
+        std::sync::Arc::new(|ctx: &egui::Context| {
+            if !ctx.input(|i| i.pointer.any_down() || i.pointer.any_released()) {
+                ctx.data_mut(|d| d.remove::<bool>(Id::new(DRAG_CANCELLED)));
+            }
+        }),
+    );
+}
+
+const DRAG_CANCELLED: &str = "drag_cancelled";
+
+/// Whether the running drag made with `button` is called off: Esc, or a press of the other button. egui
+/// reports the end of such a drag as an ordinary drop, so ask this (only while dragging) before applying one.
+pub fn drag_cancelled(ctx: &egui::Context, button: egui::PointerButton) -> bool {
+    use egui::PointerButton::{Primary, Secondary};
+    let other = if button == Primary { Secondary } else { Primary };
+    let cancelled = ctx.input_mut(|i| {
+        let escape = i.key_pressed(egui::Key::Escape);
+        if escape {
+            i.consume_key(i.modifiers, egui::Key::Escape);
+        }
+        escape || i.pointer.button_pressed(other)
+    });
+    if cancelled {
+        ctx.stop_dragging();
+        ctx.data_mut(|d| d.insert_temp(Id::new(DRAG_CANCELLED), true));
+    }
+    cancelled
+}
+
+/// True until every button is up after a cancelled drag: their releases must not act as clicks.
+pub fn clicks_swallowed(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(Id::new(DRAG_CANCELLED))).unwrap_or(false)
+}
+
+/// Where `response` was left-clicked, unless that click only ended a cancelled drag.
+pub fn click_pos(response: &egui::Response) -> Option<egui::Pos2> {
+    response.interact_pointer_pos().filter(|_| response.clicked() && !clicks_swallowed(&response.ctx))
 }
 
 fn text_width(ui: &Ui, text: &str) -> f32 {
@@ -170,9 +212,14 @@ pub fn ibtn_sized(ui: &mut Ui, name: &str, tip: &str, on: bool, side: f32, icon_
 
 /// The accent-filled play/pause button.
 pub fn play_button(ui: &mut Ui, playing: bool) -> Response {
-    let (r, rect) = frame(ui, vec2(44.0, BUTTON), false, Some(theme::accent()), 10);
-    paint_icon(ui, if playing { "pause" } else { "play" }, rect, 20.0, theme::accent_text_on());
-    labelled(r, "Play / pause (Space)")
+    filled_button(ui, if playing { "pause" } else { "play" }, "Play / pause (Space)", vec2(44.0, BUTTON), 20.0, 10)
+}
+
+/// An accent-filled icon button.
+pub fn filled_button(ui: &mut Ui, name: &str, tip: &str, size: Vec2, icon_px: f32, radius: u8) -> Response {
+    let (r, rect) = frame(ui, size, false, Some(theme::accent()), radius);
+    paint_icon(ui, name, rect, icon_px, theme::accent_text_on());
+    labelled(r, tip)
 }
 
 /// A rounded group of controls with a small uppercase caption below it.

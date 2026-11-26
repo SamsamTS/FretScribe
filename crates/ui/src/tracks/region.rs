@@ -45,6 +45,10 @@ pub(crate) fn drive(ctx: &Context, id: Id, areas: &[Rect], timeline_left: f32, v
         active = Some(Active { drag: DragState { mode, origin_sec: sec, region: input.region, view: *view }, origin: pos, moved: false });
     }
     let mut a = active?;
+    if crate::kit::drag_cancelled(ctx, PointerButton::Secondary) {
+        ctx.data_mut(|d| d.remove::<Active>(key));
+        return (input.region != a.drag.region).then_some(a.drag.region);
+    }
     let mut out = None;
     if down {
         a.moved |= (pos - a.origin).length() > CLICK_PX;

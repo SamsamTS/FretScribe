@@ -169,7 +169,7 @@ impl TrackLanes<'_> {
                     state.smooth_rows.remove(&track.id);
                 }
             }
-            if out.grip.dragged() || out.grip.drag_stopped() {
+            if (out.grip.dragged() || out.grip.drag_stopped()) && !crate::kit::drag_cancelled(&ctx, egui::PointerButton::Primary) {
                 grip_drag = Some((index, out.grip));
             }
         }

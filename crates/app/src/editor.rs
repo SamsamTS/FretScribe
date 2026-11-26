@@ -1,24 +1,22 @@
 //! One frame of the editor screen: overview, lanes, notation panel, grid overlay and the event loop
 //! that applies every widget event to the session.
 
-use eframe::egui::{self, pos2, vec2, Context, Rect, UiBuilder};
+use eframe::egui::{self, pos2, Context, Rect};
 use fretscribe_analysis::notes::refine_pitch;
 use fretscribe_core::{BeatKind, EditError, NoteTimes, Project, TempoMap, Track};
 use fretscribe_ui::note_editor::{self as ne, Effect, Env};
-use fretscribe_ui::spectro::{paint_seek_line, show_time_ruler};
+use fretscribe_ui::spectro::paint_seek_line;
 use fretscribe_ui::NoteGrid;
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
 use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
-use fretscribe_ui::view::LANE_HEADER_WIDTH;
+use fretscribe_ui::view::{RegionSelection, LANE_HEADER_WIDTH, MEASURE_HEADER_H};
 use fretscribe_ui::{
-    GridEvent, GridOverlay, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
+    GridEvent, GridOverlay, HeaderData, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
 };
 
 use crate::session::Session;
 use crate::{toolbar, Request};
-
-const RULER_H: f32 = 22.0;
 
 /// Draws the whole editor and returns what the shell itself must do (dialogs, screens).
 pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
@@ -71,6 +69,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let full_height = staff_style.height() + tab_style.height(strings, true);
     let height = if s.notation_collapsed { tab_view::TOOLBAR_HEIGHT } else { full_height };
     let frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG);
+    // A click on a part of the timeline that no widget claims.
+    let mut background_seek = None;
     let panel = egui::TopBottomPanel::bottom("notation").resizable(false).exact_height(height).frame(frame).show(ctx, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         let selected = s.editor.selection.ids.clone();
@@ -80,6 +80,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let row = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_view::TOOLBAR_HEIGHT));
         if collapsed {
             ui.allocate_rect(row, egui::Sense::hover());
+            background_seek = click_seek(ui, row.with_min_x(row.left() + LANE_HEADER_WIDTH), &view);
         } else {
             let sheet_lane = Rect::from_min_max(pos2(row.left(), row.bottom()), pos2(row.right(), row.bottom() + staff_style.height() - tab_view::TOOLBAR_HEIGHT));
             let out = StaffView { layout: &s.staff, selected: &selected, playhead, style: &staff_style, grid: &note_grid, timeline_offset: LANE_HEADER_WIDTH }.show(ui, &view);
@@ -114,7 +115,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let sheet_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
     GridOverlay::paint_measure_lines(&ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("notation_measures"))).with_clip_rect(sheet_timeline), &tempo, &view, sheet_timeline);
 
-    // Lanes: time ruler then one lane per track.
+    // Lanes: the measure header then one lane per track.
     let mut grid_events = Vec::new();
     let mut lane_events = Vec::new();
     let mut spectro_events: Vec<SpectroEvent> = Vec::new();
@@ -122,20 +123,20 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let mut seek_origin = pos2(0.0, 0.0);
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
         let area = ui.available_rect_before_wrap();
-        let ruler = Rect::from_min_size(pos2(area.left() + LANE_HEADER_WIDTH, area.top()), vec2(area.width() - LANE_HEADER_WIDTH, RULER_H));
-        let lanes = Rect::from_min_max(pos2(area.left(), ruler.bottom()), area.max);
-        seek_origin = ruler.left_top();
+        let timeline_left = area.left() + LANE_HEADER_WIDTH;
+        let lanes = Rect::from_min_max(pos2(area.left(), area.top() + MEASURE_HEADER_H), area.max);
+        seek_origin = pos2(timeline_left, area.top());
         // The corner above the track headers shares the toolbar's background and captions like its groups.
-        let corner = Rect::from_min_max(area.left_top(), pos2(ruler.left(), ruler.bottom()));
+        let corner = Rect::from_min_max(area.left_top(), pos2(timeline_left, lanes.top()));
         ui.painter().rect_filled(corner, 0.0, fretscribe_ui::theme::WINDOW_BG);
         fretscribe_ui::kit::caption_at(ui, corner.center(), "Tracks");
         // The sheet and tab share the timeline, so they scroll and zoom it like the grid does.
-        let notation_timeline = Rect::from_min_max(pos2(ruler.left(), notation_rect.top()), notation_rect.max);
-        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(ruler.left_top(), area.max).union(notation_timeline), lanes });
+        let notation_timeline = Rect::from_min_max(pos2(timeline_left, notation_rect.top()), notation_rect.max);
+        s.nav_regions = Some(NavRegions { grid: Rect::from_min_max(seek_origin, area.max).union(notation_timeline), lanes });
         let view = s.ctl.current.timeline();
         let pitch = PitchView::from(s.ctl.pitch.current);
-        let seek = ui.scope_builder(UiBuilder::new().max_rect(ruler), |ui| show_time_ruler(ui, &view, RULER_H)).inner;
-        spectro_events.extend(seek);
+        // Registered before the lanes, so their widgets are above it.
+        background_seek = background_seek.or(click_seek(ui, Rect::from_min_max(pos2(timeline_left, lanes.top()), area.max), &view));
         // Region edges snap to the current grid subdivisions (the measure starts when it has none).
         let tempo_map = fretscribe_core::TempoMap::new(&s.project.measures);
         let mut region_points: Vec<f64> = (0..tempo_map.len()).flat_map(|i| tempo_map.grid_lines(i, &s.ui.snap_grid).into_iter().map(|(sec, _)| sec).chain([tempo_map.measure_start_sec(i)])).collect();
@@ -170,9 +171,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
                 spectro_events.push(e);
             }
         }
-        let timeline = Rect::from_min_max(pos2(lanes.left() + LANE_HEADER_WIDTH, ruler.top()), area.max);
+        let timeline = Rect::from_min_max(seek_origin, area.max);
         let note_drawing = source_pointer.as_ref().map(|p| p.geometry.rect);
-        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).show(ui, timeline));
+        let header = HeaderData { fits: &s.fits.info, region: s.region, audio_len_sec: audio_len };
+        grid_events.extend(GridOverlay::new(&tempo, &view, &s.ui.snap_grid).note_policy(s.policy).autofit(true).passthrough(note_drawing).with_header(header).show(ui, timeline));
     });
     // The grid continues through the notation panel with the same time axis.
     let notation_timeline = Rect::from_min_max(pos2(notation_rect.left() + LANE_HEADER_WIDTH, notation_rect.top()), notation_rect.max);
@@ -183,7 +185,10 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         paint_grid_lines(ui, &note_grid, &view, notation_timeline);
     });
 
-    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y, seek_origin.x);
+    if let Some(sec) = background_seek {
+        s.seek(sec);
+    }
+    paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y + MEASURE_HEADER_H, seek_origin.x);
     // Header column separator, down to the window bottom except beside the notation toolbar.
     let sep = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("header_separator")));
     let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
@@ -199,13 +204,15 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         handle_track_event(s, e, &mut requests);
     }
     for e in grid_events {
-        handle_grid(s, e);
+        handle_grid(s, e, audio_len);
     }
     for e in staff_events {
         match e {
             StaffViewEvent::NoteClicked { id, ctrl, shift } => click_note(s, id, ctrl, shift),
             StaffViewEvent::NoteContext(id) => s.editor.selection.set(vec![id]),
             StaffViewEvent::SeekRequested(sec) => s.seek(sec),
+            StaffViewEvent::Marquee { ids, add } => s.editor.selection.marquee(&ids, add),
+            StaffViewEvent::ClearSelection => s.editor.selection.clear(),
         }
     }
     for e in tab_events {
@@ -213,6 +220,12 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     }
     note_editing(ctx, s, spectro_events, source_pointer);
     requests
+}
+
+/// The time clicked in `rect`, whose left edge is the timeline's.
+fn click_seek(ui: &mut egui::Ui, rect: Rect, view: &TimelineView) -> Option<f64> {
+    let response = ui.interact(rect, ui.id().with("background_seek"), egui::Sense::click());
+    fretscribe_ui::kit::click_pos(&response).map(|p| view.x_to_sec(p.x - rect.left()))
 }
 
 fn track_mut(p: &mut Project, id: u64) -> Option<&mut Track> {
@@ -244,9 +257,6 @@ fn click_note(s: &mut Session, id: u64, ctrl: bool, shift: bool) {
     } else {
         s.editor.selection.set(vec![id]);
         s.editor.selection.anchor = Some(id);
-    }
-    if let Some(t) = s.times.start_sec(id) {
-        s.seek(t);
     }
 }
 
@@ -297,6 +307,7 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
                 }
             });
         }
+        TrackEvent::SeekRequested(sec) => s.seek(sec),
         TrackEvent::NoteAction(a) => s.tool_actions.push(a),
         TrackEvent::RegionChanged(r) => handle_overview(s, OverviewEvent::RegionChanged(r)),
         TrackEvent::CollapseToggled(id) => {
@@ -305,8 +316,10 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
             }
             s.dirty = true;
         }
-        TrackEvent::OffsetChanged { id, offset_sec, move_notes } => s.shift_track(id, offset_sec, move_notes, true),
-        TrackEvent::OffsetDragBegan(_) | TrackEvent::OffsetDragEnded(_) => {}
+        TrackEvent::OffsetChanged { id, offset_sec, move_notes } => s.shift_track(id, offset_sec, move_notes),
+        TrackEvent::OffsetDragBegan(_) => s.offset_drag = Some(false),
+        TrackEvent::OffsetDragEnded(_) => s.offset_drag = None,
+        TrackEvent::OffsetDragCancelled => s.cancel_offset_drag(),
         TrackEvent::RenameRequested { id, name } => {
             s.edit("Rename track", |p| track_mut(p, id).map(|t| t.name = name).ok_or(EditError::UnknownTrack(id)));
         }
@@ -333,12 +346,35 @@ fn handle_track_event(s: &mut Session, e: TrackEvent, requests: &mut Vec<Request
     }
 }
 
-fn handle_grid(s: &mut Session, e: GridEvent) {
+/// Selects measure `index` as the region, or with `extend` the range from the last clicked measure.
+fn select_measures(s: &mut Session, index: usize, extend: bool, audio_len: f64) {
+    let measures = &s.project.measures;
+    let Some(clicked) = measures.get(index) else { return };
+    let anchor = s.measure_anchor.filter(|_| extend).and_then(|id| measures.iter().position(|m| m.id == id));
+    if anchor.is_none() {
+        s.measure_anchor = Some(clicked.id);
+    }
+    let anchor = anchor.unwrap_or(index);
+    let (first, last) = (anchor.min(index), anchor.max(index));
+    let end = TempoMap::new(measures).grid_end_sec(last);
+    let region = RegionSelection::normalised(measures[first].start_sec, end, audio_len);
+    handle_overview(s, OverviewEvent::RegionChanged(region));
+}
+
+fn handle_grid(s: &mut Session, e: GridEvent, audio_len: f64) {
     match e {
-        GridEvent::NotePolicyChanged(p) => {
-            s.policy = p;
+        GridEvent::MeasureSelected { index, extend } => return select_measures(s, index, extend, audio_len),
+        GridEvent::MeasureLoopRequested(index) => {
+            let covered = s.project.measures.get(index).zip(s.region).is_some_and(|(m, r)| r.contains(m.start_sec + m.nominal_duration_sec() / 2.0));
+            if !covered {
+                select_measures(s, index, false, audio_len);
+            }
+            s.ui.loop_enabled = true;
+            s.player_resync(false);
             return;
         }
+        GridEvent::SeekRequested(sec) => return s.seek(sec),
+        GridEvent::AutoFitToggled { index, on, propagate, policy } => return s.toggle_auto_fit(index, on, propagate, policy),
         GridEvent::AutoFitRequested { index } => return s.start_auto_fit(index),
         _ => {}
     }
@@ -384,7 +420,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let collected = {
         let spec = s.store.tracks.get(&source_id).map(|t| &t.spectrogram);
         let refine = |sec: f64, midi: f32| spec.map_or(midi, |sp| refine_pitch(sp, &pitch_ref, sec, midi));
-        let src = ne::SourcePointer { geometry: pointer.geometry, scene: &pointer.scene, hovered_note: pointer.hovered_note, pitch_ruler: pointer.pitch_ruler, notes: &s.project.notes, times: &s.times };
+        let src = ne::SourcePointer { geometry: pointer.geometry, visible: pointer.visible, scene: &pointer.scene, hovered_note: pointer.hovered_note, pitch_ruler: pointer.pitch_ruler, notes: &s.project.notes, times: &s.times };
         ne::collect(ctx, &src, &events, &s.editor, &s.keymap, &refine)
     };
     let px_per_sec = s.ctl.current.pixels_per_sec;
@@ -412,7 +448,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     if let Some(id) = collected.open_exact {
         s.exact = ne::fields_for(&s.project, id);
     }
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("note_overlay"))).with_clip_rect(geometry.rect);
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("note_overlay"))).with_clip_rect(pointer.visible);
     ne::paint_overlay(&painter, &geometry, &s.editor, ctx.input(|i| i.pointer.latest_pos()), None);
 }
 
@@ -509,7 +545,7 @@ fn sync_window(ctx: &Context, s: &mut Session) {
         close = ui.button("Keep offset 0").clicked();
     });
     if let Some(offset) = apply {
-        s.shift_track(d.track, offset, false, false);
+        s.shift_track(d.track, offset, false);
     } else if !close {
         s.sync_dialog = Some(d);
     }

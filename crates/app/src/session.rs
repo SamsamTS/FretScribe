@@ -8,12 +8,13 @@ use fretscribe_analysis::sync::SyncCandidate;
 use fretscribe_analysis::Levels;
 use fretscribe_audio::{Player, SpeedMode};
 use fretscribe_core::{
-    shift_track, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
+    auto_fit_run, shift_track, MeasureFit, NotePolicy, NoteTimes, Project, ProjectEdit, ProjectFile, UiState, UndoPolicy, UndoStack,
 };
 use fretscribe_notation::staff::{self, StaffLayout, StaffOptions};
 use fretscribe_notation::tab::{assign_tabs, assign_tabs_ranges, TabOptions};
 use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::note_editor::{Keymap, NoteEditor};
+use crate::fits::FitStore;
 use fretscribe_ui::{RegionSelection, SpectroCache, SpectroStyle, TabViewState, TrackLanesState, ViewController, ViewTuning};
 use fretscribe_core::Uuid;
 
@@ -46,9 +47,18 @@ pub struct SyncDialog {
     pub candidates: Vec<SyncCandidate>,
 }
 
+/// What to do with the result of an auto-fit job.
+#[derive(Clone, Copy)]
+pub enum FitRequest {
+    /// Every barline from measure `from` on.
+    Grid { from: usize },
+    /// The header toggle was turned on for a measure with no fit result yet.
+    Toggle { measure_id: u64, propagate: bool, policy: NotePolicy },
+}
+
 #[derive(Default)]
 pub struct Jobs {
-    pub autofit: Option<Job<Vec<fretscribe_core::FittedMeasure>>>,
+    pub autofit: Option<(Job<Vec<MeasureFit>>, FitRequest)>,
     pub tempo: Option<Job<Vec<(f64, f64)>>>,
     pub pitch: Option<Job<fretscribe_analysis::pitchref::PitchRefEstimate>>,
     pub sync: Vec<(u64, Job<Vec<SyncCandidate>>)>,
@@ -119,6 +129,11 @@ pub struct Session {
     pub synth_synced: bool,
     pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
     pub pending_delete: Option<fretscribe_ui::GridEvent>,
+    pub fits: FitStore,
+    /// During an offset drag: whether it has recorded its undo step.
+    pub offset_drag: Option<bool>,
+    /// The measure last clicked in the header, where a Shift+click range starts.
+    pub measure_anchor: Option<u64>,
     pub tempo_choices: Vec<(f64, f64)>,
     pub pitch_result: Option<fretscribe_analysis::pitchref::PitchRefEstimate>,
 }
@@ -199,6 +214,9 @@ impl Session {
             synth_synced: false,
             exact: None,
             pending_delete: None,
+            fits: FitStore::default(),
+            offset_drag: None,
+            measure_anchor: None,
             tempo_choices: Vec::new(),
             pitch_result: None,
             ui,
@@ -308,6 +326,7 @@ impl Session {
     }
 
     pub fn after_edit(&mut self) {
+        self.fits.prune(&self.project.measures);
         self.dirty = true;
         self.edits_since_autosave += 1;
         self.refresh();
@@ -334,6 +353,7 @@ impl Session {
         if !done {
             return;
         }
+        self.fits.clear();
         let keep: Vec<u64> = self.editor.selection.ids.iter().copied().filter(|id| self.project.note(*id).is_some()).collect();
         self.editor.selection.set(keep);
         self.dirty = true;
@@ -398,22 +418,84 @@ impl Session {
         }
     }
 
-    pub fn shift_track(&mut self, id: u64, offset_sec: f64, move_notes: bool, merge: bool) {
+    /// The changes of one drag make a single undo step.
+    pub fn shift_track(&mut self, id: u64, offset_sec: f64, move_notes: bool) {
         match shift_track(&mut self.project, id, offset_sec, move_notes) {
-            Ok(edit) => self.push(edit, merge),
+            Ok(edit) => {
+                self.push(edit, self.offset_drag == Some(true));
+                self.offset_drag = self.offset_drag.map(|_| true);
+            }
             Err(e) => self.toast(e.to_string(), true),
         }
         self.push_tracks_to_player();
     }
 
+    pub fn cancel_offset_drag(&mut self) {
+        if self.offset_drag.take() == Some(true) {
+            self.undo_redo(false);
+            self.undo.forget_redo();
+        }
+    }
+
     // ---- background jobs -----------------------------------------------------------------
 
     pub fn start_auto_fit(&mut self, from: usize) {
+        self.run_auto_fit(FitRequest::Grid { from });
+    }
+
+    /// The header's auto-fit toggle; turning it on without a fit result computes one first.
+    pub fn toggle_auto_fit(&mut self, index: usize, on: bool, propagate: bool, policy: NotePolicy) {
+        let Some(measure_id) = self.project.measures.get(index).map(|m| m.id) else { return };
+        let scope = auto_fit_run(&self.project.measures, index, propagate);
+        if on && self.project.measures[scope].iter().any(|m| !self.fits.info.contains_key(&m.id)) {
+            return self.run_auto_fit(FitRequest::Toggle { measure_id, propagate, policy });
+        }
+        self.set_auto_fit(index, on, propagate, policy);
+    }
+
+    fn set_auto_fit(&mut self, index: usize, on: bool, propagate: bool, policy: NotePolicy) {
+        let ends = self.fits.end_fits(&self.project.measures);
+        let edit = self.project.set_auto_fit(index, on, propagate, &ends, policy);
+        self.push_fitted(edit);
+    }
+
+    fn run_auto_fit(&mut self, request: FitRequest) {
         let inputs = self.store.onset_inputs(&self.project);
         if inputs.is_empty() {
             return self.toast("No track is enabled for beat analysis", true);
         }
-        self.jobs.autofit = Some(jobs::auto_fit(inputs, self.project.measures.clone(), from));
+        let from = match request {
+            FitRequest::Grid { from } => from,
+            FitRequest::Toggle { .. } => 0,
+        };
+        self.jobs.autofit = Some((jobs::auto_fit(inputs, self.project.measures.clone(), from), request));
+    }
+
+    pub fn apply_auto_fit(&mut self, results: &[MeasureFit], request: FitRequest) {
+        self.fits.record(&self.project.measures, results);
+        match request {
+            FitRequest::Grid { from } => {
+                let ends: Vec<_> = results.iter().enumerate().map(|(i, &r)| (i >= from).then_some(r)).collect();
+                let edit = self.project.auto_fit(&ends, NotePolicy::KeepAudioPosition);
+                self.push_fitted(edit);
+            }
+            FitRequest::Toggle { measure_id, propagate, policy } => {
+                if let Some(index) = self.project.measures.iter().position(|m| m.id == measure_id) {
+                    self.set_auto_fit(index, true, propagate, policy);
+                }
+            }
+        }
+    }
+
+    /// Pushes a fit's edit, which keeps the fit results of the barlines it moved.
+    fn push_fitted(&mut self, edit: Result<ProjectEdit, fretscribe_core::EditError>) {
+        match edit {
+            Ok(edit) => {
+                self.fits.stamp(&self.project.measures);
+                self.push(edit, false);
+            }
+            Err(e) => self.toast(e.to_string(), true),
+        }
     }
 
     pub fn start_auto_tempo(&mut self) {
@@ -450,9 +532,9 @@ impl Session {
 
     /// Collects finished jobs and applies their results. Returns true while any is running.
     pub fn poll_jobs(&mut self) -> bool {
-        if let Some(fitted) = self.jobs.autofit.as_mut().and_then(|j| j.poll()) {
+        if let Some((results, request)) = self.jobs.autofit.as_mut().and_then(|(job, request)| Some((job.poll()?, *request))) {
             self.jobs.autofit = None;
-            self.edit("Auto-fit grid", |p| p.auto_fit(&fitted, NotePolicy::KeepAudioPosition).map(|_| ()).map_err(|e| e.to_string()));
+            self.apply_auto_fit(&results, request);
         }
         if let Some(cands) = self.jobs.tempo.as_mut().and_then(Job::poll) {
             self.jobs.tempo = None;
@@ -489,7 +571,7 @@ impl Session {
             self.sync_dialog = Some(SyncDialog { track: id, candidates });
             return;
         }
-        self.shift_track(id, best.offset_sec, false, false);
+        self.shift_track(id, best.offset_sec, false);
         self.toast(format!("Track '{name}' aligned: {:+.1} ms (confidence {:.0}%)", best.offset_sec * 1000.0, best.confidence * 100.0), false);
     }
 

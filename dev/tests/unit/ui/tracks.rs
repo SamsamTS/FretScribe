@@ -53,11 +53,12 @@ struct Harness {
     state: TrackLanesState,
     time: f64,
     rows: f64,
+    bottom: f32,
 }
 
 impl Harness {
     fn new() -> Self {
-        let mut h = Self { ctx: Context::default(), project: project(), state: TrackLanesState::default(), time: 0.0, rows: 0.0 };
+        let mut h = Self { ctx: Context::default(), project: project(), state: TrackLanesState::default(), time: 0.0, rows: 0.0, bottom: 700.0 };
         h.frame(Vec::new());
         h
     }
@@ -67,12 +68,12 @@ impl Harness {
         let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0))), time: Some(self.time), events, ..Default::default() };
         let style = SpectroStyle { levels: Levels::default(), gamma: 1.0, lut: Arc::new(Lut::builtin()) };
         let times = NoteTimes::default();
-        let rows = std::mem::take(&mut self.rows);
+        let (rows, bottom) = (std::mem::take(&mut self.rows), self.bottom);
         let mut out = Vec::new();
         let _ = self.ctx.run(raw, |ctx| {
             CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
-                let lanes = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0));
-                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 0.0, wheel_rows: rows }
+                let lanes = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, bottom));
+                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 20.0, wheel_rows: rows }
                     .show(ui, lanes, &TimelineView::new(0.0, 100.0), &PitchView::default(), 0.0, &mut self.state);
                 out = o.events;
             });
@@ -162,4 +163,21 @@ fn reordering_slides_lanes_to_their_new_place() {
     }
     assert!(h.state.slide_px.is_empty());
     assert!(first_top < h.state.strips(&h.ctx, &h.project).0[2].top_px as f32);
+}
+
+#[test]
+fn what_is_scrolled_out_of_the_lanes_ignores_the_pointer() {
+    for (bottom_margin, reacts) in [(100.0, true), (-30.0, false)] {
+        let mut h = Harness::new();
+        // The middle of the first lane's waveform, below or above the bottom of the lanes.
+        let y = lane_top(&h, 1) - STRIP_PITCH_PX as f32 / 2.0;
+        h.bottom = y + bottom_margin;
+        let (from, to) = (Pos2::new(500.0, y), Pos2::new(600.0, y));
+        let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Secondary, pressed, modifiers: Default::default() };
+        h.frame(vec![Event::PointerMoved(from)]);
+        let mut events = h.frame(vec![button(from, true)]);
+        events.extend(h.frame(vec![Event::PointerMoved(to)]));
+        events.extend(h.frame(vec![button(to, false)]));
+        assert_eq!(events.iter().any(|e| matches!(e, TrackEvent::RegionChanged(_))), reacts, "{events:?}");
+    }
 }

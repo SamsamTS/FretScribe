@@ -1,6 +1,6 @@
 //! Quick entry of a grace note: modal keys over a ghost note, one undo step on Enter.
 
-use fretscribe_core::{GraceKind, LinkType, Project, ProjectEdit, MAX_FRET};
+use fretscribe_core::{GraceKind, LinkType, Project, ProjectEdit, Technique, MAX_FRET};
 use fretscribe_notation::tab::{candidate_label, lowest_fret_candidate};
 
 use super::draw::DrawFeedback;
@@ -19,6 +19,7 @@ pub enum EntryKey {
     ToggleKind,
     /// Next valid link: legato, slide, dashed.
     CycleLink,
+    ToggleDead,
     Confirm,
 }
 
@@ -36,6 +37,7 @@ pub struct GraceEntry {
     pub kind: GraceKind,
     /// `None` takes the default (legato when close, slide when further, dashed otherwise).
     pub link: Option<LinkType>,
+    pub dead: bool,
     /// Length drawn with the pointer; `None` takes the kind's default length.
     pub len: Option<f64>,
     typed: Option<u8>,
@@ -44,7 +46,7 @@ pub struct GraceEntry {
 impl GraceEntry {
     pub fn new(project: &Project, main: u64) -> Option<Self> {
         let midi = fretscribe_core::default_grace_midi(project.note(main)?.midi);
-        Some(Self { main, midi, string: None, kind: GraceKind::Acciaccatura, link: None, len: None, typed: None })
+        Some(Self { main, midi, string: None, kind: GraceKind::Acciaccatura, link: None, dead: false, len: None, typed: None })
     }
 
     fn fret_on(project: &Project, string: u8, midi: u8) -> Option<u8> {
@@ -63,6 +65,7 @@ impl GraceEntry {
         let typed = self.typed.take();
         match key {
             EntryKey::Confirm => return EntryStep::Done,
+            EntryKey::ToggleDead => self.dead = !self.dead,
             EntryKey::ToggleKind => {
                 self.kind = if self.kind == GraceKind::Acciaccatura { GraceKind::Appoggiatura } else { GraceKind::Acciaccatura };
             }
@@ -119,6 +122,10 @@ impl GraceEntry {
         if let Some(len) = self.len {
             p.set_grace_timing(id, self.kind, len).map_err(|e| e.to_string())?;
         }
+        if self.dead {
+            p.unlink(id);
+            p.notes.iter_mut().filter(|n| n.id == id).for_each(|n| n.technique = Some(Technique::Dead));
+        }
         if let Some(link) = self.link {
             let _ = p.set_grace_link(id, link);
         }
@@ -131,7 +138,7 @@ impl GraceEntry {
         let id = self.place(&mut scratch).ok()?;
         let tempo = fretscribe_core::TempoMap::new(&scratch.measures);
         let link = scratch.grace_link(id);
-        let glyph = |id: u64, link_to, legato_from| scratch.note(id).map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to, legato_from, grace: n.grace_of.is_some(), technique: n.technique });
+        let glyph = |id: u64, link_to, legato_from| scratch.note(id).map(|n| GhostGlyph { midi: n.midi, start_sec: tempo.pos_to_sec(n.start), end_sec: tempo.pos_to_sec(n.end), link_to, legato_from, grace: n.grace_of.is_some(), technique: n.technique, vibrato: n.vibrato });
         let to_main = match link {
             LinkType::Slide => Some((1, LinkKind::Slide)),
             LinkType::Bend => Some((1, LinkKind::Bend)),
