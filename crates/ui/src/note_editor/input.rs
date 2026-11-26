@@ -9,6 +9,8 @@ use crate::spectro::{HitZone, NoteScene, SpectroEvent, SpectroGeometry};
 
 pub struct SourcePointer<'a> {
     pub geometry: SpectroGeometry,
+    /// See `LanePointer::visible`.
+    pub visible: Rect,
     pub scene: &'a NoteScene,
     pub hovered_note: Option<(u64, HitZone)>,
     pub pitch_ruler: Rect,
@@ -40,7 +42,7 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
     let key = Id::new("note-editor-pressed");
     let mut pressed: [bool; 2] = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
     let pos = ctx.input(|i| i.pointer.latest_pos());
-    let inside = |p: Pos2| geo.rect.contains(p) && !src.pitch_ruler.contains(p);
+    let inside = |p: Pos2| src.visible.contains(p) && !src.pitch_ruler.contains(p);
     let buttons = [(PointerButton::Primary, Button::Left), (PointerButton::Secondary, Button::Right)];
     let mut inputs = Vec::new();
 
@@ -107,6 +109,6 @@ pub fn collect(ctx: &Context, src: &SourcePointer, spectro_events: &[SpectroEven
         });
     }
     let double = ctx.input(|i| i.pointer.button_double_clicked(PointerButton::Primary));
-    let open_exact = double.then(|| pos.and_then(|p| sample(p, false).hit)).flatten().and_then(|(id, zone)| matches!(zone, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge).then_some(id));
+    let open_exact = double.then(|| pos.filter(|p| inside(*p)).and_then(|p| sample(p, false).hit)).flatten().and_then(|(id, zone)| matches!(zone, HitZone::Body | HitZone::LeftEdge | HitZone::RightEdge).then_some(id));
     Collected { inputs, open_exact }
 }

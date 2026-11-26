@@ -87,6 +87,8 @@ pub struct TrackLane<'a> {
 /// What the note editor needs from the source lane's spectrogram.
 #[derive(Clone, Debug)]
 pub struct LanePointer {
+    /// The part of the spectrogram not scrolled out of the lanes: raw pointer input counts only there.
+    pub visible: Rect,
     pub geometry: SpectroGeometry,
     pub scene: Rc<NoteScene>,
     pub hovered_note: Option<(u64, HitZone)>,
@@ -159,10 +161,13 @@ impl TrackLane<'_> {
         let wave_rect = Rect::from_min_size(pos2(timeline_left, spec_rect.bottom()), vec2(spec_rect.width(), px(STRIP_PITCH_PX)));
         let mut events = Vec::new();
 
+        // Raw pointer reads must ignore what the lanes' scroll area hides under the header and the sheet.
+        let clip = ui.clip_rect();
         let mut areas = vec![wave_rect];
         if !is_source && self.shown_rows > 0 {
             areas.push(spec_rect);
         }
+        areas.iter_mut().for_each(|r| *r = r.intersect(clip));
         let input = super::region::RegionInput { region: shared.region, audio_len_sec: shared.audio_len_sec, snap: shared.region_snap, snapping: shared.region_snapping };
         if let Some(change) = super::region::drive(&ctx, ui.id().with(("region", id)), &areas, timeline_left, &view, &input) {
             events.push(TrackEvent::RegionChanged(change));
@@ -224,7 +229,7 @@ impl TrackLane<'_> {
                     }
                     let out = widget.show(&mut sui, &view, &pitch, &mut state.cache);
                     if is_source {
-                        pointer = Some(LanePointer { geometry: out.geometry, scene: out.scene, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
+                        pointer = Some(LanePointer { visible: out.geometry.rect.intersect(clip), geometry: out.geometry, scene: out.scene, hovered_note: out.hovered_note, pitch_ruler: out.pitch_ruler });
                     }
                     spectro_events.extend(out.events.into_iter().filter(|e| is_source || matches!(e, SpectroEvent::SeekRequested(_))));
                 }
@@ -236,7 +241,7 @@ impl TrackLane<'_> {
             painter.rect_filled(Rect::from_min_max(pos2(spec_rect.left(), spec_rect.bottom() - px(BORDER_PX)), spec_rect.max), 0.0, BORDER_COLOR);
         }
 
-        if self.shown_rows > 0 && shared.wheel_rows != 0.0 && ctx.pointer_hover_pos().is_some_and(|p| rect.contains(p)) {
+        if self.shown_rows > 0 && shared.wheel_rows != 0.0 && ctx.pointer_hover_pos().is_some_and(|p| rect.intersect(clip).contains(p)) {
             resized_rows = Some((clamp_rows(i64::from(self.configured_rows) + shared.wheel_rows as i64), true));
         }
 

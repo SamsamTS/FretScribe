@@ -194,3 +194,4 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 - Grace notes and their main notes can be dead; the grace connector then becomes dashed. `EntryKey::ToggleDead` (X) in grace entry.
 - Drag cancel: `kit::{drag_cancelled, clicks_swallowed}`, `TrackEvent::OffsetDragCancelled`, `UndoStack::forget_redo`. `Session::shift_track` lost its `merge` argument (`offset_drag` makes one undo step per drag).
 - `StaffViewEvent::{Marquee, ClearSelection}`; the right-drag box is shared with the tab (`note_grid::marquee`).
+- `LanePointer::visible`, `SourcePointer::visible`: the unclipped part of the source spectrogram.

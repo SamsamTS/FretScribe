@@ -420,7 +420,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let collected = {
         let spec = s.store.tracks.get(&source_id).map(|t| &t.spectrogram);
         let refine = |sec: f64, midi: f32| spec.map_or(midi, |sp| refine_pitch(sp, &pitch_ref, sec, midi));
-        let src = ne::SourcePointer { geometry: pointer.geometry, scene: &pointer.scene, hovered_note: pointer.hovered_note, pitch_ruler: pointer.pitch_ruler, notes: &s.project.notes, times: &s.times };
+        let src = ne::SourcePointer { geometry: pointer.geometry, visible: pointer.visible, scene: &pointer.scene, hovered_note: pointer.hovered_note, pitch_ruler: pointer.pitch_ruler, notes: &s.project.notes, times: &s.times };
         ne::collect(ctx, &src, &events, &s.editor, &s.keymap, &refine)
     };
     let px_per_sec = s.ctl.current.pixels_per_sec;
@@ -448,7 +448,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     if let Some(id) = collected.open_exact {
         s.exact = ne::fields_for(&s.project, id);
     }
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("note_overlay"))).with_clip_rect(geometry.rect);
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("note_overlay"))).with_clip_rect(pointer.visible);
     ne::paint_overlay(&painter, &geometry, &s.editor, ctx.input(|i| i.pointer.latest_pos()), None);
 }
 
