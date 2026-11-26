@@ -249,7 +249,7 @@ fn auto_vibrato_needs_a_long_enough_plain_single_note() {
 }
 
 #[test]
-fn no_auto_vibrato_while_an_earlier_note_rings_on() {
+fn no_auto_vibrato_when_let_ring_makes_notes_overlap() {
     let mut p = project(8.0);
     let (a, b) = (add(&mut p, 60, 0.0, 1.0), add(&mut p, 64, 2.0, 3.0));
     // After the barline, where the ringing stops.
@@ -260,5 +260,8 @@ fn no_auto_vibrato_while_an_earlier_note_rings_on() {
     let swells = |p: &Project| performance(p, true).iter().map(|n| !n.pitch_curve.is_empty()).collect::<Vec<_>>();
     assert_eq!(swells(&p), [true, true, true]);
     p.set_let_ring(0, true, false).unwrap();
-    assert_eq!(swells(&p), [true, false, true]);
+    assert_eq!(swells(&p), [false, false, true]);
+    // Ringing alone is fine.
+    p.notes.retain(|n| n.id != b);
+    assert_eq!(swells(&p), [true, true]);
 }

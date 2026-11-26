@@ -110,10 +110,10 @@ pub fn performance(project: &Project, auto_vibrato: bool) -> Vec<PlayedNote> {
         .filter_map(|n| Some((n.legato?.from, spans.get(&n.id)?.start)))
         .collect();
     let auto = auto_vibrato.then(|| {
-        let mut starts: Vec<f64> = spans.values().filter(|s| s.note.grace_of.is_none()).map(|s| s.start).collect();
-        starts.sort_by(f64::total_cmp);
+        let mut notes: Vec<(f64, f64)> = spans.values().filter(|s| s.note.grace_of.is_none()).map(|s| (s.start, s.end)).collect();
+        notes.sort_by(|a, b| a.0.total_cmp(&b.0));
         let rings = ring.iter().filter_map(|(id, &until)| spans.get(id).filter(|s| until > s.end + 1e-6).map(|s| (s.start, until))).collect();
-        AutoVibrato { map: &map, starts, rings }
+        AutoVibrato { map: &map, notes, rings }
     });
     let mut seen = HashSet::new();
     let mut played: Vec<PlayedNote> = project
@@ -195,20 +195,23 @@ fn event(
 
 struct AutoVibrato<'a> {
     map: &'a TempoMap,
-    /// Sorted starts of the notes that are not grace notes.
-    starts: Vec<f64>,
+    /// `(start, end)` of the notes that are not grace notes, sorted by start.
+    notes: Vec<(f64, f64)>,
     /// `(start, ring end)` of the notes that let ring lengthens.
     rings: Vec<(f64, f64)>,
 }
 
 impl AutoVibrato<'_> {
-    /// One held pitch (ties included), long enough, without vibrato, struck alone and with no
-    /// earlier note left ringing.
+    /// One held pitch (ties included), long enough, without vibrato, struck alone, and with let
+    /// ring making it overlap neither an earlier nor a later note.
     fn applies(&self, chain: &[Span], start: f64, end: f64) -> bool {
         let beats = |sec| self.map.pos_to_beats(self.map.sec_to_pos(sec)).unwrap_or(0.0);
-        let alone = |at: f64| self.starts.partition_point(|&s| s < at + 1e-6) - self.starts.partition_point(|&s| s < at - 1e-6) == 1;
+        let alone = |at: f64| self.notes.partition_point(|n| n.0 < at + 1e-6) - self.notes.partition_point(|n| n.0 < at - 1e-6) == 1;
         let ringing = self.rings.iter().any(|&(from, until)| from < start - 1e-6 && until > start + 1e-6);
-        !ringing && chain.iter().all(|s| {
+        let written_end = chain.last().map_or(end, |s| s.end);
+        let rings_over = end > written_end + 1e-6
+            && self.notes.iter().any(|&(s, e)| s > start + 1e-6 && s < end - 1e-6 && e > written_end + 1e-6);
+        !ringing && !rings_over && chain.iter().all(|s| {
             s.note.grace_of.is_none() && !s.note.vibrato && s.note.midi == chain[0].note.midi && alone(s.start)
         }) && beats(end) - beats(start) >= T.auto_vibrato_min_beats - 1e-6
     }
