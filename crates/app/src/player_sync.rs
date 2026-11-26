@@ -1,8 +1,10 @@
 //! What the audio player must be told, as plain data: testable without opening an audio device.
 
 use std::mem::{discriminant, Discriminant};
+use std::sync::Arc;
 
-use fretscribe_audio::{Player, SpeedMode};
+use fretscribe_audio::{Player, SpeedMode, SynthPreset};
+use fretscribe_core::perform::PlayedNote;
 use fretscribe_core::{PitchRef, Project, Tuning, UiState};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,7 +21,8 @@ pub enum PlayerCall {
     TrackMute { id: u64, muted: bool },
     TrackSolo { id: u64, solo: bool },
     TrackOffset { id: u64, offset_sec: f64 },
-    NoteOverlay { notes: Vec<(u8, f64, f64)>, mix: f32 },
+    SynthPreset(SynthPreset),
+    Performance { notes: Arc<[PlayedNote]>, mix: f32 },
 }
 
 impl PlayerCall {
@@ -41,6 +44,7 @@ pub fn full_sync(
     speed: f32,
     keep_pitch: bool,
     overlay_mix: f32,
+    performance: &Arc<[PlayedNote]>,
 ) -> Vec<PlayerCall> {
     use PlayerCall as C;
     let mut calls = vec![
@@ -62,17 +66,8 @@ pub fn full_sync(
             C::TrackOffset { id, offset_sec: t.offset_sec },
         ]);
     }
-    let notes = if overlay_mix > 0.0 {
-        let times = project.note_times();
-        project
-            .notes
-            .iter()
-            .filter_map(|n| Some((n.midi, times.start_sec(n.id)?, times.end_sec(n.id)?)))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    calls.push(C::NoteOverlay { notes, mix: overlay_mix });
+    let notes = if overlay_mix > 0.0 { performance.clone() } else { Arc::default() };
+    calls.extend([C::SynthPreset(SynthPreset::from_name(&ui.synth_preset)), C::Performance { notes, mix: overlay_mix }]);
     calls
 }
 
@@ -100,7 +95,8 @@ pub fn apply(player: &Player, calls: &[PlayerCall]) {
             C::TrackMute { id, muted } => player.set_track_mute(*id, *muted),
             C::TrackSolo { id, solo } => player.set_track_solo(*id, *solo),
             C::TrackOffset { id, offset_sec } => player.set_track_offset(*id, *offset_sec),
-            C::NoteOverlay { notes, mix } => player.set_note_overlay(notes.clone(), *mix),
+            C::SynthPreset(p) => player.set_synth_preset(*p),
+            C::Performance { notes, mix } => player.set_performance(notes.to_vec(), *mix),
         }
     }
 }

@@ -378,3 +378,12 @@ fn every_technique_round_trips_and_old_harmonic_files_still_load() {
     let note = &from_json(&value.to_string()).unwrap().project.notes[0];
     assert_eq!((note.technique, note.vibrato), (None, true));
 }
+
+#[test]
+fn the_synth_preset_defaults_for_old_files_and_keeps_unknown_names() {
+    let old: UiState = serde_json::from_str("{}").unwrap();
+    assert_eq!(old.synth_preset, "Acoustic");
+    let new: UiState = serde_json::from_str(r#"{"synth_preset":"From the future"}"#).unwrap();
+    assert_eq!(new.synth_preset, "From the future");
+    assert!(serde_json::to_string(&new).unwrap().contains("From the future"));
+}

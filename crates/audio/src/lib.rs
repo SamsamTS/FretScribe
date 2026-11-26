@@ -28,4 +28,4 @@ pub use focus::{focus_band, FocusBand};
 pub use metadata::{read_tags, Tags};
 pub use player::{Player, PreparedTrack};
 pub use resample::PreparedAudio;
-pub use synth::{NoteSynth, SynthNote};
+pub use synth::{NoteSynth, SynthPreset};

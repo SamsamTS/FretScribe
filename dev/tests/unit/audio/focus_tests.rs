@@ -144,7 +144,7 @@ fn it_filters_the_sum_of_the_tracks() {
 fn the_note_overlay_is_never_filtered() {
     let render_with = |focus: bool| {
         let (player, mut engine) = setup(vec![track(1, dc(3.0, 0.0))]);
-        player.set_note_overlay(vec![(40, 0.0, 2.0), (69, 0.2, 2.0)], 1.0);
+        player.set_performance(played(&[(40, 0.0, 2.0), (69, 0.2, 2.0)]), 1.0);
         player.set_guitar_focus(focus);
         player.set_guitar_focus_strength(1.0);
         player.play();

@@ -1,6 +1,8 @@
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
+use fretscribe_core::perform::{Articulation, Attack, PlayedNote};
+
 use crate::decode::DecodedAudio;
 use crate::engine::{Engine, BLOCK_FRAMES};
 use crate::player::{Player, PreparedTrack};
@@ -94,4 +96,22 @@ pub fn pitch_by_autocorrelation(x: &[f32], rate: u32, low: f64, high: f64) -> f6
 
 pub fn cents(measured: f64, expected: f64) -> f64 {
     1200.0 * (measured / expected).log2()
+}
+
+/// Plain picked notes from `(midi, start_sec, end_sec)`.
+pub fn played(notes: &[(u8, f64, f64)]) -> Vec<PlayedNote> {
+    notes
+        .iter()
+        .enumerate()
+        .map(|(i, &(midi, start_sec, end_sec))| PlayedNote {
+            id: i as u64,
+            midi,
+            start_sec,
+            end_sec,
+            velocity: 100,
+            kind: Articulation::Normal,
+            attack: Attack::Pick,
+            pitch_curve: Vec::new(),
+        })
+        .collect()
 }

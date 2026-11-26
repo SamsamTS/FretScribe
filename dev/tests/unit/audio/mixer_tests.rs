@@ -681,7 +681,7 @@ mod overlay {
 
     fn silent_with_overlay(notes: Vec<(u8, f64, f64)>, mix: f32) -> (Player, crate::engine::Engine) {
         let (player, engine) = setup(vec![track(1, dc(6.0, 0.0))]);
-        player.set_note_overlay(notes, mix);
+        player.set_performance(played(&notes), mix);
         (player, engine)
     }
 
@@ -704,7 +704,7 @@ mod overlay {
     #[test]
     fn overlay_ignores_track_mute_and_solo_and_has_its_own_level() {
         let (player, mut engine) = setup(vec![track(1, sine(220.0, RATE, 6.0, 0.4)), track(2, dc(6.0, 0.0))]);
-        player.set_note_overlay(vec![(69, 0.0, 2.0)], 1.0);
+        player.set_performance(played(&[(69, 0.0, 2.0)]), 1.0);
         player.set_track_mute(1, true);
         player.set_track_solo(2, true);
         player.play();
@@ -712,7 +712,7 @@ mod overlay {
         let freq = freq_of(&r, 0.05, 0.55, 300.0, 700.0);
         assert!(cents(freq, 440.0).abs() < 5.0, "{freq}");
 
-        player.set_note_overlay(vec![(69, 0.0, 2.0)], 0.0);
+        player.set_performance(played(&[(69, 0.0, 2.0)]), 0.0);
         let r = render_sec(&player, &mut engine, 0.3);
         assert!(r.left[index(0.1)..].iter().all(|s| s.abs() < 1e-6));
     }
@@ -721,7 +721,7 @@ mod overlay {
     fn overlay_is_added_to_the_audio_without_altering_either() {
         let render_with = |audio_level: f32, mix: f32| {
             let (player, mut engine) = setup(vec![track(1, sine(220.0, RATE, 6.0, audio_level))]);
-            player.set_note_overlay(vec![(57, 0.0, 2.0), (64, 0.2, 2.0)], mix);
+            player.set_performance(played(&[(57, 0.0, 2.0), (64, 0.2, 2.0)]), mix);
             player.play();
             render_sec(&player, &mut engine, 0.5).left
         };
@@ -747,6 +747,21 @@ mod overlay {
             let freq = freq_of(&r, 1.1, 1.8, 300.0, 700.0);
             assert!(cents(freq, 440.0).abs() < 5.0, "{mode:?} {freq}");
         }
+    }
+
+    #[test]
+    fn nothing_rings_on_after_stop() {
+        let (player, mut engine) = silent_with_overlay(vec![(45, 0.0, 5.0)], 1.0);
+        player.set_synth_preset(crate::SynthPreset::Distortion);
+        player.play();
+        render_sec(&player, &mut engine, 0.5);
+        player.stop();
+        render_sec(&player, &mut engine, 0.2);
+        // Past the only note's start: anything audible would be left over from before the stop.
+        player.seek(1.0);
+        player.play();
+        let r = render_sec(&player, &mut engine, 0.3);
+        assert!(r.left.iter().all(|s| s.abs() < 1e-6));
     }
 
     #[test]
