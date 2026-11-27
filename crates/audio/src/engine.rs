@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
+use fretscribe_core::perform::PlayedNote;
 use fretscribe_core::PitchRef;
 
 use crate::focus::{FocusBand, FocusFilter};
 use crate::ramp::Ramp;
 use crate::resample::Prepared;
 use crate::stretch::Stretcher;
-use crate::synth::NoteSynth;
+use crate::synth::{NoteSynth, SynthPreset};
 
 pub const BLOCK_FRAMES: usize = 64;
 pub const MIN_SPEED: f32 = 0.25;
@@ -77,8 +78,9 @@ pub(crate) enum Command {
     TrackMute(u64, bool),
     TrackSolo(u64, bool),
     TrackOffset(u64, f64),
-    SetOverlay(Vec<(u8, f64, f64)>, f32),
+    SetPerformance(Vec<PlayedNote>, f32),
     SetReference(PitchRef),
+    SetSynthPreset(SynthPreset),
     SetFocus(bool),
     SetFocusStrength(f32),
     SetFocusBand(FocusBand),
@@ -428,12 +430,13 @@ impl Engine {
                     }
                 });
             }
-            Command::SetOverlay(notes, mix) => {
-                self.synth.set_notes(notes);
+            Command::SetPerformance(notes, mix) => {
+                self.synth.set_performance(notes);
                 self.synth.seek(self.reported_pos() / self.rate);
                 self.synth_mix.set(mix, self.ramp_frames);
             }
             Command::SetReference(pitch) => self.synth.set_pitch_ref(pitch),
+            Command::SetSynthPreset(preset) => self.synth.set_preset(preset),
             Command::SetFocus(enabled) => self.focus.set_enabled(enabled),
             Command::SetFocusStrength(strength) => self.focus.set_strength(strength),
             Command::SetFocusBand(band) => self.focus.set_band(band),
@@ -525,7 +528,7 @@ impl Engine {
         if let Some(pos) = self.park_at.take() {
             self.cur = Voice::idle(pos);
         }
-        self.synth.release_all();
+        self.synth.reset();
         self.focus.reset_state();
         self.shared.playing.store(false, Ordering::Release);
     }

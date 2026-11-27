@@ -58,6 +58,10 @@ pub struct UiState {
     pub guitar_8vb: bool,
     pub focus_enabled: bool,
     pub focus_strength: f32,
+    /// Name of the synth sound; an unknown one is kept but plays as the default.
+    pub synth_preset: String,
+    /// Playback only: vibrato on held single notes.
+    pub auto_vibrato: bool,
     pub spectro_black: f32,
     pub spectro_white: f32,
     pub spectro_gamma: f32,
@@ -126,6 +130,8 @@ impl Default for UiState {
             guitar_8vb: true,
             focus_enabled: false,
             focus_strength: 0.5,
+            synth_preset: "Acoustic".to_owned(),
+            auto_vibrato: false,
             spectro_black: 0.0,
             spectro_white: 1.0,
             spectro_gamma: 1.0,

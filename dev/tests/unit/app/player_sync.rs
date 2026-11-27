@@ -13,7 +13,7 @@ fn project() -> Project {
 }
 
 fn sync(p: &Project, mix: f32) -> Vec<PlayerCall> {
-    full_sync(p, &UiState::default(), 1.0, true, mix)
+    full_sync(p, &UiState::default(), 1.0, true, mix, &fretscribe_core::perform::performance(p, false).into())
 }
 
 #[test]
@@ -24,12 +24,31 @@ fn full_sync_covers_tracks_and_overlay() {
     assert!(calls.contains(&PlayerCall::TrackMute { id: 2, muted: true }));
     assert!(calls.contains(&PlayerCall::TrackOffset { id: 2, offset_sec: 0.5 }));
     assert!(calls.contains(&PlayerCall::SpeedMode(SpeedMode::PreservePitch)));
-    let overlay = calls.iter().find_map(|c| match c {
-        PlayerCall::NoteOverlay { notes, .. } => Some(notes.clone()),
+    assert_eq!(synth_notes(&calls), [(64, 0.0, 0.5)]);
+    assert!(synth_notes(&sync(&p, 0.0)).is_empty());
+}
+
+fn synth_notes(calls: &[PlayerCall]) -> Vec<(u8, f64, f64)> {
+    let notes = calls.iter().find_map(|c| match c {
+        PlayerCall::Performance { notes, .. } => Some(notes),
         _ => None,
     });
-    assert_eq!(overlay, Some(vec![(64, 0.0, 0.5)]));
-    assert!(sync(&p, 0.0).contains(&PlayerCall::NoteOverlay { notes: vec![], mix: 0.0 }));
+    notes.unwrap().iter().map(|n| (n.midi, n.start_sec, n.end_sec)).collect()
+}
+
+#[test]
+fn project_state_becomes_preset_reference_and_performance_calls() {
+    let mut p = project();
+    p.reference_hz = 432.0;
+    let mut ui = UiState { synth_preset: "Distortion".into(), ..UiState::default() };
+    let played = fretscribe_core::perform::performance(&p, false).into();
+    let calls = full_sync(&p, &ui, 1.0, true, 0.5, &played);
+    assert!(calls.contains(&PlayerCall::SynthPreset(SynthPreset::Distortion)));
+    assert!(calls.contains(&PlayerCall::ReferencePitch(p.pitch_ref())));
+    assert!(calls.contains(&PlayerCall::Performance { notes: played.clone(), mix: 0.5 }));
+    ui.synth_preset = "From the future".into();
+    let next = full_sync(&p, &ui, 1.0, true, 0.5, &played);
+    assert_eq!(diff(&calls, &next), [PlayerCall::SynthPreset(SynthPreset::Acoustic)]);
 }
 
 #[test]

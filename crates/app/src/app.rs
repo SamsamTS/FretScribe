@@ -19,7 +19,7 @@ use crate::jobs::{mono_peaks_thumbnail, EstimateUpdate, FormEstimates};
 use crate::loader::{LoadEvent, LoadJob};
 use crate::luts::{lut_dir, LutSet};
 use crate::paths;
-use crate::session::{Session, Toast};
+use crate::session::{Session, Toast, PERFORMANCE_DEBOUNCE};
 use crate::settings::{settings_dir, RecentProject, Settings, WindowMode};
 use crate::store::AudioStore;
 use crate::Request;
@@ -504,6 +504,9 @@ impl App {
         let playing = s.poll_player();
         let loading = s.poll_loads();
         let jobs = s.poll_jobs();
+        if s.poll_performance() {
+            ctx.request_repaint_after(PERFORMANCE_DEBOUNCE);
+        }
         let save = keyboard(ctx, s);
         let mut requests = editor::show(ctx, s);
         requests.extend(save);

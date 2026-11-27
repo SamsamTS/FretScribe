@@ -2,7 +2,8 @@
 //! background jobs. UI-free except for the egui types the widgets own (caches, view controller).
 
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use fretscribe_analysis::sync::SyncCandidate;
 use fretscribe_analysis::Levels;
@@ -16,6 +17,7 @@ use fretscribe_ui::nav::{PitchRange, ViewState};
 use fretscribe_ui::note_editor::{Keymap, NoteEditor};
 use crate::fits::FitStore;
 use fretscribe_ui::{RegionSelection, SpectroCache, SpectroStyle, TabViewState, TrackLanesState, ViewController, ViewTuning};
+use fretscribe_core::perform::{performance, PlayedNote};
 use fretscribe_core::Uuid;
 
 use crate::autosave::AutosavePolicy;
@@ -28,6 +30,8 @@ use crate::settings::Settings;
 use crate::store::AudioStore;
 
 pub const SYNC_CONFIDENT: f32 = 0.6;
+/// Quiet time after the last change before the performance is rebuilt.
+pub const PERFORMANCE_DEBOUNCE: Duration = Duration::from_millis(120);
 const FULL_PITCH: PitchRange = PitchRange { lo: 35.5, hi: 84.5 };
 
 pub struct Toast {
@@ -102,6 +106,9 @@ pub struct Session {
     pub speed: f32,
     pub keep_pitch: bool,
     pub overlay_mix: f32,
+    /// What the synth plays: rebuilt once the edits have settled.
+    pub performance: Arc<[PlayedNote]>,
+    performance_due: Option<Instant>,
     pub follow: bool,
     pub overview_snap: bool,
     pub dirty: bool,
@@ -191,6 +198,8 @@ impl Session {
             speed: 1.0,
             keep_pitch: settings.keep_pitch,
             overlay_mix: 0.0,
+            performance: performance(&project, ui.auto_vibrato).into(),
+            performance_due: None,
             follow: settings.follow_playhead,
             overview_snap: true,
             dirty: false,
@@ -343,6 +352,27 @@ impl Session {
         self.store.set_beat_times_from(&self.project);
         self.staff_dirty = true;
         self.revision += 1;
+        self.performance_due = Some(Instant::now() + PERFORMANCE_DEBOUNCE);
+    }
+
+    /// Rebuilds a due performance and hands it to the player; true while one is still waiting.
+    pub fn poll_performance(&mut self) -> bool {
+        if self.performance_due.is_some_and(|due| Instant::now() >= due) {
+            self.flush_performance();
+        }
+        self.performance_due.is_some()
+    }
+
+    fn flush_performance(&mut self) {
+        if self.performance_due.is_some() {
+            self.rebuild_performance();
+        }
+    }
+
+    pub fn rebuild_performance(&mut self) {
+        self.performance_due = None;
+        self.performance = performance(&self.project, self.ui.auto_vibrato).into();
+        self.player_resync(false);
     }
 
     pub fn undo_redo(&mut self, redo: bool) {
@@ -598,7 +628,7 @@ impl Session {
     pub fn player_resync(&mut self, all: bool) {
         let Some(player) = &self.player else { return };
         let mode_speed = (self.speed, self.keep_pitch);
-        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix);
+        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix, &self.performance);
         if !self.play_region {
             next.iter_mut().for_each(|c| {
                 if let PlayerCall::Region(r) = c {
@@ -654,6 +684,7 @@ impl Session {
             return;
         }
         self.play_region = bound;
+        self.flush_performance();
         self.player_resync(false);
         if let Some(p) = &self.player {
             p.seek(self.ui.playhead_sec);

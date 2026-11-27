@@ -8,6 +8,7 @@ pub mod links;
 pub mod measures;
 pub mod model;
 mod overlap;
+pub mod perform;
 pub mod persist;
 pub mod pitch;
 pub mod ring;

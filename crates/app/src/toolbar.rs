@@ -3,6 +3,7 @@
 use eframe::egui::{self, Context, Ui};
 use fretscribe_analysis::{clamp_gamma, Levels, GAMMA_DEFAULT, GAMMA_MAX, GAMMA_MIN, MIN_LEVELS_GAP};
 use fretscribe_core::{division_name, NotePolicy, STRAIGHT_DIVISIONS, TRIPLET_DIVISIONS};
+use fretscribe_audio::SynthPreset;
 use fretscribe_ui::kit::{self, dropdown, group, hint, ibtn, sep, slider_popup, text_field, Dd, Field, FieldOpts};
 use fretscribe_ui::theme;
 
@@ -426,6 +427,18 @@ fn listening(ui: &mut Ui, s: &mut Session) {
         ui.add_enabled_ui(s.synth_on, |ui| {
             let (r, _) = Field::new(&format!("{:.0}%", s.overlay_mix * 100.0), "Synth volume over the audio").width(80.0).popup(ui, "synth_mix", |ui| slider_popup(ui, &mut s.overlay_mix, 0.0..=1.0, "0%", "100%", 0.05, false));
             kit::wheel_value(ui, &r, &mut s.overlay_mix, &(0.0..=1.0), 0.05, false);
+            let presets = SynthPreset::all();
+            let names = presets.map(|p| p.name().to_owned());
+            let current = SynthPreset::from_name(&s.ui.synth_preset);
+            if let (_, Some(i)) = Field::new(current.name(), "Sound of the synth").dropdown(ui, "synth_sound", &names, Some(current as usize)) {
+                s.ui.synth_preset = names[i].clone();
+                s.dirty = true;
+                changed = true;
+            }
+            if toggle(ui, "auto-vibrato", "Auto vibrato: the synth adds vibrato to held single notes", &mut s.ui.auto_vibrato) {
+                s.dirty = true;
+                s.rebuild_performance();
+            }
         });
         sep(ui);
         let tip = if single && !s.ui.focus_enabled { format!("{FOCUS_TIP} Most useful on a full mix.") } else { FOCUS_TIP.to_owned() };

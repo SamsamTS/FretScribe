@@ -3,6 +3,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 
+use fretscribe_core::perform::PlayedNote;
 use fretscribe_core::{PitchRef, Track, Tuning};
 use rodio::cpal::traits::HostTrait;
 use rodio::{DeviceTrait, OutputStream, OutputStreamHandle, Source};
@@ -12,6 +13,7 @@ use crate::engine::TrackState;
 use crate::error::{AudioError, Result};
 use crate::focus::{focus_band, FocusBand};
 use crate::resample::PreparedAudio;
+use crate::synth::SynthPreset;
 
 /// One audio track of the mix, with its audio already prepared for this player's output rate (see
 /// `PreparedAudio::new`), so installing it is cheap. `project_time = audio_time + offset_sec`, and the
@@ -287,10 +289,15 @@ impl Player {
     }
 
     /// The transcription as one extra synth channel, independent of the tracks' mute and solo.
-    /// Notes are `(midi, start_sec, end_sec)` in project time; `mix` is its level.
-    pub fn set_note_overlay(&self, notes: Vec<(u8, f64, f64)>, mix: f32) {
+    /// Times are in project time; `mix` is its level.
+    pub fn set_performance(&self, notes: Vec<PlayedNote>, mix: f32) {
         let mix = if mix.is_finite() { mix.clamp(0.0, 2.0) } else { 0.0 };
-        self.send(Command::SetOverlay(notes, mix));
+        self.send(Command::SetPerformance(notes, mix));
+    }
+
+    /// The synth's sound; ringing notes finish with their own string settings.
+    pub fn set_synth_preset(&self, preset: SynthPreset) {
+        self.send(Command::SetSynthPreset(preset));
     }
 
     /// Tuning used by the note overlay, normally the project's reference pitch.

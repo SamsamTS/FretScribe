@@ -14,19 +14,6 @@ fn index(sec: f64) -> usize {
     (sec * f64::from(RATE)).round() as usize
 }
 
-/// Amplitude of one tone over a whole number of its periods, so there is no leakage.
-fn amplitude(x: &[f32], freq: f64) -> f64 {
-    let periods = (x.len() as f64 * freq / f64::from(RATE)).floor().max(1.0);
-    let n = ((periods * f64::from(RATE) / freq).round() as usize).min(x.len());
-    let (mut re, mut im) = (0.0, 0.0);
-    for (i, &s) in x[..n].iter().enumerate() {
-        let phase = TAU * freq * i as f64 / f64::from(RATE);
-        re += f64::from(s) * phase.cos();
-        im += f64::from(s) * phase.sin();
-    }
-    2.0 * re.hypot(im) / n as f64
-}
-
 fn db(ratio: f64) -> f64 {
     20.0 * ratio.log10()
 }
@@ -144,7 +131,7 @@ fn it_filters_the_sum_of_the_tracks() {
 fn the_note_overlay_is_never_filtered() {
     let render_with = |focus: bool| {
         let (player, mut engine) = setup(vec![track(1, dc(3.0, 0.0))]);
-        player.set_note_overlay(vec![(40, 0.0, 2.0), (69, 0.2, 2.0)], 1.0);
+        player.set_performance(played(&[(40, 0.0, 2.0), (69, 0.2, 2.0)]), 1.0);
         player.set_guitar_focus(focus);
         player.set_guitar_focus_strength(1.0);
         player.play();

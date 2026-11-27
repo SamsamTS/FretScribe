@@ -7,7 +7,7 @@ publish.workspace = true
 # Examples and CLI tools: `cargo run -p fretscribe-demos --example <name>`
 # (auto-discovered from examples/). Safe to delete together with dev/.
 
-[dependencies]
+[dev-dependencies]
 fretscribe = { path = "../../crates/app" }
 fretscribe-core.workspace = true
 fretscribe-audio.workspace = true
