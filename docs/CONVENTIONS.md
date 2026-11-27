@@ -30,6 +30,9 @@ A technique is one `Technique` value in the single `Note::technique` slot (so te
 ## Playback sound
 `core::perform::performance` alone decides what is played (anything else that needs it, such as an export, should use it too); `PlayedNote` stays free of synth specifics so another backend can replace the synth. Its `auto_vibrato` flag is a listening aid only: it is never stored on notes, and anything but playback passes `false`. All Karplus-Strong specifics live in `audio/src/synth.rs`, which the engine drives only through `NoteSynth`'s `set_*`, `seek`, `release_all`, `reset` (silence, once the output has faded out) and `render`. The loop delay is cubic-interpolated because it moves during bends (an allpass would click); changing the string filter means updating the tuning compensation in `delay_length`. The presets are one table: tune them by ear with the `synth_presets` demo and keep their loudness comparable. In the app the performance is cached and debounced (`Session::poll_performance`), never rebuilt per frame.
 
+## Colour maps
+`LUT/*.svg` is the only definition of the palette colours; don't copy stops into code (tests included). `Heat.svg` and `Cool.svg` are also compiled into `analysis` (`Lut::builtins`), so editing them changes the built-ins, and a build fails without them.
+
 ## Tests and demos
 
 Every test, example and CLI tool lives under `dev/`, which can be deleted without touching the product:

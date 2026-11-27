@@ -203,6 +203,6 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 
 ## 2026-11-27 - SVG palettes
 
-- analysis: `Lut::from_png` replaced by `Lut::from_svg(name, data)` (resvg); `discover_luts` loads `*.svg` only. New `Lut::builtins()` (embedded `LUT/Heat.svg`, `LUT/Cool.svg`); `Lut::builtin()` is Heat. `Lut::from_stops` is test-only, `AnalysisError::Image` and the `image` dependency are gone.
+- analysis: `Lut::from_png` replaced by `Lut::from_svg(name, data)` (resvg); `discover_luts` loads `*.svg` only. New `Lut::builtins()` (embedded `LUT/Heat.svg`, `LUT/Cool.svg`); `Lut::builtin()` is Heat. `Lut::from_stops` is gone, `AnalysisError::Image` and the `image` dependency are gone.
 - app: `LutSet` always lists the built-ins first; changed disk copies appear as `<name> (Custom)`. core: default `UiState::lut_name` is "Heat".
-- ui: `WaveformPalette::default()` is the built-in Heat.
+- ui: `WaveformPalette::default()` is the built-in Heat; the waveform colouring constants are now public in `analysis::waveform` and shared (`overview::WAVEFORM_GAMMA` re-exports them).
