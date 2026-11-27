@@ -17,11 +17,11 @@ pub const WAVEFORM_GAMMA: f32 = 1.25;
 
 /// Colours are LUT positions. The envelope is the column's loudness level times `ENVELOPE_SHARE`;
 /// the RMS body is that level raised by `BODY_LIFT`, so the two stay distinct even at full scale.
-const ENVELOPE_SHARE: f32 = 0.8;
-const BODY_LIFT: f32 = 0.3;
+pub const ENVELOPE_SHARE: f32 = 0.8;
+pub const BODY_LIFT: f32 = 0.3;
 /// Vertical gradient of both: most intense on the centre line, `EDGE_SCALE` times that at the tips.
-const EDGE_SCALE: f32 = 0.7;
-const CENTRE_LINE_LEVEL: f32 = 0.2;
+pub const EDGE_SCALE: f32 = 0.7;
+pub const CENTRE_LINE_LEVEL: f32 = 0.2;
 
 type Peak = (f32, f32, f32);
 
