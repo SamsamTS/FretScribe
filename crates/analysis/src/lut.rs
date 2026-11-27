@@ -1,6 +1,10 @@
-//! Colour palettes: 256-entry lookup tables loaded from horizontal-gradient PNG files.
+//! Colour palettes: 256-entry lookup tables loaded from horizontal-gradient SVG files.
 
 use std::path::Path;
+use std::sync::LazyLock;
+
+use resvg::usvg::{self, TreeParsing};
+use resvg::{tiny_skia, Tree};
 
 use crate::error::AnalysisError;
 
@@ -13,28 +17,29 @@ pub struct Lut {
     pub colors: [[u8; 4]; LUT_SIZE],
 }
 
-const CLASSIC_STOPS: [(f32, [u8; 3]); 4] = [
-    (0.0, [0, 0, 0]),
-    (0.3, [0, 20, 140]),
-    (0.65, [0, 190, 70]),
-    (1.0, [255, 235, 0]),
-];
+static BUILTINS: LazyLock<[Lut; 2]> = LazyLock::new(|| {
+    let files: [(&str, &[u8]); 2] = [
+        ("Heat", include_bytes!("../../../LUT/Heat.svg")),
+        ("Cool", include_bytes!("../../../LUT/Cool.svg")),
+    ];
+    files.map(|(name, data)| {
+        // A unit test guarantees the embedded files parse; the black fallback is never used.
+        Lut::from_svg(name, data).unwrap_or_else(|_| Lut {
+            name: name.to_owned(),
+            colors: [[0, 0, 0, 255]; LUT_SIZE],
+        })
+    })
+});
 
 impl Lut {
-    pub fn from_stops(name: &str, stops: &[(f32, [u8; 3])]) -> Self {
-        let mut colors = [[0, 0, 0, 255]; LUT_SIZE];
-        for (i, color) in colors.iter_mut().enumerate() {
-            let t = i as f32 / (LUT_SIZE - 1) as f32;
-            *color = gradient_at(stops, t);
-        }
-        Self {
-            name: name.to_owned(),
-            colors,
-        }
+    /// The embedded palettes, the default one first.
+    pub fn builtins() -> &'static [Self] {
+        BUILTINS.as_slice()
     }
 
+    /// The default palette.
     pub fn builtin() -> Self {
-        Self::from_stops("Classic", &CLASSIC_STOPS)
+        BUILTINS[0].clone()
     }
 
     /// `t` is clamped to 0..=1; NaN maps to the weakest colour.
@@ -43,57 +48,33 @@ impl Lut {
         self.colors[(t * (LUT_SIZE - 1) as f32).round() as usize]
     }
 
-    pub fn from_png(path: &Path) -> Result<Self, AnalysisError> {
-        let image = image::open(path)?.to_rgba8();
-        let (width, height) = image.dimensions();
-        if width == 0 || height == 0 {
-            return Err(AnalysisError::InvalidPalette(format!(
-                "{} is empty",
-                path.display()
-            )));
-        }
-        let y = height / 2;
-        let pixel = |x: u32| image.get_pixel(x, y).0;
+    /// A horizontal gradient filling the whole image, weakest on the left.
+    pub fn from_svg(name: &str, data: &[u8]) -> Result<Self, AnalysisError> {
+        let invalid = |reason: String| AnalysisError::InvalidPalette(format!("{name}: {reason}"));
+        let tree = usvg::Tree::from_data(data, &usvg::Options::default())
+            .map_err(|e| invalid(e.to_string()))?;
+        let tree = Tree::from_usvg(&tree);
+        let mut pixmap = tiny_skia::Pixmap::new(LUT_SIZE as u32, 1)
+            .ok_or_else(|| invalid("cannot allocate the image".to_owned()))?;
+        let scale = tiny_skia::Transform::from_scale(
+            LUT_SIZE as f32 / tree.size.width(),
+            1.0 / tree.size.height(),
+        );
+        tree.render(scale, &mut pixmap.as_mut());
         let mut colors = [[0, 0, 0, 255]; LUT_SIZE];
-        for (i, color) in colors.iter_mut().enumerate() {
-            let pos = i as f32 / (LUT_SIZE - 1) as f32 * (width - 1) as f32;
-            let x0 = pos.floor() as u32;
-            let x1 = (x0 + 1).min(width - 1);
-            let w = pos - x0 as f32;
-            let (a, b) = (pixel(x0), pixel(x1));
-            let rgb = mix([a[0], a[1], a[2]], [b[0], b[1], b[2]], w);
-            *color = [rgb[0], rgb[1], rgb[2], 255];
+        for (color, pixel) in colors.iter_mut().zip(pixmap.data().chunks_exact(4)) {
+            color[..3].copy_from_slice(&pixel[..3]);
         }
-        let name = path
-            .file_stem()
-            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-        Ok(Self { name, colors })
+        Ok(Self {
+            name: name.to_owned(),
+            colors,
+        })
     }
-}
 
-fn mix(a: [u8; 3], b: [u8; 3], w: f32) -> [u8; 3] {
-    std::array::from_fn(|c| (f32::from(a[c]) * (1.0 - w) + f32::from(b[c]) * w).round() as u8)
-}
-
-fn gradient_at(stops: &[(f32, [u8; 3])], t: f32) -> [u8; 4] {
-    let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
-        return [0, 0, 0, 255];
-    };
-    let rgb = if t <= first.0 {
-        first.1
-    } else if t >= last.0 {
-        last.1
-    } else {
-        let upper = stops
-            .iter()
-            .position(|s| s.0 >= t)
-            .unwrap_or(stops.len() - 1)
-            .max(1);
-        let (a, b) = (stops[upper - 1], stops[upper]);
-        let w = (t - a.0) / (b.0 - a.0).max(f32::EPSILON);
-        mix(a.1, b.1, w)
-    };
-    [rgb[0], rgb[1], rgb[2], 255]
+    fn from_file(path: &Path) -> Result<Self, AnalysisError> {
+        let name = path.file_stem().unwrap_or_default().to_string_lossy();
+        Self::from_svg(&name, &std::fs::read(path)?)
+    }
 }
 
 /// Unreadable files are skipped with a warning; a missing folder yields an empty list.
@@ -108,9 +89,9 @@ pub fn discover_luts(dir: &Path) -> Vec<Lut> {
             path.is_file()
                 && path
                     .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("png"))
+                    .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
         })
-        .filter_map(|path| match Lut::from_png(&path) {
+        .filter_map(|path| match Lut::from_file(&path) {
             Ok(lut) => Some(lut),
             Err(err) => {
                 log::warn!("skipping palette {}: {err}", path.display());
