@@ -66,7 +66,7 @@ impl Default for Settings {
             spectro_black: 0.0,
             spectro_white: APP_WHITE,
             spectro_gamma: APP_GAMMA,
-            lut_name: "Classic".to_owned(),
+            lut_name: "Heat".to_owned(),
             keep_pitch: true,
             follow_playhead: true,
         }

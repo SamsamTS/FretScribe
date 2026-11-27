@@ -128,7 +128,7 @@ impl App {
         };
         (app.last_size, app.window_mode) = (app.settings.window_size, app.settings.window_mode);
         if app.luts.builtin_fallback {
-            app.toast("LUT folder not found: using the built-in palette (copy LUT/ next to the executable)", false);
+            app.toast("No palettes in LUT/: using the built-in palettes (copy LUT/ next to the executable)", false);
         }
         if !clean {
             app.find_recoveries();

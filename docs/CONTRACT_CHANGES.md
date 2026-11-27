@@ -200,3 +200,9 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 - core: `perform::{performance(project, auto_vibrato), PlayedNote, Articulation, Attack, PerformTuning, value_at}` (what must be played, in project time, reference pitch not applied). Exports are unchanged: `export_midi` should consume `perform::performance`. `UiState::synth_preset` (serde default "Acoustic", not undoable; an unknown name plays as Acoustic and is kept), `UiState::auto_vibrato` (default off; playback only, exports should pass `false`).
 - audio: `Player::set_performance(Vec<PlayedNote>, mix)` replaces `set_note_overlay`; `Player::set_synth_preset`; `SynthPreset::{all, name, from_name}` replaces `SynthNote`; `NoteSynth::{set_performance, set_preset, reset}`, `render` writes into a zeroed buffer, `render_offline(notes, preset, rate, pitch, seconds)`.
 - app: `player_sync::full_sync` takes the cached performance; `PlayerCall::{SynthPreset, Performance}` replace `NoteOverlay`; `Session::{performance, poll_performance}`, `PERFORMANCE_DEBOUNCE`. "Sound" dropdown and auto vibrato toggle in the Listening group.
+
+## 2026-11-27 - SVG palettes
+
+- analysis: `Lut::from_png` replaced by `Lut::from_svg(name, data)` (resvg); `discover_luts` loads `*.svg` only. New `Lut::builtins()` (embedded `LUT/Heat.svg`, `LUT/Cool.svg`); `Lut::builtin()` is Heat. `Lut::from_stops` is test-only, `AnalysisError::Image` and the `image` dependency are gone.
+- app: `LutSet` always lists the built-ins first; changed disk copies appear as `<name> (Custom)`. core: default `UiState::lut_name` is "Heat".
+- ui: `WaveformPalette::default()` is the built-in Heat.

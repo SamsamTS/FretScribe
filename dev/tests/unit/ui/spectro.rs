@@ -102,7 +102,7 @@ fn texture_is_rendered_once_and_reused_until_a_parameter_changes() {
     for change in [
         (|h: &mut Harness| h.style.levels = Levels::new(0.1, 0.9)) as fn(&mut Harness),
         |h| h.style.gamma = 0.8,
-        |h| h.style.lut = Arc::new(Lut::from_stops("Other", &[(0.0, [0, 0, 0]), (1.0, [255, 0, 0])])),
+        |h| h.style.lut = Arc::new(Lut { name: "Other".to_owned(), colors: [[255, 0, 0, 255]; 256] }),
         |h| h.view.scroll_sec = 0.5,
         |h| h.view.pixels_per_sec = 150.0,
         |h| h.pitch_ref = PitchRef::new(432.0).unwrap(),

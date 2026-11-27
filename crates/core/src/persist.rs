@@ -142,7 +142,7 @@ impl Default for UiState {
             snap_on: true,
             overview_snap: true,
             lane_rows: Vec::new(),
-            lut_name: "Classic".to_owned(),
+            lut_name: "Heat".to_owned(),
         }
     }
 }
