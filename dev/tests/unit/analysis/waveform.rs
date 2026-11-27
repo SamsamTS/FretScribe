@@ -155,7 +155,7 @@ fn ten_minutes_of_audio_builds_and_stays_exact() {
 
 #[test]
 fn render_buffer_size_and_background() {
-    let lut = Lut::from_stops("Tint", &[(0.0, [10, 20, 30]), (1.0, [250, 250, 250])]);
+    let lut = Lut::ramp("Tint", [10, 20, 30], [250, 250, 250]);
     let peaks = [(0.0, 0.0, 0.0); 7];
     let buffer = render_rgba(&peaks, 11, &lut);
     assert_eq!(buffer.len(), 7 * 11 * 4);
