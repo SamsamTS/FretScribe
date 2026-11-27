@@ -1,25 +1,12 @@
 //! LUT-coloured waveform for the overview strip. It reproduces the colouring of
-//! `fretscribe_analysis::waveform::render_rgba` (same constants) on egui meshes; `ui` has no
-//! dependency on the analysis crate, so the app hands over the palette as plain colours.
+//! `fretscribe_analysis::waveform::render_rgba` on egui meshes.
 
 use egui::{pos2, Color32, Mesh, Rect};
-
-pub(crate) const PALETTE_SIZE: usize = 256;
-/// Keep in sync with `fretscribe_analysis::waveform` (`WAVEFORM_GAMMA`, the colour smoothing and
-/// the private level constants).
-pub const WAVEFORM_GAMMA: f32 = 1.25;
-pub(crate) const COLOR_SMOOTHING_PX: usize = 20;
-const ENVELOPE_SHARE: f32 = 0.8;
-const BODY_LIFT: f32 = 0.3;
-const EDGE_SCALE: f32 = 0.7;
-const CENTRE_LINE_LEVEL: f32 = 0.2;
-
-const CLASSIC_STOPS: [(f32, [u8; 3]); 4] = [
-    (0.0, [0, 0, 0]),
-    (0.3, [0, 20, 140]),
-    (0.65, [0, 190, 70]),
-    (1.0, [255, 235, 0]),
-];
+use fretscribe_analysis::waveform::{
+    BODY_LIFT, CENTRE_LINE_LEVEL, EDGE_SCALE, ENVELOPE_SHARE, WAVEFORM_COLOR_SMOOTHING_PX,
+};
+use fretscribe_analysis::Lut;
+pub use fretscribe_analysis::WAVEFORM_GAMMA;
 
 /// 256 colours, index 0 the weakest and 255 the strongest, like `analysis::lut::Lut::colors`.
 #[derive(Clone, Debug, PartialEq)]
@@ -28,27 +15,10 @@ pub struct WaveformPalette {
 }
 
 impl Default for WaveformPalette {
-    /// The built-in "Classic" palette, for when no LUT could be loaded.
+    /// The default built-in palette.
     fn default() -> Self {
-        let colors = (0..PALETTE_SIZE)
-            .map(|i| {
-                let t = i as f32 / (PALETTE_SIZE - 1) as f32;
-                let [r, g, b] = gradient_at(t);
-                Color32::from_rgb(r, g, b)
-            })
-            .collect();
-        Self { colors }
+        Self::from_rgba(&Lut::builtin().colors)
     }
-}
-
-fn gradient_at(t: f32) -> [u8; 3] {
-    let upper = CLASSIC_STOPS.iter().position(|s| s.0 >= t).unwrap_or(CLASSIC_STOPS.len() - 1);
-    if upper == 0 {
-        return CLASSIC_STOPS[0].1;
-    }
-    let (a, b) = (CLASSIC_STOPS[upper - 1], CLASSIC_STOPS[upper]);
-    let w = ((t - a.0) / (b.0 - a.0)).clamp(0.0, 1.0);
-    std::array::from_fn(|c| (f32::from(a.1[c]) * (1.0 - w) + f32::from(b.1[c]) * w).round() as u8)
 }
 
 impl WaveformPalette {
@@ -139,7 +109,7 @@ fn gradient_quad(mesh: &mut Mesh, rect: Rect, top: Color32, bottom: Color32) {
 /// colour, painted by the caller.
 pub(crate) fn build_mesh(wave: Rect, ppp: f32, peaks: &[(f32, f32, f32)], palette: &WaveformPalette) -> Mesh {
     let mut mesh = Mesh::default();
-    let smoothed = smooth_levels(&levels(peaks), COLOR_SMOOTHING_PX);
+    let smoothed = smooth_levels(&levels(peaks), WAVEFORM_COLOR_SMOOTHING_PX);
     let (mid, half) = (wave.center().y, (wave.height() / 2.0 - 1.0).max(1.0));
     let one_px = 1.0 / ppp;
     let centre = Rect::from_min_max(

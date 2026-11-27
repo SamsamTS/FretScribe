@@ -151,7 +151,7 @@ fn files_without_focus_or_display_fields_load_with_defaults() {
         ),
         (0.5, 0.0, 1.0, 1.0)
     );
-    assert_eq!((ui.lut_name.as_str(), ui.spectro_q), ("Classic", 40.0));
+    assert_eq!((ui.lut_name.as_str(), ui.spectro_q), ("Heat", 40.0));
 }
 
 #[test]

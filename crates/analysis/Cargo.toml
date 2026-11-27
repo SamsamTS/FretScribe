@@ -8,7 +8,7 @@ publish.workspace = true
 fretscribe-core.workspace = true
 realfft.workspace = true
 rayon.workspace = true
-image.workspace = true
+resvg.workspace = true
 thiserror.workspace = true
 log.workspace = true
 

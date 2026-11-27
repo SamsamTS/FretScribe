@@ -22,7 +22,7 @@ pub use display::{
     GAMMA_MIN, MIN_LEVELS_GAP,
 };
 pub use error::AnalysisError;
-pub use lut::{discover_luts, Lut, LUT_SIZE};
+pub use lut::{discover_luts, Lut, BUILTIN_FILES, LUT_SIZE};
 pub use spectrogram::{
     compute_spectrogram, compute_spectrogram_streaming, Spectrogram, SpectrogramChunk,
     SpectrogramInfo, SpectrogramParams, SpectrogramStream,

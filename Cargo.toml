@@ -21,6 +21,7 @@ eframe = "0.31"
 egui = "0.31"
 symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg", "vorbis", "isomp4", "aac", "aiff", "pcm"] }
 egui_extras = { version = "0.31", features = ["svg"] }
+resvg = { version = "0.37", default-features = false }
 rodio = { version = "0.20", default-features = false }
 realfft = "3"
 rubato = "0.16"

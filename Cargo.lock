@@ -1605,10 +1605,10 @@ name = "fretscribe-analysis"
 version = "0.1.0"
 dependencies = [
  "fretscribe-core",
- "image",
  "log",
  "rayon",
  "realfft",
+ "resvg",
  "tempfile",
  "thiserror 2.0.21",
 ]
