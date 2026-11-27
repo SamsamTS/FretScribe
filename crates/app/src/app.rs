@@ -17,7 +17,7 @@ use crate::form_ui::{FormAction, FormState};
 use crate::home::{show_home, HomeAction, TileStatus};
 use crate::jobs::{mono_peaks_thumbnail, EstimateUpdate, FormEstimates};
 use crate::loader::{LoadEvent, LoadJob};
-use crate::luts::{lut_dir, LutSet};
+use crate::luts::{create_lut_dir, lut_dir, LutSet};
 use crate::paths;
 use crate::session::{Session, Toast, PERFORMANCE_DEBOUNCE};
 use crate::settings::{settings_dir, RecentProject, Settings, WindowMode};
@@ -82,6 +82,8 @@ pub struct App {
     settings_path: PathBuf,
     settings_dir: PathBuf,
     luts: LutSet,
+    /// The palette folder to offer creating, when none was found.
+    missing_lut_dir: Option<PathBuf>,
     worker: AutosaveWorker,
     toasts: Vec<Toast>,
     confirm: Option<Confirm>,
@@ -107,7 +109,8 @@ impl App {
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default();
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let luts = LutSet::scan(lut_dir(&exe_dir, &workspace).as_deref());
+        let found_lut_dir = lut_dir(&exe_dir, &workspace);
+        let luts = LutSet::scan(found_lut_dir.as_deref());
         let clean = autosave::was_clean_exit(&dir);
         let _ = autosave::mark_running(&dir);
         let mut app = Self {
@@ -116,6 +119,7 @@ impl App {
             settings_path,
             settings_dir: dir,
             luts,
+            missing_lut_dir: found_lut_dir.is_none().then(|| exe_dir.join("LUT")),
             worker: AutosaveWorker::spawn(),
             toasts: Vec::new(),
             confirm: None,
@@ -127,9 +131,6 @@ impl App {
             home_status: None,
         };
         (app.last_size, app.window_mode) = (app.settings.window_size, app.settings.window_mode);
-        if app.luts.builtin_fallback {
-            app.toast("No palettes in LUT/: using the built-in palettes (copy LUT/ next to the executable)", false);
-        }
         if !clean {
             app.find_recoveries();
         }
@@ -202,6 +203,35 @@ impl App {
             _ => {
                 let _ = autosave::discard(&r.autosave);
             }
+        }
+    }
+
+    // ---- palette folder ------------------------------------------------------------------
+
+    fn lut_dir_dialog(&mut self, ctx: &Context) {
+        let Some(dir) = &self.missing_lut_dir else { return };
+        let mut choice = None;
+        fretscribe_ui::theme::dialog(ctx, "Colour map folder").resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.label("The LUT folder is missing. Create it with the built-in colour maps as templates?");
+            ui.label(egui::RichText::new(dir.display().to_string()).family(theme::mono()));
+            ui.horizontal(|ui| {
+                if ui.button("Create").clicked() {
+                    choice = Some(true);
+                }
+                if ui.button("Not now").clicked() {
+                    choice = Some(false);
+                }
+            });
+        });
+        let Some(create) = choice else { return };
+        let Some(dir) = self.missing_lut_dir.take().filter(|_| create) else { return };
+        if let Err(e) = create_lut_dir(&dir) {
+            self.toast(format!("Could not create {}: {e}", dir.display()), true);
+            return;
+        }
+        self.luts = LutSet::scan(Some(&dir));
+        if let Screen::Editor(s) = &mut self.screen {
+            s.luts = self.luts.clone();
         }
     }
 
@@ -740,6 +770,9 @@ impl eframe::App for App {
             self.toast(e, true);
         }
         self.recovery_dialog(ctx);
+        if self.recover.is_empty() {
+            self.lut_dir_dialog(ctx);
+        }
         self.confirm_ui(ctx);
         self.toasts_ui(ctx);
         self.update_title(ctx);

@@ -3,14 +3,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fretscribe_analysis::{discover_luts, Lut};
+use fretscribe_analysis::{discover_luts, Lut, BUILTIN_FILES};
 
 #[derive(Clone)]
 pub struct LutSet {
     pub luts: Vec<Arc<Lut>>,
     names: Vec<String>,
     pub dir: Option<PathBuf>,
-    pub builtin_fallback: bool,
 }
 
 pub fn lut_dir(exe_dir: &Path, workspace_root: &Path) -> Option<PathBuf> {
@@ -20,10 +19,15 @@ pub fn lut_dir(exe_dir: &Path, workspace_root: &Path) -> Option<PathBuf> {
         .find(|d| d.is_dir())
 }
 
+/// Fills a new palette folder with the built-in files, as templates.
+pub fn create_lut_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    BUILTIN_FILES.iter().try_for_each(|(name, data)| std::fs::write(dir.join(format!("{name}.svg")), data))
+}
+
 impl LutSet {
     pub fn scan(dir: Option<&Path>) -> Self {
         let mut found = dir.map(discover_luts).unwrap_or_default();
-        let builtin_fallback = found.is_empty();
         let builtins = Lut::builtins();
         found.retain_mut(|lut| {
             let Some(builtin) = builtins.iter().find(|b| b.name.eq_ignore_ascii_case(&lut.name)) else {
@@ -38,7 +42,6 @@ impl LutSet {
             names: luts.iter().map(|l| l.name.clone()).collect(),
             luts,
             dir: dir.map(Path::to_path_buf),
-            builtin_fallback,
         }
     }
 

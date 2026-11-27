@@ -1,5 +1,7 @@
 use super::*;
 
+const BUILTINS: [&str; 6] = ["Heat", "Cool", "Amber", "Aurora", "Ice", "Nebula"];
+
 fn write_lut(dir: &Path, name: &str, rgb: [u8; 3]) {
     let [r, g, b] = rgb;
     let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="rgb({r},{g},{b})"/></svg>"#);
@@ -17,48 +19,47 @@ fn lut_dir_prefers_exe_then_workspace() {
 }
 
 #[test]
-fn scan_falls_back_to_builtin() {
+fn scan_without_files_lists_the_builtins() {
     for dir in [None, Some(tempfile::tempdir().unwrap())] {
-        let set = LutSet::scan(dir.as_ref().map(|d| d.path()));
-        assert!(set.builtin_fallback);
-        assert_eq!(set.names(), ["Heat", "Cool"]);
+        assert_eq!(LutSet::scan(dir.as_ref().map(|d| d.path())).names(), BUILTINS);
     }
-    assert!(LutSet::scan(Some(Path::new("/definitely/missing"))).builtin_fallback);
+    assert_eq!(LutSet::scan(Some(Path::new("/definitely/missing"))).names(), BUILTINS);
 }
 
 #[test]
 fn scan_lists_builtins_first_and_indexes_by_name() {
     let dir = tempfile::tempdir().unwrap();
-    write_lut(dir.path(), "Ice.svg", [0, 0, 200]);
-    write_lut(dir.path(), "Amber.svg", [200, 100, 0]);
+    write_lut(dir.path(), "Sun.svg", [0, 0, 200]);
+    write_lut(dir.path(), "Dusk.svg", [200, 100, 0]);
     let set = LutSet::scan(Some(dir.path()));
-    assert!(!set.builtin_fallback);
-    assert_eq!(set.names(), ["Heat", "Cool", "Amber", "Ice"]);
-    assert_eq!(set.index_of("Ice"), 3);
+    assert_eq!(set.names()[..6], BUILTINS);
+    assert_eq!(set.names()[6..], ["Dusk", "Sun"]);
+    assert_eq!(set.index_of("Sun"), 7);
     assert_eq!(set.index_of("Classic"), 0);
 }
 
 #[test]
-fn unchanged_copies_of_builtins_add_no_entry() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../LUT");
-    let heat = std::fs::read_to_string(repo.join("Heat.svg")).unwrap();
-    std::fs::write(dir.path().join("heat.svg"), heat + "<!-- same colours -->").unwrap();
-    std::fs::copy(repo.join("Cool.svg"), dir.path().join("Cool.svg")).unwrap();
-    let set = LutSet::scan(Some(dir.path()));
-    assert!(!set.builtin_fallback);
-    assert_eq!(set.names(), ["Heat", "Cool"]);
+fn created_folder_holds_templates_that_add_no_entry() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("LUT");
+    create_lut_dir(&dir).unwrap();
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), BUILTINS.len());
+    assert_eq!(LutSet::scan(Some(&dir)).names(), BUILTINS);
+    std::fs::rename(dir.join("Ice.svg"), dir.join("ice.svg")).unwrap();
+    let heat = std::fs::read_to_string(dir.join("Heat.svg")).unwrap();
+    std::fs::write(dir.join("Heat.svg"), heat + "<!-- same colours -->").unwrap();
+    assert_eq!(LutSet::scan(Some(&dir)).names(), BUILTINS);
 }
 
 #[test]
 fn edited_builtins_are_listed_as_custom() {
     let dir = tempfile::tempdir().unwrap();
     write_lut(dir.path(), "HEAT.svg", [1, 2, 3]);
-    write_lut(dir.path(), "cool.svg", [4, 5, 6]);
-    write_lut(dir.path(), "Dusk.svg", [7, 8, 9]);
-    write_lut(dir.path(), "Ice.svg", [9, 9, 9]);
+    write_lut(dir.path(), "ice.svg", [4, 5, 6]);
+    write_lut(dir.path(), "Fire.svg", [7, 8, 9]);
     let set = LutSet::scan(Some(dir.path()));
-    assert_eq!(set.names(), ["Heat", "Cool", "Cool (Custom)", "Dusk", "Heat (Custom)", "Ice"]);
-    assert_eq!(*set.luts[0], Lut::builtins()[0]);
-    assert_eq!(set.luts[4].colors[0], [1, 2, 3, 255]);
+    assert_eq!(set.names()[..6], BUILTINS);
+    assert_eq!(set.names()[6..], ["Fire", "Heat (Custom)", "Ice (Custom)"]);
+    assert_eq!(set.luts[0].as_ref(), &Lut::builtins()[0]);
+    assert_eq!(set.luts[7].colors[0], [1, 2, 3, 255]);
 }

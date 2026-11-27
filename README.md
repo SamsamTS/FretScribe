@@ -18,11 +18,10 @@ Everything for development lives in `dev/` (see `docs/CONVENTIONS.md`): `cargo t
 ## The `LUT/` folder
 
 Spectrogram palettes are SVG images, named after the file stem: a horizontal gradient filling the whole image,
-weakest on the left (any size). `Heat` (the default) and `Cool` are built in and always listed first. Their files
-are templates: once their colours are changed they are also listed as `Heat (Custom)` / `Cool (Custom)`.
-**The `LUT/` folder must be copied next to the executable** when packaging (`<exe dir>/LUT`); when running through
-`cargo run` the one in the workspace is used. Without any palette there, only the built-in ones are listed and a
-notice is shown.
+weakest on the left (any size). `Heat` (the default), `Cool`, `Amber`, `Aurora`, `Ice` and `Nebula` are built in and
+always listed first. The files in `LUT/` are templates: once their colours are changed they are also listed as
+`<name> (Custom)`, e.g. `Heat (Custom)`. The app uses `<exe dir>/LUT`; when running through `cargo run` the one in
+the workspace is used. If there is no folder, the app offers at startup to create it with the built-in files.
 
 ## Settings and recovery
 

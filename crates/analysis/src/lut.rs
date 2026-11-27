@@ -17,12 +17,18 @@ pub struct Lut {
     pub colors: [[u8; 4]; LUT_SIZE],
 }
 
-static BUILTINS: LazyLock<[Lut; 2]> = LazyLock::new(|| {
-    let files: [(&str, &[u8]); 2] = [
-        ("Heat", include_bytes!("../../../LUT/Heat.svg")),
-        ("Cool", include_bytes!("../../../LUT/Cool.svg")),
-    ];
-    files.map(|(name, data)| {
+macro_rules! embedded {
+    ($($name:literal),+) => {
+        [$(($name, include_bytes!(concat!("../../../LUT/", $name, ".svg")).as_slice())),+]
+    };
+}
+
+/// Name and SVG file content of each embedded palette, the default one first.
+pub const BUILTIN_FILES: [(&str, &[u8]); 6] =
+    embedded!("Heat", "Cool", "Amber", "Aurora", "Ice", "Nebula");
+
+static BUILTINS: LazyLock<[Lut; BUILTIN_FILES.len()]> = LazyLock::new(|| {
+    BUILTIN_FILES.map(|(name, data)| {
         // A unit test guarantees the embedded files parse; the black fallback is never used.
         Lut::from_svg(name, data).unwrap_or_else(|_| Lut {
             name: name.to_owned(),

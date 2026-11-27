@@ -76,9 +76,9 @@ fn repository_palettes_load() {
 }
 
 #[test]
-fn builtins_are_the_repository_heat_and_cool() {
+fn builtins_are_the_repository_palettes() {
     let names: Vec<&str> = Lut::builtins().iter().map(|l| l.name.as_str()).collect();
-    assert_eq!(names, ["Heat", "Cool"]);
+    assert_eq!(names, ["Heat", "Cool", "Amber", "Aurora", "Ice", "Nebula"]);
     let disk = discover_luts(&lut_dir());
     for builtin in Lut::builtins() {
         assert!(disk.contains(builtin), "{}", builtin.name);
