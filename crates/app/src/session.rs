@@ -108,7 +108,7 @@ pub struct Session {
     pub overlay_mix: f32,
     /// What the synth plays: rebuilt once the edits have settled.
     pub performance: Arc<[PlayedNote]>,
-    pub performance_due: Option<Instant>,
+    performance_due: Option<Instant>,
     pub follow: bool,
     pub overview_snap: bool,
     pub dirty: bool,
@@ -364,10 +364,15 @@ impl Session {
     }
 
     fn flush_performance(&mut self) {
-        if self.performance_due.take().is_some() {
-            self.performance = performance(&self.project, self.ui.auto_vibrato).into();
-            self.player_resync(false);
+        if self.performance_due.is_some() {
+            self.rebuild_performance();
         }
+    }
+
+    pub fn rebuild_performance(&mut self) {
+        self.performance_due = None;
+        self.performance = performance(&self.project, self.ui.auto_vibrato).into();
+        self.player_resync(false);
     }
 
     pub fn undo_redo(&mut self, redo: bool) {

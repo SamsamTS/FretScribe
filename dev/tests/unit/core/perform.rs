@@ -217,9 +217,13 @@ fn auto_vibrato_swells_then_fades_over_a_held_single_note() {
     assert!(performance(&p, false)[0].pitch_curve.is_empty());
 }
 
+/// Which of the played notes got a pitch curve with auto vibrato on.
+fn swells(p: &Project) -> Vec<bool> {
+    performance(p, true).iter().map(|n| !n.pitch_curve.is_empty()).collect()
+}
+
 #[test]
 fn auto_vibrato_needs_a_long_enough_plain_single_note() {
-    let swells = |p: &Project| performance(p, true).iter().map(|n| !n.pitch_curve.is_empty()).collect::<Vec<_>>();
     let mut p = project(8.0);
     add(&mut p, 60, 0.0, 1.0);
     add(&mut p, 60, 1.0, 1.9375);
@@ -257,7 +261,6 @@ fn no_auto_vibrato_when_let_ring_makes_notes_overlap() {
     for (id, string) in [(a, 1), (b, 2)] {
         note(&mut p, id).string_fret = Some((string, 3));
     }
-    let swells = |p: &Project| performance(p, true).iter().map(|n| !n.pitch_curve.is_empty()).collect::<Vec<_>>();
     assert_eq!(swells(&p), [true, true, true]);
     p.set_let_ring(0, true, false).unwrap();
     assert_eq!(swells(&p), [false, false, true]);

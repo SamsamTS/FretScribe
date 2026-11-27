@@ -81,6 +81,8 @@ impl PerformTuning {
 }
 
 const T: &PerformTuning = &PerformTuning::DEFAULT;
+/// Times closer than this are the same.
+const EPS: f64 = 1e-6;
 
 #[derive(Clone, Copy)]
 struct Span<'a> {
@@ -112,7 +114,7 @@ pub fn performance(project: &Project, auto_vibrato: bool) -> Vec<PlayedNote> {
     let auto = auto_vibrato.then(|| {
         let mut notes: Vec<(f64, f64)> = spans.values().filter(|s| s.note.grace_of.is_none()).map(|s| (s.start, s.end)).collect();
         notes.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let rings = ring.iter().filter_map(|(id, &until)| spans.get(id).filter(|s| until > s.end + 1e-6).map(|s| (s.start, until))).collect();
+        let rings = ring.iter().filter_map(|(id, &until)| spans.get(id).filter(|s| until > s.end + EPS).map(|s| (s.start, until))).collect();
         AutoVibrato { map: &map, notes, rings }
     });
     let mut seen = HashSet::new();
@@ -206,14 +208,14 @@ impl AutoVibrato<'_> {
     /// ring making it overlap neither an earlier nor a later note.
     fn applies(&self, chain: &[Span], start: f64, end: f64) -> bool {
         let beats = |sec| self.map.pos_to_beats(self.map.sec_to_pos(sec)).unwrap_or(0.0);
-        let alone = |at: f64| self.notes.partition_point(|n| n.0 < at + 1e-6) - self.notes.partition_point(|n| n.0 < at - 1e-6) == 1;
-        let ringing = self.rings.iter().any(|&(from, until)| from < start - 1e-6 && until > start + 1e-6);
+        let alone = |at: f64| self.notes.partition_point(|n| n.0 < at + EPS) - self.notes.partition_point(|n| n.0 < at - EPS) == 1;
+        let ringing = self.rings.iter().any(|&(from, until)| from < start - EPS && until > start + EPS);
         let written_end = chain.last().map_or(end, |s| s.end);
-        let rings_over = end > written_end + 1e-6
-            && self.notes.iter().any(|&(s, e)| s > start + 1e-6 && s < end - 1e-6 && e > written_end + 1e-6);
+        let rings_over = end > written_end + EPS
+            && self.notes.iter().any(|&(s, e)| s > start + EPS && s < end - EPS && e > written_end + EPS);
         !ringing && !rings_over && chain.iter().all(|s| {
             s.note.grace_of.is_none() && !s.note.vibrato && s.note.midi == chain[0].note.midi && alone(s.start)
-        }) && beats(end) - beats(start) >= T.auto_vibrato_min_beats - 1e-6
+        }) && beats(end) - beats(start) >= T.auto_vibrato_min_beats - EPS
     }
 }
 
@@ -228,7 +230,7 @@ struct Wave {
 impl Wave {
     fn semitones(self, sec: f64) -> f64 {
         // Zero at both ends of the span, so the curve never steps.
-        if sec <= self.from || sec >= self.to - 1e-6 {
+        if sec <= self.from || sec >= self.to - EPS {
             return 0.0;
         }
         let along = (sec - self.from) / (self.to - self.from);
@@ -278,7 +280,7 @@ fn pitch_curve(chain: &[Span], end: f64, swell: Option<Wave>) -> Vec<(f64, f32)>
     let mut secs: Vec<f64> = base.iter().map(|p| p.0).collect();
     secs.extend(waves.iter().flat_map(|w| steps(w.from, w.to).map(|s| s.1)));
     secs.sort_by(f64::total_cmp);
-    secs.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+    secs.dedup_by(|a, b| (*a - *b).abs() < EPS);
     secs.into_iter()
         .map(|sec| {
             let wave: f64 = waves.iter().map(|w| w.semitones(sec)).sum();
