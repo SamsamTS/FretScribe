@@ -233,7 +233,7 @@ where
 
     /// The zoom group (with the snap magnet) left of the strip, bottom-aligned with it.
     fn buttons(&self, ui: &mut Ui, events: &mut Vec<OverviewEvent>) {
-        crate::kit::group_at(ui, "View", true, |ui| {
+        crate::kit::group(ui, "View", |ui| {
                     for (icon, tip, step) in [
                         ("zoom-in", "Zoom in", ZoomStep::In),
                         ("zoom-out", "Zoom out", ZoomStep::Out),

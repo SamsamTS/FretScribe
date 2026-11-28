@@ -10,6 +10,7 @@ pub mod spectro;
 pub mod staff_view;
 pub mod tab_view;
 pub mod theme;
+pub mod toolbar_layout;
 pub mod tracks;
 pub mod view;
 

@@ -110,6 +110,8 @@ pub struct Session {
     pub performance: Arc<[PlayedNote]>,
     performance_due: Option<Instant>,
     pub follow: bool,
+    /// The toolbar arrangement; an app setting, which the shell saves.
+    pub toolbar: fretscribe_ui::toolbar_layout::ToolbarState,
     pub overview_snap: bool,
     pub dirty: bool,
     pub edits_since_autosave: u32,
@@ -201,6 +203,7 @@ impl Session {
             performance: performance(&project, ui.auto_vibrato).into(),
             performance_due: None,
             follow: settings.follow_playhead,
+            toolbar: settings.toolbar.clone(),
             overview_snap: true,
             dirty: false,
             edits_since_autosave: 0,

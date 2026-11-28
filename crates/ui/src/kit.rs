@@ -93,6 +93,8 @@ icons!(
     "anchor",
     "close",
     "check",
+    "collapse-group",
+    "expand-group",
 );
 
 pub const BUTTON: f32 = 36.0;
@@ -223,22 +225,16 @@ pub fn filled_button(ui: &mut Ui, name: &str, tip: &str, size: Vec2, icon_px: f3
     labelled(r, tip)
 }
 
-/// A rounded group of controls with a small uppercase caption below it.
-pub fn group(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
-    group_at(ui, caption, false, add);
-}
+const GROUP_PAD: f32 = 4.0;
 
-/// Like [`group`], with the caption above (`above`) or below the controls.
-pub fn group_at(ui: &mut Ui, caption: &str, above: bool, add: impl FnOnce(&mut Ui)) {
+/// A rounded group of controls with a small uppercase caption above it.
+pub fn group(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         let caption_y = ui.cursor().top() + 6.0;
-        if above {
-            ui.add_space(12.0);
-        }
+        ui.add_space(12.0);
         let rect = group_frame(ui, add).rect;
-        let centre_y = if above { caption_y } else { ui.allocate_exact_size(vec2(rect.width(), 12.0), Sense::hover()).0.center().y };
-        caption_at(ui, pos2(rect.center().x, centre_y), caption);
+        caption_at(ui, pos2(rect.center().x, caption_y), caption);
     });
 }
 
@@ -247,21 +243,22 @@ pub fn group_frame(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Response {
     group_frame_h(ui, BUTTON, add)
 }
 
-/// Like [`group_frame`] for controls `height` px tall. The gap between controls equals the padding around them.
+/// Like [`group_frame`] for controls `height` px tall.
 pub fn group_frame_h(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) -> Response {
-    const PAD: f32 = 4.0;
-    Frame::new()
-        .fill(theme::PANEL_BG)
-        .stroke(Stroke::new(1.0_f32, theme::BORDER))
-        .corner_radius(CornerRadius::same(GROUP_RADIUS))
-        .inner_margin(PAD)
-        .show(ui, |ui| {
-            ui.set_min_height(height);
-            ui.spacing_mut().item_spacing.x = PAD;
-            ui.spacing_mut().interact_size.y = height; // rows start tall, so earlier labels are centred too
-            ui.horizontal(add);
-        })
-        .response
+    group_panel().show(ui, |ui| group_row(ui, height, add)).response
+}
+
+/// The frame of a group panel; its contents go through [`group_row`].
+pub fn group_panel() -> Frame {
+    Frame::new().fill(theme::PANEL_BG).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(GROUP_RADIUS)).inner_margin(GROUP_PAD)
+}
+
+/// A row of controls in a group panel: the gap between them equals the padding around them.
+pub fn group_row(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui)) {
+    ui.set_min_height(height);
+    ui.spacing_mut().item_spacing.x = GROUP_PAD;
+    ui.spacing_mut().interact_size.y = height; // rows start tall, so earlier labels are centred too
+    ui.horizontal(add);
 }
 
 /// A rounded panel `width` wide holding groups of buttons (`groups` gives the size of each; `add(ui, i)`
@@ -485,20 +482,6 @@ pub fn slider_popup(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusiv
         changed
     })
     .inner
-}
-
-/// Lays `add` out flush with the right edge of the available space. The width is measured on the
-/// previous frame (a group's width is only known once it is drawn), so the first frame repaints.
-pub fn right_aligned(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
-    let key = ui.id().with(("right_aligned", id));
-    let width = ui.data(|d| d.get_temp::<f32>(key)).unwrap_or(0.0);
-    let avail = ui.available_rect_before_wrap();
-    let rect = Rect::from_min_max(pos2((avail.right() - width).max(avail.left()), avail.top()), avail.max);
-    let used = ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Min)), add).response.rect.width();
-    if (used - width).abs() > 0.5 {
-        ui.data_mut(|d| d.insert_temp(key, used));
-        ui.ctx().request_repaint();
-    }
 }
 
 /// Key set when a [`text_field`] consumed Enter or Escape, so the host screen does not treat it as its own.

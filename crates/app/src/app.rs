@@ -542,6 +542,7 @@ impl App {
         requests.extend(save);
         editor::dialogs(ctx, s);
         missing_audio_dialog(ctx, s);
+        let toolbar = (s.toolbar != self.settings.toolbar).then(|| s.toolbar.clone());
         if playing || loading || jobs {
             ctx.request_repaint();
         }
@@ -553,6 +554,10 @@ impl App {
             s.edits_since_autosave = 0;
         }
         self.toasts.append(&mut s.toasts);
+        if let Some(toolbar) = toolbar {
+            self.settings.toolbar = toolbar;
+            self.save_settings();
+        }
         for r in requests {
             self.request(r);
         }

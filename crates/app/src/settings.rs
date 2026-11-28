@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use fretscribe_analysis::{APP_GAMMA, APP_WHITE};
 use fretscribe_core::{write_atomic, SnapGrid, UiState, UndoPolicy};
+use fretscribe_ui::toolbar_layout::ToolbarState;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_RECENT: usize = 12;
@@ -47,6 +48,7 @@ pub struct Settings {
     pub lut_name: String,
     pub keep_pitch: bool,
     pub follow_playhead: bool,
+    pub toolbar: ToolbarState,
 }
 
 impl Default for Settings {
@@ -69,6 +71,7 @@ impl Default for Settings {
             lut_name: "Heat".to_owned(),
             keep_pitch: true,
             follow_playhead: true,
+            toolbar: ToolbarState::default(),
         }
     }
 }
@@ -130,6 +133,7 @@ impl Settings {
         (self.spectro_black, self.spectro_white, self.spectro_gamma) =
             (ui.spectro_black, ui.spectro_white, ui.spectro_gamma);
         self.recent.truncate(MAX_RECENT);
+        self.toolbar.sanitise();
         for t in self.recent.iter_mut().filter_map(|r| r.thumbnail.as_mut()) {
             t.truncate(MAX_THUMBNAIL_BYTES);
         }
