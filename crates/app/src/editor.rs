@@ -34,7 +34,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
     // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
-    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: 0, bottom: 0 });
+    // The point at the bottom keeps the panel's separator line off the strip.
+    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: 0, bottom: 1 });
     let overview = egui::TopBottomPanel::top("overview").frame(overview_frame).show(ctx, |ui| {
         let view = s.ctl.current.timeline();
         let width = ctx.screen_rect().width() - LANE_HEADER_WIDTH;
