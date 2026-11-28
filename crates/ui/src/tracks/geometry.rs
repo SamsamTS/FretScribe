@@ -1,10 +1,10 @@
-//! Lane geometry in whole physical pixels. A strip is the waveform (`WAVE_H_PX`) plus its border,
-//! `STRIP_PITCH_PX` in all; a spectrogram strip is a whole number of those, so every strip top is a
+//! Lane geometry in whole physical pixels. A strip is the waveform plus its border,
+//! `strip_pitch_px` in all; a spectrogram strip is a whole number of those, so every strip top is a
 //! multiple of the pitch from the top of the scrolling area.
 
-pub const WAVE_H_PX: u32 = 66;
 pub const BORDER_PX: u32 = 1;
-pub const STRIP_PITCH_PX: u32 = WAVE_H_PX + BORDER_PX;
+/// The pitch at 100%; the controls of a track header need this much at any scale.
+const STRIP_PITCH_PT: f32 = 67.0;
 pub const SPECTRO_ROWS: u32 = 5;
 pub const MAX_SPECTRO_ROWS: u32 = 16;
 pub(crate) const COLLAPSE_ANIM_SEC: f32 = 0.18;
@@ -16,8 +16,12 @@ pub fn rows_shown(rows: f32, expanded: f32) -> u32 {
     (rows * expanded.clamp(0.0, 1.0)).round() as u32
 }
 
-pub fn lane_height_px(shown_rows: u32) -> u32 {
-    (shown_rows + 1) * STRIP_PITCH_PX
+pub fn strip_pitch_px(pixels_per_point: f32) -> u32 {
+    (STRIP_PITCH_PT * pixels_per_point).round() as u32
+}
+
+pub fn lane_height_px(shown_rows: u32, pitch_px: u32) -> u32 {
+    (shown_rows + 1) * pitch_px
 }
 
 pub fn clamp_rows(rows: i64) -> u32 {
@@ -29,31 +33,32 @@ pub struct LaneStrip {
     pub id: u64,
     pub top_px: u32,
     pub rows: u32,
+    pub pitch_px: u32,
 }
 
 impl LaneStrip {
     pub fn height_px(&self) -> u32 {
-        lane_height_px(self.rows)
+        lane_height_px(self.rows, self.pitch_px)
     }
 
     pub fn wave_top_px(&self) -> u32 {
-        self.top_px + self.rows * STRIP_PITCH_PX
+        self.top_px + self.rows * self.pitch_px
     }
 }
 
 /// Lanes stacked from the top, then the "+" row (one pitch tall). Returns the strips and the total
 /// content height.
-pub fn stack(lanes: &[(u64, u32)]) -> (Vec<LaneStrip>, u32) {
+pub fn stack(lanes: &[(u64, u32)], pitch_px: u32) -> (Vec<LaneStrip>, u32) {
     let mut top = 0;
     let strips = lanes
         .iter()
         .map(|&(id, rows)| {
-            let strip = LaneStrip { id, top_px: top, rows };
+            let strip = LaneStrip { id, top_px: top, rows, pitch_px };
             top += strip.height_px();
             strip
         })
         .collect();
-    (strips, top + STRIP_PITCH_PX)
+    (strips, top + pitch_px)
 }
 
 /// Where a dragged lane lands: the number of other lanes whose centre is above the pointer.

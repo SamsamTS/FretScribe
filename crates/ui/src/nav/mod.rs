@@ -101,10 +101,12 @@ impl ViewController {
 
     /// `pitch` is one strip pitch and `max` the bottom stop, both in points.
     pub fn set_vertical(&mut self, pitch: f64, max: f64) {
+        // The pitch in points moves a little with the display scale; keep the same strip at the top.
+        let rescale = if self.y_pitch > 0.0 { pitch / self.y_pitch } else { 1.0 };
         self.y_pitch = pitch;
         self.y_max = max.max(0.0);
         for v in [&mut self.target, &mut self.current] {
-            v.scroll_y = v.scroll_y.clamp(0.0, self.y_max);
+            v.scroll_y = (v.scroll_y * rescale).clamp(0.0, self.y_max);
         }
     }
 

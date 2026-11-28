@@ -5,8 +5,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::*;
+use crate::note_editor::{header_tools, ActionButton};
 use crate::spectro::SpectroStyle;
 use crate::view::{PitchView, TimelineView, LANE_HEADER_WIDTH};
+
+const PITCH: u32 = 67;
 
 fn project() -> Project {
     fretscribe_core::testkit::band(20.0)
@@ -54,11 +57,12 @@ struct Harness {
     time: f64,
     rows: f64,
     bottom: f32,
+    tools: Option<Vec<ActionButton>>,
 }
 
 impl Harness {
     fn new() -> Self {
-        let mut h = Self { ctx: Context::default(), project: project(), state: TrackLanesState::default(), time: 0.0, rows: 0.0, bottom: 700.0 };
+        let mut h = Self { ctx: Context::default(), project: project(), state: TrackLanesState::default(), time: 0.0, rows: 0.0, bottom: 700.0, tools: None };
         h.frame(Vec::new());
         h
     }
@@ -73,7 +77,7 @@ impl Harness {
         let _ = self.ctx.run(raw, |ctx| {
             CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
                 let lanes = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, bottom));
-                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: None, region: None, region_snap: &[], region_snapping: false, audio_len_sec: 20.0, wheel_rows: rows }
+                let o = TrackLanes { project: &self.project, source: &Silent, style: &style, times: &times, selected: &[], ghost: None, reference_track: 1, focus: None, tools: self.tools.as_deref(), region: None, region_snap: &[], region_snapping: false, audio_len_sec: 20.0, wheel_rows: rows }
                     .show(ui, lanes, &TimelineView::new(0.0, 100.0), &PitchView::default(), 0.0, &mut self.state);
                 out = o.events;
             });
@@ -108,7 +112,7 @@ fn mute_button_and_add_row_emit_events() {
     }
     let (_, content) = h.state.strips(&h.ctx, &h.project);
     // The button sits in the middle of the last row, inside the header column.
-    let row_middle = (content - STRIP_PITCH_PX) as f32 + STRIP_PITCH_PX as f32 / 2.0;
+    let row_middle = (content - PITCH) as f32 + PITCH as f32 / 2.0;
     assert!(h.click(Pos2::new(100.0, row_middle)).contains(&TrackEvent::AddTrackRequested));
     assert!(!h.click(Pos2::new(LANE_HEADER_WIDTH + 100.0, row_middle)).contains(&TrackEvent::AddTrackRequested), "only the button adds a track, not the whole row");
 }
@@ -127,8 +131,8 @@ fn collapsing_shrinks_the_lane_in_whole_rows() {
     assert!(seen.windows(2).all(|w| w[0] >= w[1]));
     assert_eq!(*seen.last().unwrap(), 0);
     let (after, content) = h.state.strips(&h.ctx, &h.project);
-    assert_eq!(after[1].top_px, STRIP_PITCH_PX);
-    assert!(after.iter().all(|s| s.top_px % STRIP_PITCH_PX == 0) && content % STRIP_PITCH_PX == 0);
+    assert_eq!(after[1].top_px, PITCH);
+    assert!(after.iter().all(|s| s.top_px % PITCH == 0) && content % PITCH == 0);
 }
 
 #[test]
@@ -170,7 +174,7 @@ fn what_is_scrolled_out_of_the_lanes_ignores_the_pointer() {
     for (bottom_margin, reacts) in [(100.0, true), (-30.0, false)] {
         let mut h = Harness::new();
         // The middle of the first lane's waveform, below or above the bottom of the lanes.
-        let y = lane_top(&h, 1) - STRIP_PITCH_PX as f32 / 2.0;
+        let y = lane_top(&h, 1) - PITCH as f32 / 2.0;
         h.bottom = y + bottom_margin;
         let (from, to) = (Pos2::new(500.0, y), Pos2::new(600.0, y));
         let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Secondary, pressed, modifiers: Default::default() };
@@ -179,5 +183,45 @@ fn what_is_scrolled_out_of_the_lanes_ignores_the_pointer() {
         events.extend(h.frame(vec![Event::PointerMoved(to)]));
         events.extend(h.frame(vec![button(to, false)]));
         assert_eq!(events.iter().any(|e| matches!(e, TrackEvent::RegionChanged(_))), reacts, "{events:?}");
+    }
+}
+
+/// Interactive widgets of the header column, as laid out by the last frame.
+fn header_widgets(h: &Harness) -> Vec<Rect> {
+    h.ctx.viewport(|v| {
+        v.prev_pass.widgets.layers().flat_map(|(_, widgets)| widgets).filter(|w| w.sense.interactive() && w.rect.right() <= LANE_HEADER_WIDTH).map(|w| w.rect).collect()
+    })
+}
+
+#[test]
+fn header_controls_fit_their_strip_at_every_display_scale() {
+    for ppp in [1.0, 1.25, 1.5, 2.0] {
+        let mut h = Harness::new();
+        h.ctx.set_pixels_per_point(ppp);
+        h.tools = Some(header_tools(&h.project, &Default::default(), &Default::default(), false));
+        let pitch = strip_pitch_px(ppp) as f32 / ppp;
+        for _ in 0..3 {
+            h.frame(Vec::new());
+        }
+        // The source lane, expanded: the tool grid starts below the first strip's controls.
+        let widgets = header_widgets(&h);
+        let (tools, controls): (Vec<Rect>, Vec<Rect>) = widgets.iter().filter(|r| r.top() < lane_top(&h, 1) && r.height() > 8.0).partition(|r| r.height() == crate::kit::BUTTON && r.width() == crate::kit::BUTTON);
+        assert!(!tools.is_empty() && controls.len() >= 8, "{ppp}: {widgets:?}");
+        for c in &controls {
+            assert!(c.bottom() <= pitch && tools.iter().all(|t| !t.intersects(*c)), "{ppp}: {c:?}");
+        }
+        h.project.tracks.iter_mut().for_each(|t| t.spectrogram_collapsed = true);
+        for _ in 0..30 {
+            h.frame(Vec::new());
+        }
+        let tracks = h.project.tracks.len() as f32;
+        let in_lanes: Vec<Rect> = header_widgets(&h).into_iter().filter(|r| r.top() < tracks * pitch).collect();
+        assert!(in_lanes.len() >= 8 * tracks as usize, "{ppp}: {in_lanes:?}");
+        for r in in_lanes {
+            let top = (r.center().y / pitch).floor() * pitch;
+            assert!(r.top() >= top && r.bottom() <= top + pitch - 1.0 / ppp, "{ppp}: {r:?} leaves its lane");
+        }
+        let (strips, content) = h.state.strips(&h.ctx, &h.project);
+        assert!(strips.iter().all(|s| s.top_px % strip_pitch_px(ppp) == 0) && content % strip_pitch_px(ppp) == 0);
     }
 }

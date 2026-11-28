@@ -5,7 +5,7 @@ use egui::{pos2, vec2, Align, Align2, Color32, FontId, Key, Label, Modifiers, Re
 use fretscribe_core::{Track, TrackRole};
 
 use super::events::TrackEvent;
-use super::geometry::STRIP_PITCH_PX;
+use super::geometry::strip_pitch_px;
 use super::offset::{clamp_offset, format_offset, nudged, parse_offset};
 use crate::note_editor::ActionButton;
 use crate::view::LANE_HEADER_WIDTH;
@@ -129,7 +129,7 @@ impl TrackHeader {
         painter.rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, if is_source { theme::accent() } else { theme::TEXT });
 
         ui.set_opacity(opacity_for(audible));
-        let content = Rect::from_min_size(rect.min + vec2(PAD + 3.0, 2.0), vec2(LANE_HEADER_WIDTH - 2.0 * PAD - 3.0, STRIP_PITCH_PX as f32 / ppp - 4.0));
+        let content = Rect::from_min_size(rect.min + vec2(PAD + 3.0, 2.0), vec2(LANE_HEADER_WIDTH - 2.0 * PAD - 3.0, strip_pitch_px(ppp) as f32 / ppp - 4.0));
         let cw = content.width();
         let mut events = Vec::new();
         let id = track.id;

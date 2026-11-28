@@ -7,7 +7,7 @@ use fretscribe_core::{audible_tracks, NoteTimes, Project};
 
 use super::events::TrackEvent;
 use crate::nav::maths::smooth;
-use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS, STRIP_PITCH_PX};
+use super::geometry::{self, LaneStrip, COLLAPSE_ANIM_SEC, REORDER_TAU_MS, RESIZE_TAU_MS, SPECTRO_ROWS};
 use super::lane::{LaneOptions, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
 use crate::note_editor::ActionButton;
 use crate::view::RegionSelection;
@@ -61,7 +61,7 @@ impl TrackLanesState {
                 (t.id, geometry::rows_shown(rows, open))
             })
             .collect();
-        geometry::stack(&lanes)
+        geometry::stack(&lanes, geometry::strip_pitch_px(ctx.pixels_per_point()))
     }
 
     /// When the track order changes, lanes start from where they were and glide to their new place.
@@ -174,7 +174,8 @@ impl TrackLanes<'_> {
             }
         }
 
-        let plus = Rect::from_min_size(pos2(lanes.left(), lanes.top() - scroll_y_pt + (content_px - STRIP_PITCH_PX) as f32 / ppp), vec2(lanes.width(), STRIP_PITCH_PX as f32 / ppp));
+        let pitch_px = geometry::strip_pitch_px(ppp);
+        let plus = Rect::from_min_size(pos2(lanes.left(), lanes.top() - scroll_y_pt + (content_px - pitch_px) as f32 / ppp), vec2(lanes.width(), pitch_px as f32 / ppp));
         if plus.intersects(lanes) {
             // A button inside the header column (never wider than it), in the row below the last track.
             let button = Rect::from_center_size(pos2(lanes.left() + LANE_HEADER_WIDTH / 2.0, plus.center().y), vec2(LANE_HEADER_WIDTH - 16.0, 32.0));

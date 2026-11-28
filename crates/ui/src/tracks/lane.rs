@@ -8,7 +8,7 @@ use fretscribe_analysis::Spectrogram;
 use fretscribe_core::Track;
 
 use super::events::TrackEvent;
-use super::geometry::{clamp_rows, BORDER_PX, STRIP_PITCH_PX, WAVE_H_PX};
+use super::geometry::{clamp_rows, strip_pitch_px, BORDER_PX};
 use super::header::{HeaderParams, TrackHeader};
 use super::offset::{clamp_offset, drag_delta_sec, snap_offset, SNAP_TOLERANCE_PX};
 use crate::spectro::{
@@ -154,11 +154,13 @@ impl TrackLane<'_> {
         let id = track.id;
         let ppp = ctx.pixels_per_point();
         let px = |n: u32| n as f32 / ppp;
+        let pitch_px = strip_pitch_px(ppp);
+        let wave_h = px(pitch_px - BORDER_PX);
         let is_source = shared.project.source_track == id;
         let (view, rect) = (shared.view, self.rect);
         let timeline_left = rect.left() + LANE_HEADER_WIDTH;
-        let spec_rect = Rect::from_min_size(pos2(timeline_left, rect.top()), vec2(rect.right() - timeline_left, px(self.shown_rows * STRIP_PITCH_PX)));
-        let wave_rect = Rect::from_min_size(pos2(timeline_left, spec_rect.bottom()), vec2(spec_rect.width(), px(STRIP_PITCH_PX)));
+        let spec_rect = Rect::from_min_size(pos2(timeline_left, rect.top()), vec2(rect.right() - timeline_left, px(self.shown_rows * pitch_px)));
+        let wave_rect = Rect::from_min_size(pos2(timeline_left, spec_rect.bottom()), vec2(spec_rect.width(), px(pitch_px)));
         let mut events = Vec::new();
 
         // Raw pointer reads must ignore what the lanes' scroll area hides under the header and the sheet.
@@ -264,14 +266,14 @@ impl TrackLane<'_> {
                 if let (true, Some((start, acc))) = (response.dragged(), ctx.data(|d| d.get_temp::<(u32, f32)>(key))) {
                     let acc = acc + response.drag_delta().y;
                     ctx.data_mut(|d| d.insert_temp(key, (start, acc)));
-                    resized_rows = Some((clamp_rows(i64::from(start) + (acc * ppp / STRIP_PITCH_PX as f32).round() as i64), false));
+                    resized_rows = Some((clamp_rows(i64::from(start) + (acc * ppp / pitch_px as f32).round() as i64), false));
                 }
             }
         }
 
         let palette = crate::overview::WaveformPalette::from_rgba(&shared.style.lut.colors);
-        let wave = WaveformView::new(px(WAVE_H_PX)).palette(&palette).audio_offset(offset);
-        wave.paint(ui, Rect::from_min_size(wave_rect.min, vec2(wave_rect.width(), px(WAVE_H_PX))), &view, |range, n| shared.source.peaks(id, range, n));
+        let wave = WaveformView::new(wave_h).palette(&palette).audio_offset(offset);
+        wave.paint(ui, Rect::from_min_size(wave_rect.min, vec2(wave_rect.width(), wave_h)), &view, |range, n| shared.source.peaks(id, range, n));
         let painter = ui.painter_at(wave_rect);
         if let Some(r) = shared.region {
             crate::spectro::paint_region(&painter, wave_rect, &view, r.start_sec, r.end_sec);

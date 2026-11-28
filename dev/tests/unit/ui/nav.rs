@@ -144,6 +144,16 @@ fn vertical_steps_and_pan_release_snap_to_stops() {
 }
 
 #[test]
+fn a_change_of_display_scale_keeps_the_same_strip_at_the_top() {
+    let mut c = controller();
+    c.set_vertical(67.0, 600.0);
+    c.scroll_y(3.0);
+    run(&mut c, 1.0 / 60.0, |_| {});
+    c.set_vertical(67.2, 600.0);
+    assert!((c.current.scroll_y - 3.0 * 67.2).abs() < 1e-9 && (c.target.scroll_y - 3.0 * 67.2).abs() < 1e-9);
+}
+
+#[test]
 fn jump_to_centres_and_scroll_is_clamped() {
     let mut c = controller();
     c.jump_to(50.0);

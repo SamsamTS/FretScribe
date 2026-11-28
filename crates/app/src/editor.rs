@@ -9,7 +9,7 @@ use fretscribe_ui::spectro::paint_seek_line;
 use fretscribe_ui::NoteGrid;
 use fretscribe_ui::staff_view::{StaffStyle, StaffViewEvent};
 use fretscribe_ui::tab_view::{self, TabStyle, TabViewEvent};
-use fretscribe_ui::tracks::{TrackEvent, STRIP_PITCH_PX};
+use fretscribe_ui::tracks::{strip_pitch_px, TrackEvent};
 use fretscribe_ui::view::{RegionSelection, LANE_HEADER_WIDTH, MEASURE_HEADER_H};
 use fretscribe_ui::{
     GridEvent, GridOverlay, HeaderData, LaneSource, NavContext, NavRegions, OverviewEvent, OverviewTimeline, PitchView, TimelineView, ZoomStep, SpectroEvent, StaffView, TabView, TrackLanes,
@@ -28,7 +28,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     // Navigation runs first, on last frame's regions, so the overview, lanes and notation all draw the same view.
     if let Some(regions) = s.nav_regions {
         let (_, content_px) = s.lanes.strips(ctx, &s.project);
-        s.ctl.run(ctx, &NavContext { regions, map: &tempo, audio_len_sec: audio_len, content_px, strip_pitch_px: STRIP_PITCH_PX });
+        s.ctl.run(ctx, &NavContext { regions, map: &tempo, audio_len_sec: audio_len, content_px, strip_pitch_px: strip_pitch_px(ctx.pixels_per_point()) });
     }
 
     // Overview timeline (whole file), above everything.
