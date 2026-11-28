@@ -34,8 +34,8 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
     // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
-    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: fretscribe_ui::kit::GROUP_MARGIN as i8, bottom: fretscribe_ui::kit::GROUP_MARGIN as i8 });
-    egui::TopBottomPanel::top("overview").frame(overview_frame).show(ctx, |ui| {
+    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: 0, bottom: 0 });
+    let overview = egui::TopBottomPanel::top("overview").frame(overview_frame).show(ctx, |ui| {
         let view = s.ctl.current.timeline();
         let width = ctx.screen_rect().width() - LANE_HEADER_WIDTH;
         let starts: Vec<f64> = s.project.measures.iter().map(|m| m.start_sec).collect();
@@ -189,11 +189,11 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         s.seek(sec);
     }
     paint_seek_line(ctx, seek_origin.x + s.ctl.current.timeline().sec_to_x(s.ui.playhead_sec), seek_origin.y + MEASURE_HEADER_H, seek_origin.x);
-    // Header column separator, down to the window bottom except beside the notation toolbar.
+    // Header column separator, from the overview down to the window bottom except beside the notation toolbar.
     let sep = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("header_separator")));
     let stroke = egui::Stroke::new(1.0_f32, fretscribe_ui::theme::BORDER);
     let x = seek_origin.x.round();
-    sep.vline(x, seek_origin.y..=ctx.screen_rect().bottom(), stroke);
+    sep.vline(x, overview.response.rect.top()..=ctx.screen_rect().bottom(), stroke);
     sep.vline((x - fretscribe_ui::staff_view::NOTATION_HEAD_W).round(), notation_rect.top()..=ctx.screen_rect().bottom(), stroke);
 
     // ---- events -------------------------------------------------------------------------

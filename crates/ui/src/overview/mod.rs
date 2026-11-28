@@ -41,9 +41,10 @@ pub use ruler::{format_time, tick_step, ticks};
 pub use waveform::{lighten, WaveformPalette, WAVEFORM_GAMMA};
 pub(crate) use waveform::build_mesh;
 
-const RULER_HEIGHT: f32 = 16.0;
-/// With the ruler, as tall as the "View" group beside it.
-const DEFAULT_WAVEFORM_HEIGHT: f32 = crate::kit::GROUP_H - RULER_HEIGHT;
+/// The ruler ends where the panel of the "View" group beside it starts.
+const RULER_HEIGHT: f32 = crate::kit::GROUP_MARGIN + crate::kit::TITLE_H + crate::kit::TITLE_GAP;
+/// The waveform runs beside that panel and the margin under it.
+const DEFAULT_WAVEFORM_HEIGHT: f32 = crate::kit::PANEL_H + crate::kit::GROUP_MARGIN;
 /// How much lighter the odd measures' background is than the even ones'.
 pub const MEASURE_BAND_LIGHTEN: f32 = 0.05;
 
@@ -217,8 +218,10 @@ where
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let size = vec2(self.gutter, RULER_HEIGHT + self.waveform_height);
-            ui.allocate_ui_with_layout(size, egui::Layout::bottom_up(egui::Align::Min), |ui| {
+            ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
                 ui.set_min_size(size); // a child only keeps its content's size otherwise
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.add_space(crate::kit::GROUP_MARGIN);
                 self.buttons(ui, &mut events);
             });
             let size = vec2(ui.available_width().max(1.0), RULER_HEIGHT + self.waveform_height);
@@ -232,7 +235,7 @@ where
         OverviewOutput { events, strip }
     }
 
-    /// The zoom group (with the snap magnet) left of the strip, bottom-aligned with it.
+    /// The zoom group (with the snap magnet) left of the strip.
     fn buttons(&self, ui: &mut Ui, events: &mut Vec<OverviewEvent>) {
         crate::kit::group(ui, "View", |ui| {
                     for (icon, tip, step) in [
@@ -443,7 +446,7 @@ where
         for tick in ticks(self.audio_len_sec, step) {
             let x = ruler.left() + map.sec_to_x(tick);
             major_ticks.solid(x, ruler.bottom() - 7.0, ruler.bottom(), 1.0, style.tick);
-            painter.text(pos2(x + 3.0, ruler.top() + 2.0), Align2::LEFT_TOP, format_time(tick), font.clone(), style.ruler_text);
+            painter.text(pos2(x + 3.0, ruler.bottom() - 18.0), Align2::LEFT_TOP, format_time(tick), font.clone(), style.ruler_text);
             for k in 1..minor {
                 let t = tick + step * f64::from(k) / f64::from(minor);
                 if t < self.audio_len_sec {
