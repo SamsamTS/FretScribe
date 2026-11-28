@@ -291,3 +291,7 @@ pub(super) fn show(ui: &mut Ui, s: &mut Session, requests: &mut Vec<Request>) {
         dropdown(ui.ctx(), s, group, panel, full[index(group)], requests);
     }
 }
+
+#[cfg(all(test, dev_tests))]
+#[path = "../../../../dev/tests/unit/app/toolbar/frame.rs"]
+mod tests;
