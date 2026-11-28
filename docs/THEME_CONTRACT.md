@@ -40,8 +40,8 @@ Runtime-configurable: `set_accent(c)` then `apply(ctx)`. Read it with `accent()`
 ## Layout rules (`ui::kit`)
 
 - Buttons are `kit::BUTTON` = 36 px (28 px in the tab tool row); `ibtn` / `ibtn_sized` / `play_button`, `button_bg` for the shared fill/hover/on/focus look.
-- Groups (`group`, `group_at(above)`, `group_frame`, `group_frame_h`): `PANEL_BG`, `PANEL_RADIUS`, inner padding and item gap both 4 px (so spacing inside matches spacing to the edge), caption (`caption_at`) in `HINT` small medium text above or below. Rows are separated by `ROW_GAP` 8 px, including the gap to the bottom separator. `TOOLBAR_HEIGHT` (tab toolbar) is 54.
-- Right-side groups use `kit::right_aligned`; separators are 1 px (`sep`).
+- Groups (`group`, `group_frame`, `group_frame_h`, or `group_panel` + `group_row` for a restyled panel): `PANEL_BG`, `PANEL_RADIUS`, inner padding and item gap both 4 px (so spacing inside matches spacing to the edge), caption (`caption_at`) in `HINT` small medium text above. Editor toolbar lines are separated by 8 pt, including the gaps to the window top and the bottom separator. `TOOLBAR_HEIGHT` (tab toolbar) is 54.
+- The editor toolbar is placed by `ui::toolbar_layout` (pure) and drawn by `app/src/toolbar/frame.rs`; a group's controls are defined once (`toolbar::controls`) for inline and dropdown. Separators are 1 px (`sep`).
 - Fixed-width values: dropdowns and numeric fields have a fixed width sized for their widest entry plus padding (never content-sized, never clipped). Steppers grey out `-` / `+` at their limits.
 - `Field` / `dropdown` / `menu_rows` / `Dd`: the same presentation as the New project form (pill field, chevron, popup rows wide enough for one line per item). `text_field` + `FieldOpts { width, height, invalid, left, right, commit, tip }` for typed fields (tuning, reference pitch, capo).
 - Mouse wheel over a dropdown, stepper or slider changes its value (`kit::wheel`, `wheel_value`); the wheel is consumed so the view behind does not scroll. Right click on a division dropdown toggles `None` / previous value.

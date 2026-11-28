@@ -203,7 +203,8 @@ pub fn show_home(ui: &mut Ui, settings: &Settings, status: Option<&HashMap<PathB
     ui.spacing_mut().item_spacing.y = 0.0;
     banner(ui);
     ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-        let cols = columns(ui.available_width());
+        // A side margin keeps the floating scroll bar off the last column.
+        let cols = columns(ui.available_width() - 2.0 * GAP);
         let left = ((ui.available_width() - (cols as f32 * (TILE + GAP) - GAP)) / 2.0).max(0.0);
         ui.spacing_mut().item_spacing = Vec2::splat(GAP);
         ui.add_space(GAP);

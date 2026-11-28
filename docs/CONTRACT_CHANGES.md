@@ -206,3 +206,8 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 - analysis: `Lut::from_png` replaced by `Lut::from_svg(name, data)` (resvg); `discover_luts` loads `*.svg` only. New `BUILTIN_FILES` (the six embedded `LUT/` files) and `Lut::builtins()`; `Lut::builtin()` is Heat. `Lut::from_stops` is gone, `AnalysisError::Image` and the `image` dependency are gone.
 - app: `LutSet` always lists the built-ins first; changed disk copies appear as `<name> (Custom)`. `LutSet::builtin_fallback` is gone; a missing folder is offered for creation (`luts::create_lut_dir`). core: default `UiState::lut_name` is "Heat".
 - ui: `WaveformPalette::default()` is the built-in Heat; the waveform colouring constants are now public in `analysis::waveform` and shared (`overview::WAVEFORM_GAMMA` re-exports them).
+
+## 2026-11-28 - display scaling, adaptive toolbar
+- ui: `tracks::{STRIP_PITCH_PX, WAVE_H_PX}` replaced by `tracks::strip_pitch_px(pixels_per_point)`; `lane_height_px` and `stack` take the pitch, `LaneStrip` gained `pitch_px`. Geometry at 100% is unchanged. `ViewController::set_vertical` rescales the scroll when the pitch changes.
+- ui: new `toolbar_layout` (`Group`, `ToolbarState`, `Fit`). `kit::group` now captions above; `kit::group_at` and `kit::right_aligned` are gone; new `kit::{group_panel, group_row}`; icons `collapse-group`, `expand-group`.
+- app: `Settings::toolbar`, mirrored by `Session::toolbar` and saved by the shell when it changes.

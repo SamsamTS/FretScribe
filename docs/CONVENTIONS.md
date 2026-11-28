@@ -19,6 +19,7 @@ Code quality: idiomatic Rust, no unwrap in non-test code, unit tests for logic, 
 Theme: see THEME_CONTRACT.md for colours, fonts, icons, shared widgets and layout rules.
 
 ## UI widgets
+- Whole-physical-pixel sizes that hold controls must scale with `pixels_per_point` (see `tracks::strip_pitch_px`).
 - Colours, sizes and fonts come from `ui::theme`; icons are the SVGs of `crates/ui/assets/icons` drawn with `kit::icon_at`/`kit::ibtn` (a new icon is one file plus one line in the `kit` icon list). Toolbar-like panels use `kit::tool_panel`; popups use `kit::popup`.
 - Wheel input is read once at window level by `nav` and consumed before widgets. A widget inside the lanes that needs the plain wheel must read it with `kit::wheel`/`wheel_value` (they claim it for the frame); reading `raw_scroll_delta` directly will not work there.
 - Every drag must be cancellable with Esc or the other button. egui reports such an end as a normal drop, so while dragging call `kit::drag_cancelled` before applying anything (restore what was applied live); read left clicks with `kit::click_pos` and guard other clicks with `kit::clicks_swallowed`. Drag state kept in egui temp memory must also be removed on a normal stop, or a later Esc acts on the stale entry.
