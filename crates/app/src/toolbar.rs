@@ -22,7 +22,7 @@ mod frame;
 pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let mut requests = Vec::new();
     // No border: the panel's own separator line is the only edge, at the bottom.
-    let style = egui::Frame::new().fill(theme::WINDOW_BG).inner_margin(egui::Margin::symmetric(0, 8));
+    let style = egui::Frame::new().fill(theme::WINDOW_BG).inner_margin(egui::Margin::symmetric(0, kit::GROUP_MARGIN as i8));
     egui::TopBottomPanel::top("toolbar").frame(style).show(ctx, |ui| frame::show(ui, s, &mut requests));
     if s.ui.spectro_q != s.q_applied && !ctx.input(|i| i.pointer.any_down()) {
         s.q_changed();
@@ -65,22 +65,87 @@ fn chip(s: &Session, group: Group) -> Vec<Part> {
         }
         Group::Spectrogram => {
             let names = s.luts.names();
-            vec![Part::Text(names[s.luts.index_of(&s.ui.lut_name)].clone(), names.to_vec())]
+            vec![icon("string-colors"), Part::Text(names[s.luts.index_of(&s.ui.lut_name)].clone(), names.to_vec())]
         }
         Group::Listening => {
-            let state = if s.synth_on { format!("{:.0}%", s.overlay_mix * 100.0) } else { "Synth off".to_owned() };
-            vec![icon("synth"), Part::Text(state, vec!["Synth off".to_owned()])]
+            let state = if s.synth_on { "On" } else { "Off" };
+            let volume = format!("{:.0}%", s.overlay_mix * 100.0);
+            vec![icon("synth"), Part::Text(state.to_owned(), vec!["Off".to_owned()]), Part::Sep, Part::Text(volume, vec!["100%".to_owned()])]
         }
         Group::Grid => {
             let samples = |options: &[u8]| options.iter().map(|d| division_text(Some(*d))).chain([division_text(None)]).collect();
             vec![
-                icon("snap"),
+                icon("grid"),
                 Part::Text(division_text(s.ui.snap_grid.straight()), samples(&STRAIGHT_DIVISIONS)),
                 Part::Sep,
                 Part::Text(division_text(s.ui.snap_grid.triplet()), samples(&TRIPLET_DIVISIONS)),
             ]
         }
         Group::Project | Group::History | Group::Playback => Vec::new(),
+    }
+}
+
+/// What the wheel and right-click do on the button of a collapsed group, for its tooltip.
+fn chip_hint(group: Group) -> &'static str {
+    match group {
+        Group::Spectrogram => "\nScroll: colour map",
+        Group::Listening => "\nScroll: synth volume. Right-click: synth on / off",
+        Group::Grid => "\nScroll: division. Right-click: none / back (straight left of the line, triplet right of it)",
+        Group::Project | Group::History | Group::Tuning | Group::Playback => "",
+    }
+}
+
+/// The wheel and right-click on the button of a collapsed group; `right` is the side of its separator.
+fn chip_input(ui: &mut Ui, s: &mut Session, group: Group, r: &egui::Response, right: bool) {
+    match group {
+        Group::Spectrogram => {
+            if let Some(i) = kit::wheel_pick(ui, r, s.luts.index_of(&s.ui.lut_name), s.luts.names().len()) {
+                s.ui.lut_name = s.luts.names()[i].clone();
+                s.display_changed();
+            }
+        }
+        Group::Listening => {
+            let before = (s.synth_on, s.overlay_mix);
+            kit::wheel_value(ui, r, &mut s.overlay_mix, &(0.0..=1.0), 0.05, false);
+            s.synth_on ^= r.secondary_clicked();
+            if before != (s.synth_on, s.overlay_mix) {
+                s.player_resync(false);
+            }
+        }
+        Group::Grid => {
+            let (choices, selected) = divisions(s, right);
+            let picked = kit::wheel_pick(ui, r, selected, choices.len());
+            set_division(ui, s, right, r, picked);
+        }
+        Group::Project | Group::History | Group::Tuning | Group::Playback => {}
+    }
+}
+
+/// The straight or triplet choices (none first) and the index of the current one.
+fn divisions(s: &Session, triplet: bool) -> (Vec<Option<u8>>, usize) {
+    let (options, current) = if triplet { (&TRIPLET_DIVISIONS[..], s.ui.snap_grid.triplet()) } else { (&STRAIGHT_DIVISIONS[..], s.ui.snap_grid.straight()) };
+    let choices: Vec<Option<u8>> = std::iter::once(None).chain(options.iter().copied().map(Some)).collect();
+    let selected = choices.iter().position(|c| *c == current).unwrap_or(0);
+    (choices, selected)
+}
+
+/// Applies the choice `picked`, or the right-click on `r`: to none, or back from it.
+fn set_division(ui: &Ui, s: &mut Session, triplet: bool, r: &egui::Response, picked: Option<usize>) {
+    let (choices, selected) = divisions(s, triplet);
+    let current = choices[selected];
+    let memory = egui::Id::new(("previous_division", triplet));
+    let next = if let Some(i) = picked {
+        Some(choices[i])
+    } else if !r.secondary_clicked() {
+        None
+    } else if current.is_some() {
+        ui.data_mut(|d| d.insert_temp(memory, current));
+        Some(None)
+    } else {
+        Some(ui.data(|d| d.get_temp::<Option<u8>>(memory)).flatten().or(choices[1]))
+    };
+    if let Some(division) = next {
+        s.ui.snap_grid = s.ui.snap_grid.with(triplet, division);
     }
 }
 
@@ -108,11 +173,13 @@ fn project(ui: &mut Ui, requests: &mut Vec<Request>) {
         ibtn(ui, "settings", "Settings (not available yet)", false)
     });
     sep(ui);
-    push(ui, "add-track", Request::AddTrack, "Add an audio track (Ctrl+T)");
     push(ui, "open", Request::Open, "Open a project (Ctrl+O)");
     push(ui, "save", Request::Save, "Save (Ctrl+S)");
     push(ui, "save-as", Request::SaveAs, "Save under a new name (Ctrl+Shift+S)");
-    ui.add_enabled_ui(false, |ui| ibtn(ui, "export", "Export is not available yet", false));
+    ui.add_enabled_ui(false, |ui| {
+        ibtn(ui, "import", "Import is not available yet", false);
+        ibtn(ui, "export", "Export is not available yet", false);
+    });
 }
 
 fn history(ui: &mut Ui, s: &mut Session) {
@@ -198,51 +265,11 @@ fn speed(ui: &mut Ui, s: &mut Session) {
 }
 
 fn grid(ui: &mut Ui, s: &mut Session) {
-    let mut follow = s.policy == NotePolicy::FollowGrid;
-    for (icon, tip, is_follow) in [("follow-grid", "Notes follow the grid", true), ("stay-with-audio", "Notes stay with the audio", false)] {
-        if ibtn(ui, icon, tip, follow == is_follow).clicked() {
-            follow = is_follow;
-        }
-    }
-    s.policy = if follow { NotePolicy::FollowGrid } else { NotePolicy::KeepAudioPosition };
-    sep(ui);
-    toggle(ui, "snap", "Snap to the grid", &mut s.snap_on);
-    for (triplet, options, id, tip) in [
-        (
-            false,
-            STRAIGHT_DIVISIONS.as_slice(),
-            "snap_straight",
-            "Straight division (right-click: none / back)",
-        ),
-        (
-            true,
-            TRIPLET_DIVISIONS.as_slice(),
-            "snap_triplet",
-            "Triplet division (right-click: none / back)",
-        ),
-    ] {
-        let current = if triplet {
-            s.ui.snap_grid.triplet()
-        } else {
-            s.ui.snap_grid.straight()
-        };
-        let items: Vec<String> = std::iter::once(None).chain(options.iter().copied().map(Some)).map(division_text).collect();
-        let selected = current.map_or(Some(0), |c| options.iter().position(|o| *o == c).map(|i| i + 1));
-        let (r, picked) = Field::new(&division_text(current), tip).dropdown(ui, id, &items, selected);
-        let memory = egui::Id::new(("previous_division", triplet));
-        let next = if let Some(i) = picked {
-            Some(i.checked_sub(1).map(|k| options[k]))
-        } else if r.secondary_clicked() && current.is_some() {
-            ui.data_mut(|d| d.insert_temp(memory, current));
-            Some(None)
-        } else if r.secondary_clicked() {
-            Some(ui.data(|d| d.get_temp::<Option<u8>>(memory)).flatten().or(options.first().copied()))
-        } else {
-            None
-        };
-        if let Some(division) = next {
-            s.ui.snap_grid = s.ui.snap_grid.with(triplet, division);
-        }
+    for (triplet, id, tip) in [(false, "snap_straight", "Straight division (right-click: none / back)"), (true, "snap_triplet", "Triplet division (right-click: none / back)")] {
+        let (choices, selected) = divisions(s, triplet);
+        let items: Vec<String> = choices.iter().copied().map(division_text).collect();
+        let (r, picked) = Field::new(&items[selected], tip).dropdown(ui, id, &items, Some(selected));
+        set_division(ui, s, triplet, &r, picked);
     }
     sep(ui);
     if ibtn(ui, "auto-fit-grid", "Fits the measures to the onsets of the beat-analysis tracks", false).clicked() {
@@ -250,6 +277,16 @@ fn grid(ui: &mut Ui, s: &mut Session) {
     }
     if ibtn(ui, "auto-tempo", "Auto tempo", false).clicked() {
         s.start_auto_tempo();
+    }
+    sep(ui);
+    let follow = s.policy == NotePolicy::FollowGrid;
+    let (icon, tip, other) = if follow {
+        ("follow-grid", "Notes follow the grid (click: they stay with the audio)", NotePolicy::KeepAudioPosition)
+    } else {
+        ("stay-with-audio", "Notes stay with the audio (click: they follow the grid)", NotePolicy::FollowGrid)
+    };
+    if ibtn(ui, icon, tip, false).clicked() {
+        s.policy = other;
     }
 }
 
@@ -297,7 +334,7 @@ fn display(ui: &mut Ui, s: &mut Session) {
     ui.data_mut(|d| d.insert_temp(open_id, open));
     let names = s.luts.names().to_vec();
     let current = s.luts.index_of(&s.ui.lut_name);
-    let (_, picked) = Field::new(&names[current], "Spectrogram colour map").dropdown(ui, "lut", &names, Some(current));
+    let (_, picked) = Field::new(&names[current], "Spectrogram colour map").icon("string-colors").dropdown(ui, "lut", &names, Some(current));
     if let Some(i) = picked {
         s.ui.lut_name = names[i].clone();
         changed = true;
@@ -452,6 +489,7 @@ pub fn parse_reference(text: &str) -> Option<f32> {
 
 fn listening(ui: &mut Ui, s: &mut Session) {
     let single = s.project.tracks.len() == 1;
+    let before = (s.synth_on, s.overlay_mix);
     let mut changed = toggle(ui, "synth", "Plays the transcribed notes over the audio", &mut s.synth_on);
     ui.add_enabled_ui(s.synth_on, |ui| {
         let (r, _) = Field::new(&format!("{:.0}%", s.overlay_mix * 100.0), "Synth volume over the audio").width(80.0).popup(ui, "synth_mix", |ui| slider_popup(ui, &mut s.overlay_mix, 0.0..=1.0, "0%", "100%", 0.05, false));
@@ -481,13 +519,7 @@ fn listening(ui: &mut Ui, s: &mut Session) {
             changed = true;
         }
     });
-    if changed || s.synth_on != s.synth_synced {
-        s.synth_synced = s.synth_on;
-        if !s.synth_on {
-            s.overlay_mix = 0.0;
-        } else if s.overlay_mix == 0.0 {
-            s.overlay_mix = 0.5;
-        }
+    if changed || before != (s.synth_on, s.overlay_mix) {
         s.player_resync(false);
     }
 }

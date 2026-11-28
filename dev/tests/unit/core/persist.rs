@@ -353,7 +353,7 @@ fn view_layout_round_trips_and_older_files_load_with_defaults() {
     let back: UiState = serde_json::from_str(&serde_json::to_string(&ui).unwrap()).unwrap();
     assert_eq!(back, ui);
     let old: UiState = serde_json::from_str(r#"{"view":{"scroll_sec":3.0,"pixels_per_sec":50.0}}"#).unwrap();
-    assert!(old.view.pitch.is_none() && old.snap_on && old.lane_rows.is_empty() && old.view.scroll_sec == 3.0);
+    assert!(old.view.pitch.is_none() && old.lane_rows.is_empty() && old.view.scroll_sec == 3.0);
     let mut bad = UiState::default();
     (bad.view.scroll_y, bad.view.pitch) = (f64::NAN, Some((9.0, 3.0)));
     bad.sanitise();

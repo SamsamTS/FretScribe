@@ -133,9 +133,7 @@ pub struct Session {
     /// The player is bound to the selected region (Ctrl/Shift+Space or the play-selection button); plain play ignores it.
     pub play_region: bool,
     pub audio_len_sec: f64,
-    pub snap_on: bool,
     pub synth_on: bool,
-    pub synth_synced: bool,
     pub exact: Option<fretscribe_ui::note_editor::ExactFields>,
     pub pending_delete: Option<fretscribe_ui::GridEvent>,
     pub fits: FitStore,
@@ -199,7 +197,7 @@ impl Session {
             luts,
             speed: 1.0,
             keep_pitch: settings.keep_pitch,
-            overlay_mix: 0.0,
+            overlay_mix: 0.5,
             performance: performance(&project, ui.auto_vibrato).into(),
             performance_due: None,
             follow: settings.follow_playhead,
@@ -221,9 +219,7 @@ impl Session {
             synced: Vec::new(),
             play_region: false,
             audio_len_sec,
-            snap_on: true,
             synth_on: false,
-            synth_synced: false,
             exact: None,
             pending_delete: None,
             fits: FitStore::default(),
@@ -631,7 +627,8 @@ impl Session {
     pub fn player_resync(&mut self, all: bool) {
         let Some(player) = &self.player else { return };
         let mode_speed = (self.speed, self.keep_pitch);
-        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, self.overlay_mix, &self.performance);
+        let mix = if self.synth_on { self.overlay_mix } else { 0.0 };
+        let mut next = player_sync::full_sync(&self.project, &self.ui, mode_speed.0, mode_speed.1, mix, &self.performance);
         if !self.play_region {
             next.iter_mut().for_each(|c| {
                 if let PlayerCall::Region(r) = c {
@@ -730,7 +727,7 @@ impl Session {
         if let Some((back, stems, colors)) = ui.tab_options {
             (self.tab_state.propagate_backwards, self.tab_state.show_stems, self.tab_state.string_colors) = (back, stems, colors);
         }
-        (self.snap_on, self.overview_snap) = (ui.snap_on, ui.overview_snap);
+        self.overview_snap = ui.overview_snap;
         self.lanes.restore_rows(&ui.lane_rows);
     }
 
@@ -745,7 +742,7 @@ impl Session {
         self.ui.lane_options = Some((o.show_notes_on_all, o.show_onsets, o.move_notes));
         let t = &self.tab_state;
         self.ui.tab_options = Some((t.propagate_backwards, t.show_stems, t.string_colors));
-        (self.ui.snap_on, self.ui.overview_snap) = (self.snap_on, self.overview_snap);
+        self.ui.overview_snap = self.overview_snap;
         self.ui.lane_rows = self.lanes.saved_rows();
         self.ui.selected_region = self.region.map(|r| (r.start_sec, r.end_sec));
         self.ui.note_policy = self.policy;

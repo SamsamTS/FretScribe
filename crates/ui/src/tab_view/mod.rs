@@ -363,7 +363,13 @@ impl TabView<'_> {
 
 /// Height of the row at the top of the notation panel that holds the collapse button (the sheet's strip
 /// extends through it).
-pub const TOOLBAR_HEIGHT: f32 = 52.0;
+pub const TOOLBAR_HEIGHT: f32 = crate::kit::PANEL_H;
+
+/// The notation panel's height, easing between its header row alone and `full`.
+pub fn panel_height(ctx: &egui::Context, collapsed: bool, full: f32) -> f32 {
+    let open = ctx.animate_bool_with_time(egui::Id::new("notation_collapse"), !collapsed, crate::tracks::COLLAPSE_ANIM_SEC);
+    TOOLBAR_HEIGHT + ((full - TOOLBAR_HEIGHT) * open).round()
+}
 
 /// Left margin of the tools in the header column (the lane headers' own margin).
 const TOOLS_MARGIN: f32 = 16.0;

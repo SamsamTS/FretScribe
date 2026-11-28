@@ -28,6 +28,8 @@ icons!(
     "let-ring",
     "home",
     "add-track",
+    "grid",
+    "import",
     "open",
     "save",
     "save-as",
@@ -226,13 +228,20 @@ pub fn filled_button(ui: &mut Ui, name: &str, tip: &str, size: Vec2, icon_px: f3
 }
 
 const GROUP_PAD: f32 = 4.0;
+/// A captioned group: the caption row, the gap under it and the panel (a row of buttons, its padding
+/// and border). The toolbar and the overview share these, and the margin above and below them.
+pub const TITLE_H: f32 = 16.0;
+pub const TITLE_GAP: f32 = 4.0;
+pub const PANEL_H: f32 = BUTTON + 2.0 * (GROUP_PAD + 1.0);
+pub const GROUP_H: f32 = TITLE_H + TITLE_GAP + PANEL_H;
+pub const GROUP_MARGIN: f32 = 8.0;
 
 /// A rounded group of controls with a small uppercase caption above it.
 pub fn group(ui: &mut Ui, caption: &str, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 4.0;
-        let caption_y = ui.cursor().top() + 6.0;
-        ui.add_space(12.0);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let caption_y = ui.cursor().top() + TITLE_H / 2.0;
+        ui.add_space(TITLE_H + TITLE_GAP);
         let rect = group_frame(ui, add).rect;
         caption_at(ui, pos2(rect.center().x, caption_y), caption);
     });
@@ -314,6 +323,14 @@ pub fn wheel(ui: &Ui, r: &Response) -> i32 {
         i.smooth_scroll_delta = Vec2::ZERO;
         y.signum() as i32 * i32::from(y != 0.0)
     })
+}
+
+/// The item the wheel over `r` moves to from `selected` in a list of `len`: up goes to the previous one.
+pub fn wheel_pick(ui: &Ui, r: &Response, selected: usize, len: usize) -> Option<usize> {
+    match wheel(ui, r) {
+        0 => None,
+        w => selected.checked_add_signed(-w as isize).filter(|n| *n < len),
+    }
 }
 
 /// Moves `value` by the wheel over `r`: by `step` per notch, or by the ratio `1 + step` when `log`.
@@ -407,8 +424,8 @@ impl<'a> Field<'a> {
         let mut picked = picked.flatten();
         if picked.is_some() {
             ui.memory_mut(|m| m.close_popup());
-        } else if let (Some(i), w @ (1 | -1)) = (selected, wheel(ui, &r)) {
-            picked = i.checked_add_signed(-w as isize).filter(|n| *n < items.len());
+        } else if let Some(i) = selected {
+            picked = wheel_pick(ui, &r, i, items.len());
         }
         (r, picked)
     }

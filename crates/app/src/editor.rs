@@ -34,7 +34,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     // Overview timeline (whole file), above everything.
     let mut overview_events = Vec::new();
     // Margin-less on the right and 16 px on the left, so the strip spans exactly the main timeline (right of the lane headers).
-    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: 4, bottom: 4 });
+    let overview_frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG).inner_margin(egui::Margin { left: 16, right: 0, top: fretscribe_ui::kit::GROUP_MARGIN as i8, bottom: fretscribe_ui::kit::GROUP_MARGIN as i8 });
     egui::TopBottomPanel::top("overview").frame(overview_frame).show(ctx, |ui| {
         let view = s.ctl.current.timeline();
         let width = ctx.screen_rect().width() - LANE_HEADER_WIDTH;
@@ -67,7 +67,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
     let strings = s.project.tuning.open_strings.len().max(1);
     let staff_style = StaffStyle { top_extra: tab_view::TOOLBAR_HEIGHT, ..StaffStyle::default() };
     let full_height = staff_style.height() + tab_style.height(strings, true);
-    let height = if s.notation_collapsed { tab_view::TOOLBAR_HEIGHT } else { full_height };
+    let height = tab_view::panel_height(ctx, s.notation_collapsed, full_height);
     let frame = egui::Frame::new().fill(fretscribe_ui::theme::WINDOW_BG);
     // A click on a part of the timeline that no widget claims.
     let mut background_seek = None;
@@ -78,7 +78,7 @@ pub fn show(ctx: &Context, s: &mut Session) -> Vec<Request> {
         let mut collapsed = s.notation_collapsed;
         let width = ui.available_width();
         let row = Rect::from_min_size(ui.cursor().min, egui::vec2(width, tab_view::TOOLBAR_HEIGHT));
-        if collapsed {
+        if height <= tab_view::TOOLBAR_HEIGHT {
             ui.allocate_rect(row, egui::Sense::hover());
             background_seek = click_seek(ui, row.with_min_x(row.left() + LANE_HEADER_WIDTH), &view);
         } else {
@@ -428,7 +428,7 @@ fn note_editing(ctx: &Context, s: &mut Session, events: Vec<SpectroEvent>, point
     let tool_inputs = std::mem::take(&mut s.tool_actions).into_iter().map(ne::Input::Action);
     let tempo = fretscribe_core::TempoMap::new(&s.project.measures);
     for input in tool_inputs.chain(collected.inputs) {
-        let grid = snap_grid.get_or_insert_with(|| if s.snap_on { s.ui.snap_grid.clone() } else { fretscribe_core::SnapGrid { divisions: Vec::new() } });
+        let grid = snap_grid.get_or_insert_with(|| s.ui.snap_grid.clone());
         let mut effects = {
             let mut env = Env { project: &mut s.project, grid, tempo: &tempo, px_per_sec, threshold_px: 12.0, now: ctx.input(|i| i.time), hovered, playhead_sec: s.ui.playhead_sec };
             s.editor.handle(&mut env, input)

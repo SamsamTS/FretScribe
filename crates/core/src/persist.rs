@@ -73,7 +73,6 @@ pub struct UiState {
     pub lane_options: Option<(bool, bool, bool)>,
     /// Tab options `(propagate backwards, stems, string colours)`; `None` keeps the defaults.
     pub tab_options: Option<(bool, bool, bool)>,
-    pub snap_on: bool,
     pub overview_snap: bool,
     /// Spectrogram rows shown per track id (only those that differ from the default).
     pub lane_rows: Vec<(u64, u32)>,
@@ -139,7 +138,6 @@ impl Default for UiState {
             notation_collapsed: false,
             lane_options: None,
             tab_options: None,
-            snap_on: true,
             overview_snap: true,
             lane_rows: Vec::new(),
             lut_name: "Heat".to_owned(),

@@ -211,3 +211,6 @@ Layout only, no API change. Examples and CLI tools are in `dev/demos` (`cargo ru
 - ui: `tracks::{STRIP_PITCH_PX, WAVE_H_PX}` replaced by `tracks::strip_pitch_px(pixels_per_point)`; `lane_height_px` and `stack` take the pitch, `LaneStrip` gained `pitch_px`. Geometry at 100% is unchanged. `ViewController::set_vertical` rescales the scroll when the pitch changes.
 - ui: new `toolbar_layout` (`Group`, `ToolbarState`, `Fit`). `kit::group` now captions above; `kit::group_at` and `kit::right_aligned` are gone; new `kit::{group_panel, group_row}`; icons `collapse-group`, `expand-group`.
 - app: `Settings::toolbar`, mirrored by `Session::toolbar` and saved by the shell when it changes.
+- core: `UiState::snap_on` is gone (the "None" divisions do the same); older files still load.
+- ui: `kit::{wheel_pick, TITLE_H, TITLE_GAP, PANEL_H, GROUP_H, GROUP_MARGIN}`, icons `grid`, `import`; the overview's default height matches a captioned group. `tab_view::{TOOLBAR_HEIGHT = PANEL_H, panel_height}` (the sheet & tab collapse is animated).
+- app: `Session::{snap_on, synth_synced}` are gone; the synth volume is kept while the synth is off.

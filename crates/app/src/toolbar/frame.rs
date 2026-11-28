@@ -2,20 +2,14 @@
 //! and rearranging by dragging a title.
 
 use eframe::egui::{self, pos2, vec2, Area, Color32, Context, CursorIcon, FontId, Id, Key, Modifiers, Order, PointerButton, Rect, Sense, Shadow, Stroke, StrokeKind, Ui, UiBuilder};
-use fretscribe_ui::kit;
+use fretscribe_ui::kit::{self, GROUP_H, GROUP_MARGIN as LINE_GAP, PANEL_H, TITLE_GAP, TITLE_H};
 use fretscribe_ui::theme;
 use fretscribe_ui::toolbar_layout::{DropTarget, Fit, Group, Solved, ToolbarState, MARGIN};
 
-use super::{chip, controls, Part};
+use super::{chip, chip_hint, chip_input, controls, Part};
 use crate::session::Session;
 use crate::Request;
 
-const TITLE_H: f32 = 16.0;
-const TITLE_GAP: f32 = 4.0;
-const PANEL_H: f32 = 46.0;
-const GROUP_H: f32 = TITLE_H + TITLE_GAP + PANEL_H;
-/// Gap between two lines, above the first and below the last.
-const LINE_GAP: f32 = 8.0;
 const CHIP_PAD: f32 = 10.0;
 const CHIP_GAP: f32 = 8.0;
 /// Padding and border of a group panel, both sides.
@@ -101,9 +95,10 @@ fn collapsed_width(ui: &Ui, s: &Session, group: Group) -> f32 {
     content + CHIP_GAP * (parts.len() - 1) as f32 + 2.0 * CHIP_PAD + PANEL_EXTRA
 }
 
-/// The button of a collapsed group, filling `width`.
-fn chip_button(ui: &mut Ui, s: &Session, group: Group, width: f32, open: bool) -> egui::Response {
+/// The button of a collapsed group, filling `width`. Also returns where its separator is, if any.
+fn chip_button(ui: &mut Ui, s: &Session, group: Group, width: f32, open: bool) -> (egui::Response, f32) {
     let mut response = None;
+    let mut sep_x = f32::INFINITY;
     kit::group_frame(ui, |ui| {
         let (rect, r) = ui.allocate_exact_size(vec2(width - PANEL_EXTRA, kit::BUTTON), Sense::click());
         kit::button_bg(ui, rect, r.hovered(), r.has_focus(), open, None, theme::CONTROL_RADIUS);
@@ -119,15 +114,16 @@ fn chip_button(ui: &mut Ui, s: &Session, group: Group, width: f32, open: bool) -
                     ui.painter().text(pos2(x + w / 2.0, y), egui::Align2::CENTER_CENTER, text, kit::font13(), theme::TEXT);
                 }
                 Part::Sep => {
+                    sep_x = x;
                     ui.painter().vline(x, y - 11.0..=y + 11.0, Stroke::new(1.0_f32, theme::BORDER_STRONG));
                 }
             }
             x += w + CHIP_GAP;
         }
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, group.title()));
-        response = Some(r.on_hover_text(format!("{} settings", group.title())));
+        response = Some(r.on_hover_text(format!("{} settings{}", group.title(), chip_hint(group))));
     });
-    response.unwrap_or_else(|| ui.response())
+    (response.unwrap_or_else(|| ui.response()), sep_x)
 }
 
 /// The title row: the draggable name, the collapse or expand button beside it and the busy spinner.
@@ -259,7 +255,9 @@ pub(super) fn show(ui: &mut Ui, s: &mut Session, requests: &mut Vec<Request>) {
             let mut body = child.new_child(UiBuilder::new().id_salt("body").max_rect(panel));
             if is_collapsed {
                 let open = open_group(body.ctx()) == Some(group);
-                let button = chip_button(&mut body, s, group, w, open);
+                let (button, sep_x) = chip_button(&mut body, s, group, w, open);
+                let right = button.hover_pos().is_some_and(|p| p.x > sep_x);
+                chip_input(&mut body, s, group, &button, right);
                 if button.clicked() {
                     body.memory_mut(|m| m.close_popup());
                     set_open(body.ctx(), (!open).then_some(group));

@@ -42,7 +42,8 @@ pub use waveform::{lighten, WaveformPalette, WAVEFORM_GAMMA};
 pub(crate) use waveform::build_mesh;
 
 const RULER_HEIGHT: f32 = 16.0;
-const DEFAULT_WAVEFORM_HEIGHT: f32 = 44.0;
+/// With the ruler, as tall as the "View" group beside it.
+const DEFAULT_WAVEFORM_HEIGHT: f32 = crate::kit::GROUP_H - RULER_HEIGHT;
 /// How much lighter the odd measures' background is than the even ones'.
 pub const MEASURE_BAND_LIGHTEN: f32 = 0.05;
 

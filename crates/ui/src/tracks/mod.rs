@@ -14,6 +14,7 @@ mod tests;
 
 pub use events::TrackEvent;
 pub use geometry::{clamp_rows, lane_height_px, reorder_index, rows_shown, stack, strip_pitch_px, LaneStrip, BORDER_PX, MAX_SPECTRO_ROWS, SPECTRO_ROWS};
+pub(crate) use geometry::COLLAPSE_ANIM_SEC;
 pub use header::{opacity_for, volume_text, HeaderOutput, HeaderParams, TrackHeader};
 pub use lane::{LaneOptions, LaneOutput, LanePointer, LaneShared, LaneSource, LaneState, TrackLane};
 pub use lanes::{audible_set, TrackLanes, TrackLanesOutput, TrackLanesState};
