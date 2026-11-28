@@ -43,8 +43,8 @@ pub(crate) use waveform::build_mesh;
 
 /// The ruler ends where the panel of the "View" group beside it starts.
 const RULER_HEIGHT: f32 = crate::kit::GROUP_MARGIN + crate::kit::TITLE_H + crate::kit::TITLE_GAP;
-/// The waveform runs beside that panel and the margin under it.
-const DEFAULT_WAVEFORM_HEIGHT: f32 = crate::kit::PANEL_H + crate::kit::GROUP_MARGIN;
+/// The waveform runs beside that panel and the margin under it, less the point left to the separator line.
+const DEFAULT_WAVEFORM_HEIGHT: f32 = crate::kit::PANEL_H + crate::kit::GROUP_MARGIN - 1.0;
 /// How much lighter the odd measures' background is than the even ones'.
 pub const MEASURE_BAND_LIGHTEN: f32 = 0.05;
 
